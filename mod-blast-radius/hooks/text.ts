@@ -306,6 +306,18 @@ export default {
     "rulesLoaded": "{rules} loaded",
     "rulesNote": "JS regexes on the whole command, read again when the file changes"
   },
+  "checks": {
+    "count": "this session: {checks}, {denied} denied",
+    "check": { "one": "{n} check", "many": "{n} checks" },
+    "permissionCheck": { "one": "{n} permission check", "many": "{n} permission checks" },
+    "sectionTitle": "This session",
+    "allowed": "allowed",
+    "asked": "asked",
+    "denied": "denied",
+    "waiting": "waiting",
+    "agent": "in a subagent",
+    "families": "file {file} {sep} shell {shell} {sep} other {other}"
+  },
   "tipTabDetails": "shows the command held right now",
   "tipTabSettings": "shows this mod's settings",
   "tipToast": {"label":"Dismiss","text":"hides this message"},

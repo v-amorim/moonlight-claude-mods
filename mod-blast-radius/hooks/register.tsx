@@ -2,7 +2,7 @@
 // Wires the mod into the engine: holds risky Bash commands, draws the card, pane and settings.
 import type { ConfigValue, EngineInterface, Register, RenderElement } from 'claude-code'
 
-import { cardFill, cardGap, detectNerd, FOOTER_ROWS, lookFor, paneFooter, section, type IconMode, type Look } from './look'
+import { cardFill, cardGap, detectNerd, FOOTER_ROWS, heading, lookFor, paneFooter, section, type IconMode, type Look } from './look'
 import { isTipMessage, tipText, type EntryMessage, type EntryProps, type Tip, type TipMessage } from './entry'
 import { pill, pillRow, splitRow, tabRow, tipLine } from './pills'
 import { TOAST_MS, ToastList, toastCards } from './toasts'
@@ -14,7 +14,9 @@ import { CHECKS, compileRules, evaluate, type Risk, type UserRule } from './risk
 import { actionReveals, settingChoice, settingsBody, type Action, type Previews } from './settings'
 import { recordSpend } from './spend'
 import text from './text'
-import { fill, MARK, mix, statusColor, SYNTAX, THEME, WASH } from './theme'
+import { decodeAll, fill, MARK, mix, statusColor, SYNTAX, THEME, WASH } from './theme'
+import { familyOf, isRefusal, settle, summarize, tally, upsert, verdictOfCheck, type Check, type Counts, type Verdict } from './checks'
+import marks from './marks'
 
 const SETTINGS_PANE = 'blast-radius-settings'
 const LIST_PANE = 'blast-radius-list'
@@ -319,6 +321,105 @@ const refusal = (decision: Decision | null) =>
 
 type Elements = { Box: (props: any) => RenderElement; Client: (props: any) => RenderElement; Text: (props: any) => RenderElement }
 
+// The session's permission checks, newest last; the module copy is the one every hook reads and writes, and $.state keeps it across a reload.
+let checks: Check[] = []
+let isChecksLoaded = false
+
+async function loadChecks($: EngineInterface) {
+  if (isChecksLoaded) return
+  isChecksLoaded = true
+  try {
+    const kept = await $.state.get({ plugin: 'mod-blast-radius', key: 'checks' })
+    if (Array.isArray(kept) && checks.length === 0) checks = kept as Check[]
+  } catch {
+    // Nothing kept yet: the list starts empty.
+  }
+}
+
+function keepChecks($: EngineInterface, next: Check[]) {
+  checks = next
+  void Promise.resolve($.state.set({ plugin: 'mod-blast-radius', key: 'checks' }, JSON.parse(JSON.stringify(checks)))).catch(() => undefined)
+  if (held) $.ui.invalidate('ui.render')
+}
+
+type Seen = { tool: string; input?: unknown; tool_use_id?: string; agentId?: string }
+
+// Watching must never touch a verdict or a call: a failure here is dropped.
+async function noteCheck($: EngineInterface, seen: Seen, verdict: Verdict) {
+  if (!seen.tool_use_id) return
+  try {
+    await loadChecks($)
+    keepChecks($, upsert(checks, { id: seen.tool_use_id, tool: seen.tool, family: familyOf(seen.tool), summary: summarize(seen.tool, seen.input), verdict, isAgent: Boolean(seen.agentId), at: Date.now() }))
+  } catch {
+    // The list stays as it was.
+  }
+}
+
+// The ask a person or the classifier answered: it ran (asked) or it was refused (denied).
+async function settleCheck($: EngineInterface, call: Seen, result: unknown) {
+  if (!call.tool_use_id) return
+  try {
+    await loadChecks($)
+    const refused = isRefusal(result)
+    if (checks.some(check => check.id === call.tool_use_id)) keepChecks($, settle(checks, call.tool_use_id, refused ? 'denied' : 'asked'))
+    else if (refused) await noteCheck($, call, 'denied')
+  } catch {
+    // The list stays as it was.
+  }
+}
+
+const CHECK_HUE: Record<Verdict, string> = { allowed: THEME.ok, asked: THEME.accent, denied: THEME.alert, waiting: THEME.warn }
+const cellHue = (check: Check) => (check.isAgent && check.verdict !== 'denied' ? THEME.lifted : CHECK_HUE[check.verdict])
+
+// The hold card's count: nothing until a check has been seen.
+function sessionCount(list: Check[]) {
+  const counts = tally(list)
+  return counts.total === 0 ? '' : fill(text.checks.count, { checks: plural(counts.total, text.checks.check), denied: counts.denied })
+}
+
+// The Details pane's last section: one cell per check in time order, a legend with counts, and the counts per family.
+function checksSection({ Box, Text }: Pick<Elements, 'Box' | 'Text'>, list: Check[], columns: number) {
+  const own = decodeAll(marks.glyphs)[look.nerd ? 'nerd' : 'safe']
+  const counts: Counts = tally(list)
+  const perRow = Math.max(8, columns - 6)
+  const cells: unknown[] = []
+  for (let from = 0; from < list.length; from += perRow) {
+    cells.push(
+      <Box key={`checks-row-${from}`} flexDirection="row">
+        {list.slice(from, from + perRow).map((check, at) => <Text key={`checks-cell-${from + at}`} color={cellHue(check)}>{check.verdict === 'denied' ? own.cross : own.cell}</Text>)}
+      </Box>,
+    )
+  }
+  const parts: { glyph: string; hue: string; label: string }[] = [
+    ...(counts.allowed ? [{ glyph: own.cell, hue: THEME.ok, label: `${counts.allowed} ${text.checks.allowed}` }] : []),
+    ...(counts.asked ? [{ glyph: own.cell, hue: THEME.accent, label: `${counts.asked} ${text.checks.asked}` }] : []),
+    { glyph: own.cross, hue: THEME.alert, label: `${counts.denied} ${text.checks.denied}` },
+    ...(counts.waiting ? [{ glyph: own.cell, hue: THEME.warn, label: `${counts.waiting} ${text.checks.waiting}` }] : []),
+    ...(counts.agent ? [{ glyph: own.cell, hue: THEME.lifted, label: text.checks.agent }] : []),
+  ]
+  const legend = parts.flatMap((part, at) => [
+    <Text key={`checks-gap-${at}`}>{at === 0 ? '' : '  '}</Text>,
+    <Text key={`checks-mark-${at}`} color={part.hue}>{part.glyph}</Text>,
+    <Text key={`checks-label-${at}`} color={THEME.muted}>{` ${part.label}`}</Text>,
+  ])
+  return section(
+    { Box, Text },
+    look,
+    'checks',
+    'tool',
+    '',
+    [
+      <Box key="checks-head-row" flexDirection="row">
+        {heading({ Box, Text }, look, 'checks', 'tool', text.checks.sectionTitle)}
+        <Text color={THEME.muted}>{` ${MARK.sep} ${plural(counts.total, text.checks.permissionCheck)}`}</Text>
+      </Box>,
+      ...cells,
+      <Box key="checks-legend"><Text wrap="wrap">{legend}</Text></Box>,
+      <Box key="checks-families"><Text color={THEME.muted} wrap="wrap">{fill(text.checks.families, { file: counts.file, shell: counts.shell, other: counts.other, sep: MARK.sep })}</Text></Box>,
+    ],
+  )
+}
+
 // Counts and sizes in a line get the warning color.
 const FIGURE = /(\d[\d.,]*\s(?:[KMGT]?B|files?|folders?|commits?|paths?|entr(?:y|ies)|branch(?:es)?|statements?)\b)/
 const NOT_LOST = [text.preview.searchesUnder, text.preview.reaches, text.preview.statements]
@@ -347,7 +448,7 @@ function spansText(Text: Elements['Text'], spans: Span[], key: string) {
 }
 
 // The held command as a card above the pills: what happens in plain words, what it touches, then Cancel, Details and the consequence. Every row fits the band.
-function holdCard({ Box, Button, Client, Text }: Elements & { Button: (props: any) => RenderElement }, state: Held, columns: number, maxRows: number, onKey: (id: string) => unknown) {
+function holdCard({ Box, Button, Client, Text }: Elements & { Button: (props: any) => RenderElement }, state: Held, columns: number, maxRows: number, onKey: (id: string) => unknown, sessionNote = '') {
   const width = Math.max(20, columns - 4)
   // The card's rows are what is left after its border, its action row and the pill row below.
   const bodyRows = Math.max(1, maxRows - 2 - 3)
@@ -364,6 +465,11 @@ function holdCard({ Box, Button, Client, Text }: Elements & { Button: (props: an
   const hasControl = canOpenDoes(state.plain!, state.report!, width, isBeside ? bodyRows : ownRowBody)
   const rows = cardRows(state.plain!, state.report!, width, hasControl && !isBeside ? ownRowBody : bodyRows, isOpen)
   const labels = hasControl && isBeside ? beside : actionLabels(state.plain!, width)
+  const actionsWidth = labels.cancel.length + labels.details.length + labels.run.length + 3 * ACTION_EXTRA + 2 * ACTION_GAP
+  const isShimmering = state.isDescribing === true && !hasControl && actionsWidth + ACTION_GAP + text.card.explaining.length + 2 <= width
+  // The session count comes last on the row and is the first thing dropped: the actions and the toggle keep their room.
+  const countWidth = [...sessionNote].length
+  const showCount = sessionNote !== '' && !isShimmering && actionsWidth + (hasControl && isBeside ? moreWidth + ACTION_GAP : 0) + ACTION_GAP + countWidth <= width
   const body = rows.map((row, index) => {
     const key = `hold-row-${index}`
     if (row.kind === 'head') return <Text key={key} color={THEME.alert} bold>{`${look.glyph.warn} ${row.text}`}</Text>
@@ -411,13 +517,14 @@ function holdCard({ Box, Button, Client, Text }: Elements & { Button: (props: an
         {entry('blast-cancel', labels.cancel, HOTKEY.cancel, labels.cancel, text.tips.cancel, bare(look.glyph.close))}
         {entry('blast-details', labels.details, HOTKEY.details, labels.details, text.tips.details, bare(look.glyph.mark.shell ?? ''))}
         {entry('blast-run', labels.run, HOTKEY.run, labels.run, text.tips.run, bare(look.glyph.go), THEME.alert)}
-        {hasControl && isBeside ? (
-          <Box key="hold-more-row" flexGrow={1} justifyContent="flex-end">
-            {moreControl}
+        {(hasControl && isBeside) || showCount ? (
+          <Box key="hold-more-row" flexGrow={1} flexDirection="row" justifyContent="flex-end" columnGap={ACTION_GAP}>
+            {hasControl && isBeside ? moreControl : null}
+            {showCount ? <Box key="hold-count-box" flexShrink={0}><Text key="hold-count" color={THEME.muted}>{sessionNote}</Text></Box> : null}
           </Box>
         ) : null}
         {/* While Haiku writes the plain words, a shimmer on the right says they are coming; only where the row has room. */}
-        {state.isDescribing && !hasControl && labels.cancel.length + labels.details.length + labels.run.length + 3 * ACTION_EXTRA + 3 * ACTION_GAP + text.card.explaining.length + 2 <= width ? (
+        {isShimmering ? (
           <Box key="hold-explaining-row" flexGrow={1} justifyContent="flex-end">
             <Client key="hold-explaining" module="./entry.tsx" height={1} props={{ id: 'hold-explaining', label: text.card.explaining, isOpen: false, bg: fill, isBusy: true, still }} />
           </Box>
@@ -545,6 +652,8 @@ export const register: Register = (on, options) => {
     return { value: undefined }
   })
 
+  checks = []
+  isChecksLoaded = false
   isEnabled = options.enabled !== false
   isExplaining = options.explain === true
   iconMode = (options.icons as IconMode | undefined) ?? 'auto'
@@ -582,17 +691,34 @@ export const register: Register = (on, options) => {
       outcome = { deny: 'Blast radius hit an error while checking this command and did not run it. Do not retry it unless the person asks you to.' }
     }
     // next runs outside the try, so an error from the command itself passes through unchanged.
-    return outcome === 'run' ? next(e) : outcome
+    if (outcome === 'run') return next(e)
+    // A held command that was refused never reaches the permission check, so its denial is noted here.
+    await noteCheck($, e, 'denied')
+    return outcome
   })
 
-  // With no surface that draws, a hold cannot be answered, so the permission system asks.
-  on('tool.check', { tool: 'Bash' }, async ($, e, next) => {
-    const verdict = await next(e)
-    const command = (e.input as { command?: unknown } | null)?.command
-    if (!isEnabled || verdict.decision === 'deny' || (await canDraw($))) return verdict
-    const { risk } = await judge($, command)
+  // Every tool call passes here once: a check that asked is settled by what became of the call. It changes nothing.
+  on('tool.call', async ($, e, next) => {
+    const result = await next(e)
+    await settleCheck($, e, result)
+    return result
+  })
 
-    return risk ? { decision: 'ask', reason: fill(text.ui.askReason, { reason: risk.reason }) } : verdict
+  // Watches every permission check of the session; the verdict it returns is the one beneath, except where no surface can answer a hold, so the permission system asks.
+  on('tool.check', async ($, e, next) => {
+    let verdict = await next(e)
+    if (e.tool === 'Bash' && isEnabled && verdict.decision !== 'deny' && !(await canDraw($))) {
+      const { risk } = await judge($, (e.input as { command?: unknown } | null)?.command)
+      if (risk) verdict = { decision: 'ask', reason: fill(text.ui.askReason, { reason: risk.reason }) }
+    }
+    await noteCheck($, e, verdictOfCheck(verdict.decision))
+    return verdict
+  })
+
+  // /clear ends the session and starts no new one, so the count starts again here.
+  on('session.end', async ($, e, next) => {
+    if (e.reason === 'clear') keepChecks($, [])
+    return next(e)
   })
 
   on('ui.close', async ($, e, next) => {
@@ -723,6 +849,7 @@ export const register: Register = (on, options) => {
           {section({ Box, Text }, look, 'full', 'prompt', text.ui.sectionFull, fullRows)}
           {cardGap({ Box, Text }, 'legend')}
           <Box key="legend-row" flexDirection="row" flexWrap="wrap" columnGap={1}>{legend}</Box>
+          {checks.length > 0 ? checksSection({ Box, Text }, checks, e.props.bodyColumns) : null}
           <Box key="footer-space" height={FOOTER_ROWS} flexShrink={0} />
           {paneFooter({ Box, Text }, hoveredTip(), e.props.bodyColumns, e.props.scroll)}
         </Box>
@@ -821,6 +948,6 @@ export const register: Register = (on, options) => {
     const tip = hovered?.id ? tipLine({ Box, Text }, tipText(hovered)) : menuTip
 
     // While a call is held only the card and the pill row draw, so other rows cannot fill the band and cut the card off.
-    return pillRow({ Box, Client, Text }, look.nerd, group, row, [...cards, holdCard({ Box, Button, Client, Text }, held, e.props.bodyColumns, e.props.maxRows, id => choose($, id))], tip, e.props.bodyColumns)
+    return pillRow({ Box, Client, Text }, look.nerd, group, row, [...cards, holdCard({ Box, Button, Client, Text }, held, e.props.bodyColumns, e.props.maxRows, id => choose($, id), sessionCount(checks))], tip, e.props.bodyColumns)
   })
 }

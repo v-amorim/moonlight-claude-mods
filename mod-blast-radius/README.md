@@ -43,6 +43,7 @@ Automatic.
 - **Preview:** Paths with counts and size, git status and dry runs, the commits a force push would drop. Read-only: the command itself never runs.
 - **Run or Cancel:** Cancel refuses the call with a reason Claude reads. A narrow terminal draws the same report above the prompt.
 - **Show all:** The card shows two rows of its sentence. Show all on the card opens the whole sentence, and Show less folds it back.
+- **This session's permission checks:** The card counts the session's permission checks and how many were denied. Details ends with one cell per check (allowed, asked, denied, waiting, or made by a subagent) and the counts by file, shell and other tools. Secrets in a command are masked before anything is kept, and /clear starts the list again. The mod only watches these checks; it never changes their answer.
 
 ## Costs
 
