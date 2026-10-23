@@ -7,6 +7,7 @@ import { checkPrompt, parseCheck, parseRecheck, parseRewrite, recheckPrompt, rew
 import { isTipMessage, tipText, type EntryMessage, type EntryProps, type Tip } from './entry'
 import { cardFill, detectNerd, FOOTER_ROWS, lookFor, paneFooter, section, subpill, withMark, type IconMode, type Reveal } from './look'
 import { byTurn, canFork, CLEAR_AFTER_PROMPTS, emptySaved, KNOWN_KEPT, pack, recentSessions, remember, restates, sameText, savedOf, SEEN_KEPT, shouldCheck, stringsOf, unreadCount, type Note, type Saved } from './notes'
+import { countSpawn, countTool, endTurn, receiptLine, receiptOf, startTurn, type Open, type Receipt } from './receipt'
 import { recordSpend } from './spend'
 import { isPrompt, PLACEHOLDER, PromptNumbers } from './prompts'
 import { labelsOf, menuEntry, pill, PILL, pillRow, splitRow, tabRow, tipLine } from './pills'
@@ -95,6 +96,10 @@ let loading: { session: string; done: Promise<void> } | null = null
 let seen: string[] = []
 let known: string[] = []
 let knownKey = 'known:'
+// The main turn in progress, and the last one that ended (kept in the store per session, so a reload shows it).
+let openTurn: Open | null = null
+let receipt: Receipt | undefined
+const sessionCost = async ($: EngineInterface) => (await $.session.usage().catch(() => undefined))?.cost?.usd
 // The prompts drawn in the composer this session, by requestId: the transcript may not hold them yet.
 const drawnPrompts = new Map<string, string>()
 // How far the transcript was read, so a check reads only what was written since. A cache: a reload starts it over.
@@ -139,11 +144,12 @@ async function ensureLoaded($: EngineInterface) {
 async function loadSession($: EngineInterface, session: string) {
   drawnPrompts.clear()
   const key = `known:${await $.session.cwd().catch(() => '')}`
-  const [nextSaved, nextSeen, nextKnown, sessions] = await Promise.all([
+  const [nextSaved, nextSeen, nextKnown, sessions, nextReceipt] = await Promise.all([
     $.store.get(`notes:${session}`).catch(() => undefined),
     $.store.get(`seen:${session}`).catch(() => undefined),
     $.store.get(key).catch(() => undefined),
     $.store.get('sessions').catch(() => undefined),
+    $.store.get(`receipt:${session}`).catch(() => undefined),
   ])
   // A load for another session started meanwhile: that one owns the state now.
   if (loading?.session !== session) return
@@ -159,8 +165,10 @@ async function loadSession($: EngineInterface, session: string) {
     transcript = null
     lastModel = ''
     lastEffort = undefined
+    openTurn = null
   }
   loadedSession = session
+  receipt = receiptOf(nextReceipt)
   knownKey = key
   saved = savedOf(nextSaved)
   seen = stringsOf(nextSeen)
@@ -168,7 +176,7 @@ async function loadSession($: EngineInterface, session: string) {
   // Only the most recent sessions keep their notes and seen topics in the store.
   const recent = recentSessions(stringsOf(sessions), session)
   await $.store.set('sessions', recent.kept).catch(() => {})
-  for (const old of recent.dropped) await Promise.all([$.store.delete(`notes:${old}`), $.store.delete(`seen:${old}`)]).catch(() => {})
+  for (const old of recent.dropped) await Promise.all([$.store.delete(`notes:${old}`), $.store.delete(`seen:${old}`), $.store.delete(`receipt:${old}`)]).catch(() => {})
 }
 
 async function save($: EngineInterface) {
@@ -618,6 +626,43 @@ export const register: Register = (on, options) => {
     return yield* next(e)
   })
 
+  // The receipt of the main turn: subagent turns pass through, their calls count into it.
+  on('turn.start', async ($, e, next) => {
+    if (!e.agentId) openTurn = startTurn(openTurn, e, await $.clock.now(), await sessionCost($))
+
+    return next(e)
+  })
+
+  on('turn.complete', async ($, e, next) => {
+    const result = await next(e)
+    if (!e.agentId) {
+      const ended = endTurn(openTurn, e, await $.clock.now(), await sessionCost($))
+      openTurn = ended.open
+      if (ended.receipt) {
+        await ensureLoaded($)
+        receipt = ended.receipt
+        await $.store.set(`receipt:${loadedSession}`, receipt).catch(() => {})
+        $.ui.invalidate('ui.render')
+      }
+    }
+
+    return result
+  })
+
+  on('tool.call', async ($, e, next) => {
+    const result = await next(e)
+    openTurn = countTool(openTurn, e.tool, result.isError === true)
+
+    return result
+  })
+
+  on('agent.spawn', async ($, e, next) => {
+    const result = await next(e)
+    openTurn = countSpawn(openTurn)
+
+    return result
+  })
+
   on('prompt.submit', async ($, e, next) => {
     const sent = sameText(String(e.text ?? ''))
     if (sent && !sent.startsWith('/')) {
@@ -780,7 +825,7 @@ export const register: Register = (on, options) => {
     const unread = unreadCount(saved.notes)
     const badge = unread > 0 ? { badge: { text: String(unread), color: THEME.accent, bg: mix(THEME.accent, isShown ? mix(THEME.ok, PILL.primary, WASH) : PILL.primary, WASH) } } : {}
     // Opening the pane from here queues nothing, so the entry stays live mid-turn.
-    const entry = menuEntry({ Box, Client, Text }, nerd, 'headsup', { label: text.pillLabel, isOpen: isShown, idle: THEME.pill, isBusy: isOpening || isChecking || rewriting !== '', still, nerd, tip: { glyph: nerd ? bare(look.glyph.warn) : MARK.bullet, label: text.pillLabel, text: text.tipPill }, labels, ...badge })
+    const entry = menuEntry({ Box, Client, Text }, nerd, 'headsup', { label: text.pillLabel, isOpen: isShown, idle: THEME.pill, isBusy: isOpening || isChecking || rewriting !== '', still, nerd, tip: { glyph: nerd ? bare(look.glyph.warn) : MARK.bullet, label: text.pillLabel, text: receipt ? receiptLine(receipt) : text.tipPill }, labels, ...badge })
 
     return pillRow({ Box, Client, Text }, nerd, [entry, ...group], row, [...items, ...rest], bandTip ? tipLine({ Box, Text }, bandTip) : tip, e.props.bodyColumns)
   })

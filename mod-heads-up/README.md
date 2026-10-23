@@ -39,6 +39,7 @@ Automatic, or the Heads up pill.
 - **A side check:** Every sixth step of a long turn, at most once per turn, a check reads the session and flags one thing you should understand and probably missed. Most checks show nothing.
 - **A card above the prompt:** The note shows with its tag, You should know or Heads up, and says who decided. Open shows it in the panel, × dismisses it.
 - **The Heads up panel:** Every note of the session under its turn, opened in place, with Got it, Ask Claude and Reword (simpler words, less detail or more detail). Hover any control for what it does.
+- **Last turn:** Hover the Heads up pill after a turn to see what the whole turn did: how long it took, the subagents it started, its edits and tool errors, and how much the session cost grew. Before the first turn ends, the tip says what the mod does.
 - **Command hooks:** On SessionStart, a small shell hook appends the event's JSON as one line to `~/.claude/mods-data/mod-heads-up/bridge/<session id>.jsonl` (under `$CLAUDE_CONFIG_DIR` when that is set), and the mod reads the file every 250 ms. A record can hold the session id, the working folder and the transcript path. SessionEnd deletes the session's file, and SessionStart deletes files older than 7 days. The hooks need a POSIX shell (Git Bash on Windows). Without one they write nothing, and the mod falls back to what it can find on its own. Some plans block plugin hooks on these events; the mod then falls back the same way.
 
 ## Costs
