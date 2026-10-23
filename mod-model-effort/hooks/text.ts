@@ -17,6 +17,7 @@ export default {
   "tipCardClose": "closes the effort card",
   "tipAll": "opens the full model picker",
   "tipTab": "shows this mod's settings",
+  "tipSpeed": "last reply: first token {first}, {rate} tok/s",
   "paneName": "Effort",
   "paneSettings": "Settings",
   "commandDescription": "Open the effort settings panel with `settings`",

@@ -37,6 +37,7 @@ The model pill.
 ## Features
 
 - **Model and effort:** A pill shows the model and the effort level of the session. A click changes either one.
+- **Reply speed:** Hover the pill to see the last reply's speed: how long the first token took and the tokens per second after it. Only the main session's replies count.
 - **Command hooks:** On SessionStart, PostModelSwitch and ConfigChange, a small shell hook appends the event's JSON as one line to `~/.claude/mods-data/mod-model-effort/bridge/<session id>.jsonl` (under `$CLAUDE_CONFIG_DIR` when that is set), and the mod reads the file every 250 ms. A record can hold the session id, the working folder and the transcript path. SessionEnd deletes the session's file, and SessionStart deletes files older than 7 days. The hooks need a POSIX shell (Git Bash on Windows). Without one they write nothing, and the mod falls back to what it can find on its own. Some plans block plugin hooks on these events; the mod then falls back the same way.
 
 ## Settings

@@ -8,6 +8,7 @@ import { entryCells, isTipMessage, tipText, type EntryMessage, type EntryProps, 
 import { cardFill, detectNerd, FOOTER_ROWS, lookFor, paneFooter, type IconMode, withMark } from './look'
 import { meterCells, type MeterMessage } from './meter'
 import { settingChoice, settingsBody } from './settings'
+import { firstText, isSpeed, replySpeed, watch } from './speed'
 import { fill, MARK, statusColor, THEME } from './theme'
 import { labelsOf, PILL, pill, pillRow, splitRow, tabRow, tipLine } from './pills'
 import text from './text'
@@ -18,6 +19,27 @@ const homeOf = async ($: EngineInterface) => ((await $.env.get('USERPROFILE')) ?
 const configDir = async ($: EngineInterface) => ((await $.env.get('CLAUDE_CONFIG_DIR')) || `${await homeOf($)}/.claude`).replace(/\\/g, '/')
 
 const PANE ='model-effort-settings'
+
+// Streams the step as it is and keeps the speed of a reply that came out whole.
+async function* timed<C extends { kind: string }, R extends { usage: { output_tokens: number } | null }>($: EngineInterface, open: () => AsyncGenerator<C, R>): AsyncGenerator<C, R> {
+  // A clock that fails only costs the reading, never the stream.
+  const tick = () => $.clock.now().catch(() => undefined)
+  const start = await tick()
+  let first: number | undefined
+  const result = yield* watch(open(), async chunk => {
+    if (first === undefined && (chunk.kind === 'text' || chunk.kind === 'thinking')) first = await tick()
+  })
+  const end = await tick()
+  const speed = start === undefined || end === undefined ? null : replySpeed(start, first, end, result.usage?.output_tokens)
+  if (speed) await $.state.set({ plugin: 'mod-model-effort', key: 'speed' }, speed)
+  return result
+}
+
+// The tip with the last reply's speed after it; as it was before any reply.
+const withSpeed = (tip: Tip, speed: unknown): Tip => {
+  if (!isSpeed(speed)) return tip
+  return { ...tip, text: `${tip.text} ${MARK.sep} ${fill(text.tipSpeed, { first: firstText(speed.first), rate: String(speed.rate) })}` }
+}
 
 // The icons setting (userConfig), fixed per activation: a change reloads the mod.
 let iconMode: IconMode = 'auto'
@@ -430,7 +452,8 @@ export const register: Register = (on, options) => {
 
   // Each main request carries the real model id and effort, so the meter always shows what went out.
   on('turn.step', async function* ($, e, next) {
-    if (e.agentId || typeof e.effort !== 'string') return yield* next(e)
+    if (e.agentId) return yield* next(e)
+    if (typeof e.effort !== 'string') return yield* timed($, () => next(e))
 
     // Claude Code reads the saved level only at startup, so a clicked level rides on each request until Alt+P or /effort saves another.
     if (override) {
@@ -445,7 +468,7 @@ export const register: Register = (on, options) => {
       await $.store.set('model', e.model)
     }
 
-    const result = yield* next(effort === e.effort ? e : { ...e, effort: effort as typeof e.effort })
+    const result = yield* timed($, () => next(effort === e.effort ? e : { ...e, effort: effort as typeof e.effort }))
     // Only a model the API answered joins the menu, so a mistyped or retired id never stays there.
     const models = await $.store.get('models')
     if (result.usage && !(Array.isArray(models) && models[0] === plainModel(e.model))) await $.store.set('models', withModel(models, e.model))
@@ -557,7 +580,8 @@ export const register: Register = (on, options) => {
     // The pill row cuts the meter to its level when the row overflows; labels never always does.
     const labels = labelsOf((await $.state.get({ plugin: 'mod-menu', key: 'labels' })).value)
     const fit = look.nerd && labels !== 'always' ? { cells: meterCells(model, look.nerd), compact: labels === 'never' } : {}
-    const meterProps = { effort: shown?.effort ?? null, model, bg: PILL.secondary, still, nerd: look.nerd, ...fit, tipModel: { glyph: look.glyph.title, label: text.labelModel, text: text.tipModel }, tipRest: { glyph: look.glyph.title, label: text.paneName, text: text.tipRest }, tipLevels: LEVELS.map(level => ({ glyph: LEVEL_LOOK[level]!.glyph, label: text.paneName, text: fill(text.tipLevel, { level: (text.levelNames as Record<string, string>)[level]! }) })) }
+    const speed = (await $.state.get({ plugin: 'mod-model-effort', key: 'speed' })).value
+    const meterProps = { effort: shown?.effort ?? null, model, bg: PILL.secondary, still, nerd: look.nerd, ...fit, tipModel: withSpeed({ glyph: look.glyph.title, label: text.labelModel, text: text.tipModel }, speed), tipRest: withSpeed({ glyph: look.glyph.title, label: text.paneName, text: text.tipRest }, speed), tipLevels: LEVELS.map(level => withSpeed({ glyph: LEVEL_LOOK[level]!.glyph, label: text.paneName, text: fill(text.tipLevel, { level: (text.levelNames as Record<string, string>)[level]! }) }, speed)) }
     const meter = <Client key="meter" module="./meter.tsx" height={1} props={meterProps} />
     // The level word follows the pill, so it never moves the glyphs under the pointer.
     const shownWord = hoveredLevel() ?? flash
