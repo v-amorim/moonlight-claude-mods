@@ -7,20 +7,27 @@ export default {
       "gaugeIcon": "▦",
       "gaugeFull": "■",
       "gaugeEmpty": "□",
-      "barCell": "█",
-      "agentDot": "●"
+      "gateMet": "■",
+      "gateOpen": "□",
+      "gateDropped": "×",
+      "agentDot": "●",
+      "laneSpan": "━",
+      "laneIdle": "·"
     },
     "nerd": {
       "running": "{U+F110}",
       "gaugeIcon": "{U+F035B}",
       "gaugeFull": "{U+F0C8}",
       "gaugeEmpty": "{U+F096}",
-      "barCell": "█",
-      "agentDot": "●"
+      "gateMet": "{U+F0C8}",
+      "gateOpen": "{U+F096}",
+      "gateDropped": "{U+F00D}",
+      "agentDot": "●",
+      "laneSpan": "━",
+      "laneIdle": "·"
     }
   },
   "gaugeCells": 5,
-  "barCells": 8,
   "gaugeFrom": [0, 10, 39, 59, 79, 90],
   "windows": {
     "default": 200000,

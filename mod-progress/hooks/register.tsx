@@ -7,10 +7,11 @@ import { entryCells, isTipMessage, tipText, type EntryMessage, type EntryProps, 
 import { cardFill, detectNerd, FOOTER_ROWS, lookFor, paneFooter, section, withMark, type IconMode } from './look'
 import { foldTip, layoutLoops, type LoopsMessage, type LoopsProps } from './loops'
 import { labelsOf, menuEntry, PILL, pill, pillRow, splitRow, tabRow, tipLine } from './pills'
-import { addBg, appendTail, applyCall, applyStep, applyTask, bandSummary, bgIdOf, bgOutputOf, bgStartOf, buildRows, emptySnap, endBg, endOfStatus, finishAgent, findBg, firstLine, gatesStemIn, cardWidth, HELD_LINES, hasRunningBg, isGatesPath, MAIN_GATES, outputRoom, pageOf, parseGates, resyncBg, settle, stemOf, TAIL_LINES, wipeBg, type AgentLite, type BgTask, type Gate, type Snap, type Tail, type Usage, type UsageLite } from './progress'
+import { addBg, appendTail, applyCall, applyStep, applyTask, bandSummary, bgIdOf, bgOutputOf, bgStartOf, buildRows, emptySnap, endBg, endOfStatus, finishAgent, findBg, firstLine, gatesStemIn, cardWidth, HELD_LINES, hasRunningBg, isGatesPath, MAIN_GATES, mergeStamps, outputRoom, pageOf, parseGates, resyncBg, settle, stemOf, TAIL_LINES, waitingCount, wipeBg, type AgentLite, type BgTask, type Gate, type Snap, type Tail, type Usage, type UsageLite } from './progress'
 import { stopLine, stopOf } from './stop'
-import { settingChoice, settingsBody } from './settings'
+import { choiceBar, settingChoice, settingsBody } from './settings'
 import text from './text'
+import type { TimelineProps } from './timeline'
 import { fill, MARK, mix, statusColor, THEME, WASH } from './theme'
 import { TOAST_MS, ToastList, toastCards } from './toasts'
 
@@ -82,6 +83,8 @@ function loadLook($: EngineInterface) {
 
 const PANE = 'progress'
 const OUTPUT_MORE = 'output-more'
+const VIEW_CARDS = 'view-cards'
+const VIEW_TIMELINE = 'view-timeline'
 // Lines the open page hides while closed, kept from its last draw for the tip that replaces the control on a click.
 let outputClosedLabel = ''
 const SETTINGS = 'progress-settings'
@@ -189,12 +192,13 @@ async function gatesDir($: EngineInterface) {
 async function readGates($: EngineInterface, target: Snap) {
   const dir = await gatesDir($)
   const found: Record<string, Gate[]> = {}
+  const now = await $.clock.now()
   const root = await $.fs.read(`${dir}/GATES.md`).catch(() => null)
-  if (root !== null) found[MAIN_GATES] = parseGates(String(root))
+  if (root !== null) found[MAIN_GATES] = mergeStamps(target.gates[MAIN_GATES], parseGates(String(root)), now)
   for (const entry of await $.fs.list(`${dir}/gates`).catch(() => [])) {
     if (entry.kind !== 'file' || !entry.name.toLowerCase().endsWith('.md')) continue
     const stem = stemOf(entry.name)
-    found[stem] = parseGates(String(await $.fs.read(`${dir}/gates/${entry.name}`).catch(() => ''))).map(gate => ({ ...gate, file: stem }))
+    found[stem] = mergeStamps(target.gates[stem], parseGates(String(await $.fs.read(`${dir}/gates/${entry.name}`).catch(() => ''))).map(gate => ({ ...gate, file: stem })), now)
   }
   const isChanged = JSON.stringify(found) !== JSON.stringify(target.gates)
   target.gates = found
@@ -363,6 +367,7 @@ async function mainStopped($: EngineInterface, record: BridgeRecord) {
   try {
     if (await isReplay($, record)) return
     await resync($, undefined, tasksOf(record))
+    await refreshGates($)
   } catch {
     // The figures stay as they were.
   }
@@ -372,6 +377,7 @@ async function subagentStopped($: EngineInterface, record: BridgeRecord) {
   try {
     if (await isReplay($, record)) return
     await resync($, agentOf(record), tasksOf(record))
+    await refreshGates($)
   } catch {
     // The figures stay as they were.
   }
@@ -591,6 +597,7 @@ export const register: Register = (on, options) => {
       if (!(e as { agentId?: string }).agentId) {
         const current = await loadSnap($)
         current.busy = true
+        delete current.main.endedAt
         delete current.stop
         ageStop($, current)
         await saveSnap($)
@@ -618,11 +625,12 @@ export const register: Register = (on, options) => {
   on('turn.complete', async ($, e, next) => {
     try {
       const current = await loadSnap($)
+      const now = await $.clock.now()
       if (!(e as { agentId?: string }).agentId) {
         current.busy = false
+        current.main.endedAt = now
         delete current.main.step
       }
-      const now = await $.clock.now()
       // A workflow agent is in no list, so its own turn ending is the only sign it is over.
       if (e.agentId) finishAgent(current, e.agentId, now, e.reason !== 'answer')
       settle(current, (await $.agent.list()) as AgentLite[], now)
@@ -722,7 +730,8 @@ export const register: Register = (on, options) => {
     const stop = stopLine(current.stop, now)
     const { group, row, rest, tip } = splitRow(await next(e))
     const badge = summary.count > 0 ? { badge: { text: String(summary.count), color: THEME.accent, bg: mix(THEME.accent, shown ? mix(THEME.ok, PILL.primary, WASH) : PILL.primary, WASH) } } : {}
-    const pillTip = stop?.line ?? (summary.total > 0 ? fill(text.tipPillGates, summary) : text.tipPill)
+    const waiting = waitingCount(rows)
+    const pillTip = stop?.line ?? (summary.total > 0 ? `${fill(text.tipPillGates, summary)}${waiting > 0 ? ` ${fill(text.tipPillWaiting, { sep: MARK.sep, n: waiting })}` : ''}` : text.tipPill)
     const entry = menuEntry({ Box, Client, Text }, nerd, 'progress', { label: text.pillLabel, labels, isOpen: shown, idle: THEME.pill, still, nerd, tip: { glyph: look.glyph.icon.Agent ?? look.glyph.mark.agent ?? look.glyph.title, label: text.pillLabel, text: pillTip }, ...badge })
     // A pill tip is posted once on enter, so its text is redrawn from the figures here, the minute the stop's age ticks.
     const shownTip = bandTip?.id === 'progress' ? { ...bandTip, text: pillTip } : bandTip
@@ -769,6 +778,12 @@ export const register: Register = (on, options) => {
       current.folded = isFolding ? rows.filter(each => each.tasks.length > 0).map(each => each.id) : []
       await saveSnap($)
       paneTip = isFolding ? { type: 'tip', id: 'unfold-all', glyph: look.glyph.more, label: text.unfoldAll, text: text.tipUnfoldAll } : { type: 'tip', id: 'fold-all', glyph: look.glyph.less, label: text.foldAll, text: text.tipFoldAll }
+      $.ui.invalidate('ui.render')
+    }
+    if (clicked?.type === 'menu-entry' && (clicked.id === VIEW_CARDS || clicked.id === VIEW_TIMELINE)) {
+      const current = await loadSnap($)
+      current.view = clicked.id === VIEW_TIMELINE ? 'timeline' : 'cards'
+      await saveSnap($)
       $.ui.invalidate('ui.render')
     }
     if (clicked?.type === 'menu-entry' && clicked.id === 'progress-back') {
@@ -910,13 +925,19 @@ export const register: Register = (on, options) => {
       if (shown.deny) $.ui.toast(shown.deny)
       $.ui.invalidate('ui.render')
     }
-    const props = JSON.parse(JSON.stringify({ rows, width, expanded: current.expanded, nerd: look.nerd, viewing: e.props.view.agentId ?? '', folded: current.folded ?? [] })) as LoopsProps
+    const props = JSON.parse(JSON.stringify({ rows, width, expanded: current.expanded, nerd: look.nerd, viewing: e.props.view.agentId ?? '', folded: current.folded ?? [], now })) as LoopsProps
     const withTasks = rows.filter(each => each.tasks.length > 0)
     const isAnyOpen = withTasks.some(each => !(current.folded ?? []).includes(each.id))
     const foldLabel = isAnyOpen ? text.foldAll : text.unfoldAll
     const foldArrow = isAnyOpen ? look.glyph.less : look.glyph.more
     const foldProps = { id: isAnyOpen ? 'fold-all' : 'unfold-all', label: foldLabel, lead: foldArrow, leadColor: THEME.accent, isOpen: false, bg: THEME.bg, idle: THEME.muted, still, nerd: look.nerd, tip: { glyph: foldArrow, label: foldLabel, text: isAnyOpen ? text.tipFoldAll : text.tipUnfoldAll } } satisfies EntryProps
-    const foldToggle = withTasks.length === 0 ? null : <Client key="fold-toggle" module="./entry.tsx" width={entryCells(foldProps)} height={1} props={foldProps} />
+    const isTimeline = current.view === 'timeline'
+    const viewBar = choiceBar({ Box, Button, Client, Text }, look, 'view', THEME.bg, [
+      { key: 'view-cards', isOn: !isTimeline, props: { id: VIEW_CARDS, label: text.viewCards, still, tip: { glyph: look.glyph.cycle, label: text.viewCards, text: text.tipViewCards } } },
+      { key: 'view-timeline', isOn: isTimeline, props: { id: VIEW_TIMELINE, label: text.viewTimeline, still, tip: { glyph: look.glyph.cycle, label: text.viewTimeline, text: text.tipViewTimeline } } },
+    ])
+    const lanes = JSON.parse(JSON.stringify({ rows, width, expanded: current.expanded, nerd: look.nerd, viewing: e.props.view.agentId ?? '', now })) as TimelineProps
+    const foldToggle = withTasks.length === 0 || isTimeline ? null : <Client key="fold-toggle" module="./entry.tsx" width={entryCells(foldProps)} height={1} props={foldProps} />
 
     return (
       <Box flexDirection="column" paddingX={1} minHeight={e.props.scroll.bodyRows} backgroundColor={THEME.bg}>
@@ -934,6 +955,7 @@ export const register: Register = (on, options) => {
             </Box>
           ) : null}
         </Box>
+        <Box key="view-row" flexDirection="row">{viewBar}</Box>
         {/* A blank row of the same height while no stop shows, so the list below does not move when one appears. */}
         <Box key="stop-row" flexDirection="row" columnGap={1}>
           <Box key="stop-text" flexGrow={1} flexShrink={1}>
@@ -942,7 +964,9 @@ export const register: Register = (on, options) => {
           {foldToggle}
         </Box>
         {section({ Box, Text }, look, 'loops', '', '', (
-          <Client key="loops" module="./loops.tsx" height={layoutLoops(rows, current.expanded, current.folded ?? []).length} props={props} />
+          isTimeline
+            ? <Client key="timeline" module="./timeline.tsx" height={rows.length} props={lanes} />
+            : <Client key="loops" module="./loops.tsx" height={layoutLoops(rows, current.expanded, current.folded ?? []).length} props={props} />
         ))}
         {rows.length === 1 ? <Text color={THEME.muted}>{text.noAgents}</Text> : null}
         <Box key="footer-space" height={FOOTER_ROWS} flexShrink={0} />

@@ -5,12 +5,19 @@ import type { ClientModule, RenderChildren } from 'claude-code'
 import { postTip } from './entry'
 import { cardFill, lookFor } from './look'
 import marks from './marks'
-import { countGates, gaugeColor, formatTokens, modelInfo, type Row } from './progress'
+import { countGates, cutText, formatElapsed, gaugeColor, formatTokens, groupGates, modelInfo, stripCells, type Gate, type GateState, type Row } from './progress'
 import style from './style'
 import text from './text'
 import { CAPS, decodeAll, fill, MARK, THEME } from './theme'
 
-export type LoopsProps = { rows: Row[]; width: number; expanded: string; nerd: boolean; viewing: string; folded?: string[] }
+export type LoopsProps = { rows: Row[]; width: number; expanded: string; nerd: boolean; viewing: string; folded?: string[]; now?: number }
+
+const GROUPS: Record<GateState, { label: string; color: string }> = {
+  open: { label: text.groupOpen, color: THEME.accent },
+  pending: { label: text.groupWaiting, color: THEME.warn },
+  met: { label: text.groupMet, color: THEME.ok },
+  abandoned: { label: text.groupDropped, color: THEME.alert },
+}
 export type LoopsMessage = { type: 'toggle'; id: string } | { type: 'task'; id: string } | { type: 'fold'; id: string }
 
 // The count a folded card shows, and the toggle's label on an open one: shells when every task is one.
@@ -23,9 +30,9 @@ export const tasksLabel = (tasks: Row['tasks']) => {
 // The tip of a card's task toggle.
 export const foldTip = (row: Row, isFolded: boolean, glyph: string) => ({ glyph, label: tasksLabel(row.tasks), text: isFolded ? text.tipFoldShut : text.tipFoldOpen })
 
-type Line = { kind: 'head' | 'pills' | 'task' | 'gate' | 'empty' | 'gap' | 'run'; loop: number; gate?: number; task?: number; run?: string }
+type Line = { kind: 'head' | 'pills' | 'task' | 'gate' | 'ghead' | 'gfold' | 'empty' | 'gap' | 'run'; loop: number; group?: number; gate?: number; task?: number; run?: string }
 
-// The rows top to bottom: a line naming the workflow run where its agents start, then head, pills, a line per background task, the gates of the open loop, and a gap before the next card.
+// The rows top to bottom: a line naming the workflow run where its agents start, then head, pills, a line per background task, the open loop's gate groups (a header each, a row per open or waiting gate, one line for met or dropped), and a gap before the next card.
 export function layoutLoops(rows: Row[], expanded: string, folded: string[] = []) {
   const lines: Line[] = []
   rows.forEach((row, loop) => {
@@ -34,7 +41,11 @@ export function layoutLoops(rows: Row[], expanded: string, folded: string[] = []
     if (!folded.includes(row.id)) row.tasks.forEach((_, task) => lines.push({ kind: 'task', loop, task }))
     if (row.id === expanded) {
       if (row.gates.length === 0) lines.push({ kind: 'empty', loop })
-      row.gates.forEach((_, gate) => lines.push({ kind: 'gate', loop, gate }))
+      groupGates(row.gates).forEach((group, at) => {
+        lines.push({ kind: 'ghead', loop, group: at })
+        if (group.state === 'met' || group.state === 'abandoned') lines.push({ kind: 'gfold', loop, group: at })
+        else group.gates.forEach((_, gate) => lines.push({ kind: 'gate', loop, group: at, gate }))
+      })
     }
     if (loop < rows.length - 1) lines.push({ kind: 'gap', loop: -1 })
   })
@@ -139,10 +150,12 @@ const Loops: ClientModule<LoopsProps, number> = (props, surface) => {
       const info = modelInfo(row.model)
       const level = row.effort ? LEVELS[row.effort] : undefined
       const gates = countGates(row.gates)
-      const filled = Math.round((marks.barCells * gates.done) / Math.max(1, gates.total))
-      const cells = gates.done > 0 && gates.done < gates.total ? Math.min(marks.barCells - 1, Math.max(1, filled)) : filled
-      const doneColor = gates.done === gates.total ? THEME.ok : THEME.secondary
       const gauge = row.percent === undefined ? 0 : Math.round((row.percent / 100) * marks.gaugeCells)
+      const countText = ` ${fill(text.gatesCount, { done: gates.done, total: gates.total })}${row.isPhaseDone ? ` ${MARK.sep} ${text.phaseDone}` : ''}`
+      const before = [row.model ? 2 + [...info.name].length + (level ? 2 : 0) : 0, row.percent === undefined ? 0 : 2 + 3 + marks.gaugeCells + fill(text.gaugePercent, { percent: row.percent }).length].filter(cols => cols > 0)
+      // The card's lead and padding, the pills before this one with their gaps, this pill's caps and count, the fold toggle, and a column of slack.
+      const room = width - 4 - before.reduce((sum, cols) => sum + cols + 1, 0) - 2 - [...countText].length - (row.tasks.length > 0 ? [...foldText(row)].length : 0) - 1
+      const cellOf = (state: GateState) => (state === 'abandoned' ? { glyph: own.gateDropped, color: THEME.alert } : state === 'open' ? { glyph: own.gateOpen, color: THEME.muted } : { glyph: own.gateMet, color: state === 'met' ? THEME.ok : THEME.warn })
       const isFoldOver = isHover && isFoldHover
       return frame(
         <Box key={`${key}-row`} flexDirection="row" flexGrow={1}>
@@ -158,9 +171,8 @@ const Loops: ClientModule<LoopsProps, number> = (props, surface) => {
           ))}
           {row.hasGates ? pill(`${key}-gates`, on, (
             <Text>
-              <Text color={doneColor}>{own.barCell.repeat(cells)}</Text>
-              <Text color={THEME.lifted}>{own.barCell.repeat(marks.barCells - cells)}</Text>
-              <Text color={THEME.muted}>{` ${fill(text.gatesCount, { done: gates.done, total: gates.total })}${row.isPhaseDone ? ` ${MARK.sep} ${text.phaseDone}` : ''}`}</Text>
+              {stripCells(row.gates, room).map((state, at) => <Text key={`${key}-cell-${at}`} color={cellOf(state).color}>{cellOf(state).glyph}</Text>)}
+              <Text color={THEME.muted}>{countText}</Text>
             </Text>
           )) : null}
         </Box>
@@ -200,15 +212,30 @@ const Loops: ClientModule<LoopsProps, number> = (props, surface) => {
       return frame(<Text key={`${key}-empty`} color={THEME.muted} wrap="truncate-end">{`   ${text.noGates}`}</Text>)
     }
 
-    const gate = row.gates[line.gate!]!
-    const mark = gate.state === 'met' ? { glyph: look.glyph.ok, color: THEME.ok } : gate.state === 'open' ? { glyph: look.glyph.expanded, color: THEME.warn } : { glyph: look.glyph.warn, color: THEME.alert }
+    const group = groupGates(row.gates)[line.group!]!
+    const name = (gate: Gate) => `${row.isMain && gate.file ? `${gate.file}/` : ''}${gate.id}`
+    if (line.kind === 'ghead') {
+      return frame(
+        <Text key={`${key}-ghead`} wrap="truncate-end">
+          <Text color={GROUPS[group.state].color} bold>{`  ${GROUPS[group.state].label}`}</Text>
+          <Text color={THEME.muted}>{` ${MARK.sep} ${group.gates.length}`}</Text>
+        </Text>,
+      )
+    }
+    if (line.kind === 'gfold') {
+      const names = group.state === 'met' ? group.gates.map(name).join(' ') : group.gates.map(gate => `${name(gate)} ${gate.text}`).join(` ${MARK.sep} `)
+      return frame(<Text key={`${key}-gfold`} wrap="truncate-end" color={THEME.muted}>{`    ${cutText(names, Math.max(1, width - 7))}`}</Text>)
+    }
+    const gate = group.gates[line.gate!]!
+    const since = group.state === 'pending' ? gate.changedAt : gate.firstSeenAt
+    const age = since !== undefined && props.now !== undefined ? formatElapsed(props.now - since) : ''
     return frame(
-      <Box key={`${key}-body`} flexDirection="row" columnGap={1} paddingLeft={2} flexGrow={1} flexShrink={1}>
-        <Text key={`${key}-mark`} color={mark.color}>{mark.glyph}</Text>
+      <Box key={`${key}-body`} flexDirection="row" paddingLeft={4} flexGrow={1} flexShrink={1}>
         <Box key={`${key}-text`} flexGrow={1} flexShrink={1}>
-          <Text wrap="truncate-end" color={gate.state === 'open' ? THEME.onSurface : THEME.muted}>
-            {`${row.isMain && gate.file ? `${gate.file}/` : ''}${gate.id} ${gate.text}${gate.state === 'abandoned' ? ` ${MARK.sep} ${text.abandoned}` : ''}`}
-          </Text>
+          <Text wrap="truncate-end" color={THEME.onSurface}>{`${name(gate)} ${gate.text}`}</Text>
+        </Box>
+        <Box key={`${key}-age`} flexShrink={0} paddingLeft={1}>
+          <Text color={THEME.muted}>{`${age} `}</Text>
         </Box>
       </Box>,
     )

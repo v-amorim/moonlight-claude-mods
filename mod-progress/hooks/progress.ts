@@ -5,9 +5,10 @@ import style from './style'
 import text from './text'
 import { fill } from './theme'
 
-export type GateState = 'met' | 'open' | 'abandoned'
-// `file` names the gates/<file>.md a gate came from; GATES.md's own gates carry none.
-export type Gate = { id: string; text: string; state: GateState; file?: string }
+// 'pending' is a checked box whose EVIDENCE is missing or still `pending`.
+export type GateState = 'met' | 'open' | 'pending' | 'abandoned'
+// `file` names the gates/<file>.md a gate came from, none for GATES.md; the stamps are first read and last state change.
+export type Gate = { id: string; text: string; state: GateState; file?: string; firstSeenAt?: number; changedAt?: number }
 export type Task = { id: string; subject: string; status: string }
 // A workflow script's agent: no list entry names it, so its run, place, name and task are kept from its spawn.
 export type WorkflowAgent = { runId: string; index: number; name: string; description: string }
@@ -31,6 +32,8 @@ export type Snap = {
   tasks: Task[]
   gates: Record<string, Gate[]>
   expanded: string
+  // The pane's view of the loops; a missing value is the cards.
+  view?: 'cards' | 'timeline'
   // The cards whose background tasks are folded to their count; the rest show them.
   folded?: string[]
   stop?: Stop
@@ -70,9 +73,46 @@ export function parseGates(source: string): Gate[] {
   return found.map(each => ({
     id: each.id,
     text: each.text,
-    state: abandoned.has(each.id) ? 'abandoned' : each.checked && each.evidence && !/^pending$/i.test(each.evidence) ? 'met' : 'open',
+    state: abandoned.has(each.id) ? 'abandoned' : !each.checked ? 'open' : each.evidence && !/^pending$/i.test(each.evidence) ? 'met' : 'pending',
   }))
 }
+
+// Carries each gate's stamps over a re-read, matching on file and id; a gate whose state changed gets a new changedAt.
+export function mergeStamps(before: Gate[] | undefined, after: Gate[], now: number): Gate[] {
+  return after.map(gate => {
+    const was = before?.find(each => each.id === gate.id && each.file === gate.file)
+    return { ...gate, firstSeenAt: was?.firstSeenAt ?? now, changedAt: was && was.state === gate.state ? (was.changedAt ?? now) : now }
+  })
+}
+
+export type GateGroup = { state: GateState; gates: Gate[] }
+
+// Open, waiting, met, then dropped; a group with no gates is left out.
+export const groupGates = (gates: Gate[]): GateGroup[] =>
+  (['open', 'pending', 'met', 'abandoned'] as const).map(state => ({ state, gates: gates.filter(gate => gate.state === state) })).filter(group => group.gates.length > 0)
+
+// The strip fills from the left like a bar: met, waiting, open, then dropped, each in file order.
+export const stripOrder = (gates: Gate[]) => (['met', 'pending', 'open', 'abandoned'] as const).flatMap(state => gates.filter(gate => gate.state === state))
+
+export const waitingCount =(rows: Row[]) => [...new Set(rows.flatMap(row => row.gates))].filter(gate => gate.state === 'pending').length
+
+// Past `room` each state gets its share of cells, at least one, so an unfinished strip never draws all full.
+export function stripCells(gates: Gate[], room: number): GateState[] {
+  const ordered = stripOrder(gates).map(gate => gate.state)
+  if (ordered.length <= room) return ordered
+  if (room <= 0) return []
+  const states = (['met', 'pending', 'open', 'abandoned'] as const).map(state => ({ state, count: ordered.filter(each => each === state).length })).filter(each => each.count > 0)
+  const shares = states.map(each => ({ ...each, cells: Math.floor((each.count * room) / ordered.length), rest: ((each.count * room) / ordered.length) % 1 }))
+  for (const each of [...shares].sort((a, b) => b.rest - a.rest).slice(0, room - shares.reduce((sum, each) => sum + each.cells, 0))) each.cells++
+  for (const each of shares.filter(share => share.cells === 0)) {
+    const donor = shares.reduce((most, share) => (share.cells > most.cells ? share : most))
+    if (donor.cells > 1) donor.cells--, each.cells++
+  }
+  return shares.flatMap(each => Array.from({ length: each.cells }, () => each.state))
+}
+
+// `value` cut to `room` columns, ending in … when it was longer.
+export const cutText = (value: string, room: number) => (value.length <= room ? value : room <= 1 ? '…'.slice(0, Math.max(0, room)) : `${value.slice(0, room - 1)}…`)
 
 export const isGatesPath = (path: string) => /(^|\/)(GATES\.md|gates\/[^/]+\.md)$/i.test(path.replace(/\\/g, '/'))
 
@@ -346,9 +386,16 @@ export type Row = {
   gates: Gate[]
   hasGates: boolean
   tasks: RowTask[]
+  // When the loop began and, once over, ended: the timeline's lane runs from one to the other.
+  startedAt?: number
+  endedAt?: number
   // The main ledger reads from gates files and none is open: every written phase is finished, which says nothing about the ones not written yet.
   isPhaseDone?: boolean
 }
+
+// Agents that share a name (two of one type) are told apart by what they do; the hover tip keeps the name.
+export const laneLabels = (rows: Pick<Row, 'isMain' | 'name' | 'description'>[]) =>
+  rows.map(row => (row.isMain || !row.description.trim() || rows.filter(other => other.name === row.name).length < 2 ? row.name : row.description))
 
 export const statusOf = (status: string): Status => (status === 'completed' ? 'done' : status === 'failed' || status === 'killed' ? 'failed' : 'running')
 
@@ -416,7 +463,9 @@ export function buildRows(snap: Snap, list: AgentLite[], usage: UsageLite | unde
     gates: mainGates,
     hasGates: mainGates.length > 0,
     tasks: tasksOf(main, now),
-    isPhaseDone: ledger.length > 0 && !ledger.some(gate => gate.state === 'open'),
+    ...(started === undefined ? {} : { startedAt: started }),
+    ...(mainStatus === 'running' ? {} : { endedAt: main.endedAt ?? now }),
+    isPhaseDone: ledger.length > 0 && !ledger.some(gate => gate.state === 'open' || gate.state === 'pending'),
   }]
   const listed = new Set(list.map(info => info.id))
   const ofWorkflow = Object.entries(snap.agents)
@@ -444,6 +493,8 @@ export function buildRows(snap: Snap, list: AgentLite[], usage: UsageLite | unde
       gates,
       hasGates: gates.length > 0,
       tasks: tasksOf(loop, now),
+      ...(loop.spawnedAt === undefined ? {} : { startedAt: loop.spawnedAt }),
+      ...(loop.endedAt === undefined ? {} : { endedAt: loop.endedAt }),
     })
   }
   return rows
@@ -457,4 +508,28 @@ export function bandSummary(rows: Row[]) {
   const gates = countGates([...new Set(rows.flatMap(row => row.gates))])
   const running = rows.filter(row => !row.isMain && row.status === 'running').length + rows.reduce((sum, row) => sum + row.tasks.filter(task => task.status === 'running').length, 0)
   return { count: running, ...gates }
+}
+
+export type LaneLoop = { start?: number; end?: number; isRunning: boolean }
+
+// Each loop's cells on one clock from the earliest start to now (or the last end): a running loop reaches the right edge, a loop with no start begins at the clock's, a zero-length one still takes a cell.
+export function laneCells(loops: LaneLoop[], now: number, width: number): { from: number; to: number }[] {
+  const cells = Math.max(1, width)
+  const starts = loops.flatMap(loop => (loop.start === undefined ? [] : [loop.start]))
+  const first = starts.length > 0 ? Math.min(...starts) : now
+  const endOf = (loop: LaneLoop) => (loop.isRunning ? now : (loop.end ?? loop.start ?? first))
+  const last = Math.max(first + 1, ...loops.map(endOf))
+  const at = (time: number) => ((time - first) / (last - first)) * cells
+  return loops.map(loop => {
+    const from = Math.min(cells - 1, Math.max(0, Math.floor(at(loop.start ?? first))))
+    return { from, to: loop.isRunning ? cells : Math.min(cells, Math.max(from + 1, Math.round(at(endOf(loop))))) }
+  })
+}
+
+export const NAME_CELLS = 16
+
+// The timeline row's columns, which add up to the width: lead and cursor, mark, name, lane, duration, one trailing space, with a space between each.
+export function timelineCols(width: number, durCells: number) {
+  const name = width >= 34 ? NAME_CELLS : Math.max(6, width - 18)
+  return { name, dur: durCells, lane: Math.max(1, width - (2 + 1 + 1 + name + 1 + 1 + durCells + 1)) }
 }

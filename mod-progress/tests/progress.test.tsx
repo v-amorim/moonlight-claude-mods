@@ -2,8 +2,10 @@
 // Tests gates parsing, loop rows, context figures, stop lines, workflow agents and pane drawing.
 import { expect, mock, test } from 'claude-code/testing'
 
-import { applyCall, applyStep, finishAgent, applyTask, bandSummary, buildRows, emptySnap, formatElapsed, formatTokens, gatesOf, gatesStemIn, gaugeColor, windowFor, isGatesPath, modelInfo, parseGates, settle, stepOf, type Snap } from '../hooks/progress'
+import { applyCall, applyStep, laneCells, timelineCols, finishAgent, applyTask, bandSummary, buildRows, emptySnap, formatElapsed, formatTokens, cutText, gatesOf, laneLabels, gatesStemIn, gaugeColor, groupGates, mergeStamps, windowFor, isGatesPath, modelInfo, parseGates, settle, stepOf, stripCells, stripOrder, type Snap } from '../hooks/progress'
 import { resumeAt, stopLine, stopOf } from '../hooks/stop'
+import { cardFill } from '../hooks/look'
+import text from '../hooks/text'
 import { THEME } from '../hooks/theme'
 
 const GATES = [
@@ -73,18 +75,20 @@ function stubEngine(on: On, agents: unknown[] = [AGENT], opened: string[] = [], 
   })
   // With no HOME and no repo, the folder is /.claude/gates/<cwd name>/<session id>.
   const folder = `/.claude/gates/${world.repo ?? 'w'}/sid-1`
+  // A test that turns the bridge on gives the mod a HOME, which moves the gates folder under it.
+  const gate = (path: string) => neutral(path).replace(/^\/home\/u(?=\/\.claude\/gates)/, '')
   on('fs.read', (_$, e) => {
     if (neutral(e.path) === '/home/u/.claude/mods-data/mod-progress/bridge/sid-1.jsonl') return { value: bridge.text }
     world.reads?.push(neutral(e.path))
-    const path = neutral(e.path).replace(`${folder}/`, '')
+    const path = gate(e.path).replace(`${folder}/`, '')
     if (path in files) return { value: files[path]! }
     throw new Error('ENOENT')
   })
-  on('fs.exists', (_$, e) => ({ value: neutral(e.path) === folder || (neutral(e.path).startsWith(`${folder}/`) && neutral(e.path).replace(`${folder}/`, '') in files) || (world.empty ?? []).some(name => neutral(e.path) === `/.claude/gates/${name}/sid-1`) }))
+  on('fs.exists', (_$, e) => ({ value: gate(e.path) === folder || (gate(e.path).startsWith(`${folder}/`) && gate(e.path).replace(`${folder}/`, '') in files) || (world.empty ?? []).some(name => gate(e.path) === `/.claude/gates/${name}/sid-1`) }))
   on('fs.list', (_$, e) => ({
-    value: neutral(e.path) === '/.claude/gates'
+    value: gate(e.path) === '/.claude/gates'
       ? [...(world.empty ?? []), 'w', world.repo ?? 'w'].map(name => ({ name, kind: 'dir', size: 0, mtimeMs: 0, isLink: false }))
-      : neutral(e.path) === `${folder}/gates`
+      : gate(e.path) === `${folder}/gates`
         ? Object.keys(files).filter(path => path.startsWith('gates/')).map(path => ({ name: path.slice('gates/'.length), kind: 'file', size: 0, mtimeMs: 0, isLink: false }))
         : [],
   }))
@@ -110,7 +114,7 @@ const BAND = { plugin: 'mod-progress', surface: 'terminal', component: 'AbovePro
 
 test('gates: met needs a checked box with real evidence, ABANDON gives one up', () => {
   const gates = parseGates(GATES)
-  expect(gates.map(gate => [gate.id, gate.state])).toEqual([['G1', 'met'], ['G2', 'open'], ['G3', 'open'], ['G4', 'abandoned']])
+  expect(gates.map(gate => [gate.id, gate.state])).toEqual([['G1', 'met'], ['G2', 'pending'], ['G3', 'open'], ['G4', 'abandoned']])
   expect(gates[0]!.text).toBe('renders end to end')
   expect(isGatesPath('C:\\w\\gates\\leaf-1.md')).toBe(true)
   expect(isGatesPath('/w/GATES.md')).toBe(true)
@@ -231,8 +235,7 @@ test('the pane marks a finished ledger of gates files as phase done and names th
   expect(closed).toContain('phase done')
   await pointerOn(ui, { in: 'loops', type: 'down', x: 3, y: 0, button: 'left' })
   const open = JSON.stringify(await ui.drawn({ in: 'loops' }))
-  expect(open).toContain('phase-b/G1 done')
-  expect(open).toContain('ultimate/G1 done')
+  expect(open).toContain('phase-b/G1 ultimate/G1')
   await ui.unmount()
 })
 
@@ -303,8 +306,9 @@ test('the pane draws a card per loop and a click opens its gates', async ($, on)
   expect(list).not.toContain('G1')
   await pointerOn(ui, { in: 'loops', type: 'down', x: 3, y: 0, button: 'left' })
   const open = JSON.stringify(await ui.drawn({ in: 'loops' }))
-  expect(open).toContain('G1 renders end to end')
-  expect(open).toContain('abandoned')
+  expect(open).toContain('G3 still open')
+  expect(open).toContain('Waiting on evidence')
+  expect(open).toContain('G4 given up')
   await pointerOn(ui, { in: 'loops', type: 'down', x: 3, y: 0, button: 'left' })
   expect(JSON.stringify(await ui.drawn({ in: 'loops' }))).not.toContain('G1')
   await ui.unmount()
@@ -412,7 +416,7 @@ test('hovering the band pill shows its tip in the tip row, and a card shows its 
   const band = await $.ui.mount(BAND)
   expect(await band.find({ type: 'Text', text: /running, gates|every agent with/ })).toBeUndefined()
   await pointerOn(band, { in: 'menu-entry-progress', type: 'enter', x: 1, y: 0, button: 'left' })
-  expect((await band.find({ type: 'Text', text: /running, gates|every agent with/ }))?.text).toMatch(/^ (\d+ running, gates \d+\/\d+|every agent with its context, tokens and gates)$/)
+  expect((await band.find({ type: 'Text', text: /running, gates|every agent with/ }))?.text).toMatch(/^ (\d+ running, gates \d+\/\d+( · \d+ waiting)?|every agent with its context, tokens and gates)$/)
   expect((await band.find({ type: 'Text', text: /^Progress:$/ }))?.text).toBe('Progress:')
   await pointerOn(band, { in: 'menu-entry-progress', type: 'leave', x: 1, y: 0, button: 'left' })
   expect(await band.find({ type: 'Text', text: /running, gates|every agent with/ })).toBeUndefined()
@@ -685,8 +689,8 @@ test('a subagent with no gates file shows its own task list as gates, and the ma
   expect(JSON.stringify(await pane.drawn({ in: 'loops' }))).toContain('1/2')
   await pointerOn(pane, { in: 'loops', type: 'down', x: 3, y: 3, button: 'left' })
   const open = JSON.stringify(await pane.drawn({ in: 'loops' }))
-  expect(open).toContain('#1 scan files')
   expect(open).toContain('#2 write summary')
+  expect(open).toContain('    #1')
   expect(open).not.toContain('No gates yet')
   await pane.unmount()
 })
@@ -819,4 +823,366 @@ test('without any stop record, the turn ending alone clears busy, drops the step
   await $.turn.complete({ turnId: 't', reason: 'answer' } as never)
   const saved = store.get('snap:sid-1') as Snap
   expect([saved.busy, saved.main.step, saved.agents.a1?.endedAt]).toEqual([false, undefined, 14 * 60 * 1000])
+})
+
+const OPEN = (id: string) => `- [ ] ${id}: not yet\n      EVIDENCE: pending\n`
+const WAITING = (id: string) => `- [x] ${id}: ticked early\n      EVIDENCE: pending\n`
+const DROPPED = (id: string, what: string) => `- [ ] ${id}: ${what}\nABANDON: ${id} no\n`
+const MIXED = [MET('G1'), WAITING('G2'), OPEN('G3'), DROPPED('G4', 'desktop drawing')].join('\n')
+const MINUTE = 60 * 1000
+
+test('gates state: a checked box with pending or missing evidence is pending, not met', () => {
+  const state = (source: string) => parseGates(source)[0]!.state
+  expect(state('- [x] G1: a\n      EVIDENCE: pending\n')).toBe('pending')
+  expect(state('- [X] G1: a\n      EVIDENCE: PENDING\n')).toBe('pending')
+  expect(state('- [x] G1: a\n')).toBe('pending')
+  expect(state('- [x] G1: a\n      EVIDENCE: ok 3 passed\n')).toBe('met')
+  expect(state('- [ ] G1: a\n      EVIDENCE: ok 3 passed\n')).toBe('open')
+})
+
+test('gates state: an ABANDON line wins over a checked box, and a pending gate is not a finished phase', () => {
+  expect(parseGates('- [x] G1: a\nABANDON: G1 no\n')[0]!.state).toBe('abandoned')
+  const snap = emptySnap('s')
+  snap.gates.GATES = parseGates(`${MET('G1')}\n${WAITING('G2')}`)
+  expect(buildRows(snap, [], undefined, 0, 'main', 'x', undefined)[0]!.isPhaseDone).toBe(false)
+})
+
+for (const icons of ['nerd', 'safe'] as const) {
+  test(`gates strip: one cell per gate, met first, colored by state (${icons})`, { options: { icons } }, async ($, on) => {
+    stubEngine(on, [], [], { files: { 'GATES.md': MIXED } })
+    await $.session.start({ cwd: '/w' } as never)
+    const ui = await $.ui.mount(PANE)
+    const pill = JSON.stringify(await ui.drawn({ in: 'loops' }))
+    const cells = [
+      [icons === 'nerd' ? String.fromCodePoint(0xf0c8) : '■', THEME.ok],
+      [icons === 'nerd' ? String.fromCodePoint(0xf0c8) : '■', THEME.warn],
+      [icons === 'nerd' ? String.fromCodePoint(0xf096) : '□', THEME.muted],
+      [icons === 'nerd' ? String.fromCodePoint(0xf00d) : '×', THEME.alert],
+    ] as const
+    const text = pill.replace(/\\"/g, '"')
+    for (const [glyph, color] of cells) expect(text.includes(glyph) && text.includes(color)).toBe(true)
+    const order = cells.map(([glyph, color]) => text.indexOf(`"${glyph}"`, text.indexOf(color)))
+    expect(order.every(at => at >= 0)).toBe(true)
+    expect(text).toContain('1/4')
+    await ui.unmount()
+  })
+}
+
+test('gates strip: overflow past the row scales the cells to the room, met share first, and draws no +N', async ($, on) => {
+  const many = [...Array.from({ length: 32 }, (_, at) => MET(`M${at + 1}`)), ...Array.from({ length: 18 }, (_, at) => OPEN(`G${at + 1}`))].join('\n')
+  stubEngine(on, [], [], { files: { 'GATES.md': many } })
+  await $.session.start({ cwd: '/w' } as never)
+  const ui = await $.ui.mount(PANE)
+  const text = JSON.stringify(await ui.drawn({ in: 'loops' }))
+  const open = (text.match(/□/g) ?? []).length - 3
+  expect(open).toBeGreaterThan(0)
+  expect(open).toBeLessThan(18)
+  expect(text).not.toMatch(/"\+\d+"/)
+  expect(text).toContain('32/50')
+  await ui.unmount()
+})
+
+test('timeline view: two agents that share a name read by what they do; a unique name and main keep theirs', () => {
+  const row = (name: string, description: string, isMain = false) => ({ isMain, name, description })
+  expect(laneLabels([row('main', 'this session', true), row('general-purpose', 'Reply with one'), row('general-purpose', 'Sleep then reply'), row('finder', 'Find callers'), row('general-purpose', ' ')]))
+    .toEqual(['main', 'Reply with one', 'Sleep then reply', 'finder', 'general-purpose'])
+})
+
+test('gates strip: stripCells keeps one cell per gate while they fit, then shares the room by state', () => {
+  const gates = (met: number, waiting: number, open: number) =>
+    parseGates([...Array.from({ length: met }, (_, at) => MET(`M${at}`)), ...Array.from({ length: waiting }, (_, at) => WAITING(`W${at}`)), ...Array.from({ length: open }, (_, at) => OPEN(`O${at}`))].join('\n'))
+  expect(stripCells(gates(2, 1, 1), 8)).toEqual(['met', 'met', 'pending', 'open'])
+  expect(stripCells(gates(32, 0, 18), 10)).toEqual([...Array(6).fill('met'), ...Array(4).fill('open')])
+  const nearlyDone = stripCells(gates(98, 1, 1), 10)
+  expect(nearlyDone).toHaveLength(10)
+  expect(nearlyDone.filter(state => state === 'met')).toHaveLength(8)
+  expect(nearlyDone).toContain('pending')
+  expect(nearlyDone).toContain('open')
+  expect(stripCells(gates(5, 0, 5), 0)).toEqual([])
+})
+
+test('gates strip: cells fill from the left, met then waiting, open and dropped, so a cut strip still shows what is done', () => {
+  const gates = parseGates(['- [ ] G1: open', '- [x] G2: met', '      EVIDENCE: ok', '- [x] G3: waiting', '      EVIDENCE: pending', 'ABANDON: G4 gone', '- [ ] G4: dropped', '- [x] G5: met too', '      EVIDENCE: ok'].join('\n'))
+  expect(stripOrder(gates).map(gate => gate.id)).toEqual(['G2', 'G5', 'G3', 'G1', 'G4'])
+})
+
+test('gates detail: an expanded card groups open, waiting, met and dropped, skipping empty groups', async ($, on) => {
+  const { clock } = stubEngine(on, [], [], { files: { 'GATES.md': MIXED } })
+  await $.session.start({ cwd: '/w' } as never)
+  await clock.advance(12 * MINUTE)
+  const ui = await $.ui.mount(PANE)
+  await pointerOn(ui, { in: 'loops', type: 'down', x: 3, y: 0, button: 'left' })
+  const text = JSON.stringify(await ui.drawn({ in: 'loops' }))
+  const at = ['Open', 'Waiting on evidence', 'Met', 'Dropped'].map(label => text.indexOf(`${label}"`))
+  expect(at.every(each => each >= 0)).toBe(true)
+  expect([...at].sort((a, b) => a - b)).toEqual(at)
+  expect(text).toContain('G3 not yet')
+  expect(text).toContain('G2 ticked early')
+  expect(text).toContain('G1')
+  expect(text).toContain('G4 desktop drawing')
+  expect(text).not.toContain('G1 done')
+  expect(text).toContain('12m')
+  await ui.unmount()
+})
+
+test('gates detail: a group with no gates is skipped and waiting time counts from the check', async ($, on) => {
+  const files = { 'GATES.md': `${OPEN('G1')}\n${OPEN('G2')}` }
+  const { clock } = stubEngine(on, [], [], { files })
+  on('turn.complete', () => ({ text: '' }) as never)
+  await $.session.start({ cwd: '/w' } as never)
+  await clock.advance(5 * MINUTE)
+  files['GATES.md'] = `${OPEN('G1')}\n${WAITING('G2')}`
+  await $.turn.complete({ turnId: 't', reason: 'answer' } as never)
+  await clock.advance(3 * MINUTE)
+  const ui = await $.ui.mount(PANE)
+  await pointerOn(ui, { in: 'loops', type: 'down', x: 3, y: 0, button: 'left' })
+  const text = JSON.stringify(await ui.drawn({ in: 'loops' }))
+  expect(text).not.toContain('Met"')
+  expect(text).not.toContain('Dropped"')
+  expect(text).toContain('8m')
+  expect(text).toContain('3m')
+  await ui.unmount()
+})
+
+test('gates detail: met and dropped fold to one line, cut with an ellipsis when long', async ($, on) => {
+  const met = Array.from({ length: 40 }, (_, at) => MET(`G${at + 1}`)).join('\n')
+  stubEngine(on, [], [], { files: { 'GATES.md': `${met}\n${DROPPED('G99', 'a long reason that cannot fit inside the card width at all')}` } })
+  await $.session.start({ cwd: '/w' } as never)
+  const ui = await $.ui.mount(PANE)
+  await pointerOn(ui, { in: 'loops', type: 'down', x: 3, y: 0, button: 'left' })
+  const text = JSON.stringify(await ui.drawn({ in: 'loops' }))
+  expect(text).toContain('G1 G2 G3')
+  expect(text).toContain('…')
+  expect(text).toContain('G99 a long')
+  expect(cutText('abcdef', 4)).toBe('abc…')
+  expect(cutText('abc', 4)).toBe('abc')
+  await ui.unmount()
+})
+
+test('gates detail: groupGates orders the groups and drops the empty ones', () => {
+  const gates = parseGates(MIXED)
+  expect(groupGates(gates).map(group => [group.state, group.gates.length])).toEqual([['open', 1], ['pending', 1], ['met', 1], ['abandoned', 1]])
+  expect(groupGates(parseGates(MET('G1'))).map(group => group.state)).toEqual(['met'])
+})
+
+test('gates stamps: a re-read keeps first seen, and changedAt moves only when the state changes', () => {
+  const first = mergeStamps(undefined, parseGates(`${OPEN('G1')}\n${OPEN('G2')}`), 100)
+  expect(first.map(gate => [gate.firstSeenAt, gate.changedAt])).toEqual([[100, 100], [100, 100]])
+  const second = mergeStamps(first, parseGates(`${OPEN('G1')}\n${WAITING('G2')}\n${OPEN('G3')}`), 500)
+  expect(second.map(gate => [gate.id, gate.firstSeenAt, gate.changedAt])).toEqual([['G1', 100, 100], ['G2', 100, 500], ['G3', 500, 500]])
+})
+
+test('gates stamps: gates of another file with the same id keep their own, and a saved copy carries on after a reload', () => {
+  const a = mergeStamps(undefined, parseGates(OPEN('G1')).map(gate => ({ ...gate, file: 'a' })), 10)
+  const both = mergeStamps(a, [...parseGates(OPEN('G1')).map(gate => ({ ...gate, file: 'a' })), ...parseGates(OPEN('G1')).map(gate => ({ ...gate, file: 'b' }))], 90)
+  expect(both.map(gate => [gate.file, gate.firstSeenAt])).toEqual([['a', 10], ['b', 90]])
+  const reloaded = JSON.parse(JSON.stringify(both)) as typeof both
+  expect(mergeStamps(reloaded, parseGates(OPEN('G1')).map(gate => ({ ...gate, file: 'a' })), 900)[0]!.firstSeenAt).toBe(10)
+})
+
+test('gates stamps: the store keeps the stamps across re-reads', async ($, on) => {
+  const files = { 'GATES.md': `${OPEN('G1')}\n${OPEN('G2')}` }
+  const { store, clock } = stubEngine(on, [], [], { files })
+  on('turn.complete', () => ({ text: '' }) as never)
+  await $.session.start({ cwd: '/w' } as never)
+  const read = () => (store.get('snap:sid-1') as Snap).gates.GATES!.map(gate => [gate.id, gate.firstSeenAt, gate.changedAt])
+  expect(read()).toEqual([['G1', 14 * MINUTE, 14 * MINUTE], ['G2', 14 * MINUTE, 14 * MINUTE]])
+  await clock.advance(2 * MINUTE)
+  files['GATES.md'] = `${OPEN('G1')}\n${MET('G2')}`
+  await $.turn.complete({ turnId: 't', reason: 'answer' } as never)
+  expect(read()).toEqual([['G1', 14 * MINUTE, 14 * MINUTE], ['G2', 14 * MINUTE, 16 * MINUTE]])
+})
+
+test('gates refresh: a main turn completing re-reads a file a script changed', async ($, on) => {
+  const files = { 'GATES.md': OPEN('G1') }
+  const { store } = stubEngine(on, [], [], { files })
+  on('turn.complete', () => ({ text: '' }) as never)
+  await $.session.start({ cwd: '/w' } as never)
+  files['GATES.md'] = MET('G1')
+  await $.turn.complete({ turnId: 't', reason: 'answer' } as never)
+  expect((store.get('snap:sid-1') as Snap).gates.GATES!.map(gate => gate.state)).toEqual(['met'])
+})
+
+test('gates refresh: a Stop or SubagentStop record re-reads the files too', async ($, on) => {
+  const files = { 'GATES.md': OPEN('G1') }
+  const { store, bridge, feed } = stubEngine(on, [AGENT], [], { files })
+  bridge.on = true
+  await $.session.start({ cwd: '/w' } as never)
+  const states = () => (store.get('snap:sid-1') as Snap).gates.GATES!.map(gate => gate.state)
+  files['GATES.md'] = WAITING('G1')
+  await feed('Stop')
+  expect(states()).toEqual(['pending'])
+  files['GATES.md'] = MET('G1')
+  await feed('SubagentStop', { agent_id: 'a1', agent_type: '' })
+  expect(states()).toEqual(['met'])
+})
+
+test('gates refresh: the Progress tip adds how many gates wait on evidence', async ($, on) => {
+  stubEngine(on, [AGENT], [], { files: { 'GATES.md': MIXED } })
+  on('ui.render', ($$, e) => {
+    const { Text } = $$.ui.resolve(e)
+    return <Text>other mod</Text>
+  })
+  await $.session.start({ cwd: '/w' } as never)
+  const band = await $.ui.mount(BAND)
+  await pointerOn(band, { in: 'menu-entry-progress', type: 'enter', x: 1, y: 0, button: 'left' })
+  expect((await band.find({ type: 'Text', text: /running, gates/ }))?.text).toBe(' 1 running, gates 1/4 · 1 waiting')
+  await band.unmount()
+})
+
+const flat = (node: unknown): string => (typeof node === 'string' ? node : ((node as { children?: unknown[] }).children ?? []).map(flat).join(''))
+const lanesOf = (tree: unknown) => ((tree as { children: unknown[] }).children ?? []).map(flat)
+const paneAt = (bodyColumns: number) => ({ ...(PANE as object), props: { ...(PANE as { props: object }).props, bodyColumns } }) as never
+const A2 = { id: 'a2', name: 'finder', description: 'Find callers', type: 'Explore', status: 'completed' }
+const A3 = { id: 'a3', name: 'a-rather-long-agent-name-here', description: 'Break', type: 'Explore', status: 'failed' }
+
+// The seeded session runs 14 minutes: main from 0, a1 from 1s and running, a2 from 2m to 5m, a3 from 6m to 7m.
+function withLanes(on: On, options: { files?: Record<string, string> } = {}) {
+  const engine = stubEngine(on, [AGENT, A2, A3], [], options.files ? { files: options.files } : {})
+  const snap = engine.store.get('snap:sid-1') as Snap
+  snap.agents.a2 = { tokens: 0, context: 0, spawnedAt: 2 * MINUTE, endedAt: 5 * MINUTE }
+  snap.agents.a3 = { tokens: 0, context: 0, spawnedAt: 6 * MINUTE, endedAt: 7 * MINUTE, isFailed: true }
+  return engine
+}
+
+test('timeline lanes: the clock starts at the earliest start and a running loop reaches the right edge', () => {
+  const lanes = laneCells([{ start: 1000, isRunning: true }, { start: 2000, end: 5000, isRunning: false }, { start: 0, end: 4000, isRunning: false }], 10000, 10)
+  expect(lanes).toEqual([{ from: 1, to: 10 }, { from: 2, to: 5 }, { from: 0, to: 4 }])
+  expect(Math.min(...lanes.map(lane => lane.from))).toBe(0)
+})
+
+test('timeline lanes: a zero-length loop still takes one cell, even at the far edge', () => {
+  expect(laneCells([{ start: 0, end: 9000, isRunning: false }, { start: 3000, end: 3000, isRunning: false }, { start: 9000, end: 9000, isRunning: false }], 9000, 20)).toEqual([{ from: 0, to: 20 }, { from: 6, to: 7 }, { from: 19, to: 20 }])
+  expect(laneCells([{ start: 500, isRunning: true }], 500, 8)).toEqual([{ from: 0, to: 8 }])
+})
+
+test('timeline lanes: with nothing running the clock ends at the last end, and a loop with no start begins at the clock start', () => {
+  expect(laneCells([{ start: 0, end: 5000, isRunning: false }, { end: 2500, isRunning: false }], 90000, 10)).toEqual([{ from: 0, to: 10 }, { from: 0, to: 5 }])
+  expect(laneCells([], 5, 10)).toEqual([])
+  expect(laneCells([{ start: 0, isRunning: true }], 100, 0)).toEqual([{ from: 0, to: 1 }])
+})
+
+test('timeline lanes: the columns add up to the pane width at 40 and 100 columns', () => {
+  for (const width of [34, 94]) {
+    const cols = timelineCols(width, 5)
+    expect(2 + 1 + 1 + cols.name + 1 + cols.lane + 1 + cols.dur + 1).toBe(width)
+  }
+  expect(timelineCols(34, 5).name).toBe(16)
+})
+
+test('timeline switch: Cards is chosen at first, the choice bar offers both, and a click on Timeline swaps the view and keeps it', async ($, on) => {
+  const { store } = withLanes(on)
+  await $.session.start({ cwd: '/w' } as never)
+  const ui = await $.ui.mount(PANE)
+  const bar = JSON.stringify(await ui.drawn())
+  expect(bar).toContain(`"label":"${text.viewCards}"`)
+  expect(bar).toContain(`"label":"${text.viewTimeline}"`)
+  expect(JSON.stringify(await ui.drawn())).toContain('"module":"hooks/loops.tsx"')
+  await pointerOn(ui, { in: 'view-timeline', type: 'down', x: 1, y: 0, button: 'left' })
+  expect((store.get('snap:sid-1') as Snap).view).toBe('timeline')
+  expect(JSON.stringify(await ui.drawn())).toContain('"module":"hooks/timeline.tsx"')
+  await ui.unmount()
+  const again = await $.ui.mount(PANE)
+  expect(JSON.stringify(await again.drawn())).toContain('"module":"hooks/timeline.tsx"')
+  await pointerOn(again, { in: 'view-cards', type: 'down', x: 1, y: 0, button: 'left' })
+  expect((store.get('snap:sid-1') as Snap).view).toBe('cards')
+  expect(JSON.stringify(await again.drawn())).toContain('"module":"hooks/loops.tsx"')
+  await again.unmount()
+})
+
+for (const icons of ['nerd', 'safe'] as const) {
+  for (const columns of [40, 100]) {
+    test(`timeline view: one row per loop in card order, each within the pane width at ${columns} columns (${icons})`, { options: { icons } }, async ($, on) => {
+      withLanes(on)
+      await $.session.start({ cwd: '/w' } as never)
+      const ui = await $.ui.mount(paneAt(columns))
+      await pointerOn(ui, { in: 'view-timeline', type: 'down', x: 1, y: 0, button: 'left' })
+      const tree = await ui.drawn({ in: 'timeline' })
+      const rows = lanesOf(tree)
+      expect(rows).toHaveLength(4)
+      expect(rows.every(row => [...row].length === columns - 6)).toBe(true)
+      expect(rows.map(row => row.includes('main') || row.includes('leaf-1.1.1') || row.includes('finder') || row.includes('a-rather-long'))).toEqual([true, true, true, true])
+      expect(rows[0]).toContain('main')
+      expect(rows[1]).toContain('leaf-1.1.1')
+      expect(rows[3]).toContain('…')
+      expect(rows.every(row => row.includes('━'))).toBe(true)
+      expect(rows.slice(2).every(row => row.includes('·'))).toBe(true)
+      expect(rows[0]).toContain('14m')
+      expect(rows[2]).toContain('3m')
+      const drawn = JSON.stringify(tree)
+      for (const color of [THEME.ok, THEME.accent, THEME.alert, THEME.border]) expect(drawn).toContain(color)
+      expect(rows[1]).toContain(icons === 'nerd' ? String.fromCodePoint(0xf110) : '↻')
+      await ui.unmount()
+    })
+  }
+}
+
+test('timeline view: an idle main loop ends its lane at its last turn, and a running agent reaches now', async ($, on) => {
+  const { store, clock } = withLanes(on)
+  on('turn.complete', () => ({ text: '' }) as never)
+  const snap = store.get('snap:sid-1') as Snap
+  snap.busy = false
+  snap.main.endedAt = 7 * MINUTE
+  await $.session.start({ cwd: '/w' } as never)
+  await clock.advance(0)
+  const ui = await $.ui.mount(paneAt(100))
+  await pointerOn(ui, { in: 'view-timeline', type: 'down', x: 1, y: 0, button: 'left' })
+  const rows = lanesOf(await ui.drawn({ in: 'timeline' }))
+  const span = (row: string) => [...row].filter(char => char === '━').length
+  expect(span(rows[0]!)).toBeLessThan(span(rows[1]!))
+  expect(rows[1]!.indexOf('·')).toBeLessThan(rows[1]!.indexOf('━') + 1)
+  await ui.unmount()
+})
+
+test('timeline click: the row under the pointer lights accent on lifted, and a click selects that loop like its card', async ($, on) => {
+  const { store } = withLanes(on, { files: { 'GATES.md': MIXED, 'gates/leaf-1.1.1.md': OPEN('L1') } })
+  await $.session.start({ cwd: '/w' } as never)
+  const ui = await $.ui.mount(PANE)
+  await pointerOn(ui, { in: 'view-timeline', type: 'down', x: 1, y: 0, button: 'left' })
+  const rowOf = async (at: number) => JSON.stringify((await ui.drawn({ in: 'timeline' }) as { children: unknown[] }).children[at])
+  expect(await rowOf(1)).toContain(`"backgroundColor":"${cardFill()}"`)
+  await pointerOn(ui, { in: 'timeline', type: 'move', x: 5, y: 1, button: 'left' })
+  const lit = await rowOf(1)
+  expect(lit).toContain(`"backgroundColor":"${THEME.lifted}"`)
+  expect(lit).toMatch(new RegExp(`"color":"${THEME.accent}","bold":false},"children":\\["leaf-1.1.1`))
+  expect(await rowOf(0)).not.toContain(THEME.lifted)
+  await pointerOn(ui, { in: 'timeline', type: 'leave', x: 5, y: 1, button: 'left' })
+  expect(await rowOf(1)).not.toContain(THEME.lifted)
+  await pointerOn(ui, { in: 'timeline', type: 'down', x: 5, y: 1, button: 'left' })
+  expect((store.get('snap:sid-1') as Snap).expanded).toBe('a1')
+  expect(JSON.stringify(await ui.drawn())).toContain(text.openTranscript)
+  await pointerOn(ui, { in: 'view-cards', type: 'down', x: 1, y: 0, button: 'left' })
+  expect(JSON.stringify(await ui.drawn({ in: 'loops' }))).toContain('L1 not yet')
+  await ui.unmount()
+})
+
+test('timeline click: a second click on the selected lane closes the selection, as on a card', async ($, on) => {
+  const { store } = withLanes(on)
+  await $.session.start({ cwd: '/w' } as never)
+  const ui = await $.ui.mount(PANE)
+  await pointerOn(ui, { in: 'view-timeline', type: 'down', x: 1, y: 0, button: 'left' })
+  await pointerOn(ui, { in: 'timeline', type: 'down', x: 5, y: 2, button: 'left' })
+  expect((store.get('snap:sid-1') as Snap).expanded).toBe('a2')
+  await pointerOn(ui, { in: 'timeline', type: 'down', x: 5, y: 2, button: 'left' })
+  expect((store.get('snap:sid-1') as Snap).expanded).toBe('')
+  await ui.unmount()
+})
+
+test('timeline tip: hovering a lane or either switch option shows its tip in the pane footer', async ($, on) => {
+  withLanes(on)
+  await $.session.start({ cwd: '/w' } as never)
+  const ui = await $.ui.mount(PANE)
+  await pointerOn(ui, { in: 'view-timeline', type: 'enter', x: 1, y: 0, button: 'left' })
+  expect(await ui.find({ type: 'Text', text: new RegExp(text.tipViewTimeline) })).toBeDefined()
+  await pointerOn(ui, { in: 'view-timeline', type: 'leave', x: 1, y: 0, button: 'left' })
+  await pointerOn(ui, { in: 'view-cards', type: 'enter', x: 1, y: 0, button: 'left' })
+  expect(await ui.find({ type: 'Text', text: new RegExp(text.tipViewCards) })).toBeDefined()
+  await pointerOn(ui, { in: 'view-cards', type: 'leave', x: 1, y: 0, button: 'left' })
+  await pointerOn(ui, { in: 'view-timeline', type: 'down', x: 1, y: 0, button: 'left' })
+  expect(await ui.find({ type: 'Text', text: new RegExp(text.tipLane) })).toBeUndefined()
+  await pointerOn(ui, { in: 'timeline', type: 'move', x: 5, y: 1, button: 'left' })
+  expect(await ui.find({ type: 'Text', text: new RegExp(text.tipLane) })).toBeDefined()
+  await pointerOn(ui, { in: 'timeline', type: 'leave', x: 5, y: 1, button: 'left' })
+  expect(await ui.find({ type: 'Text', text: new RegExp(text.tipLane) })).toBeUndefined()
+  await ui.unmount()
 })
