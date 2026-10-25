@@ -172,10 +172,17 @@ const labelNode = (node: Drawn): Drawn | undefined => {
 const labelOf = async (band: any, key: string): Promise<string> => labelNode(await band.drawn({ in: key }))?.children?.join('') as string
 const colorOf = async (band: any, key: string): Promise<string> => labelNode(await band.drawn({ in: key }))?.props.color
 
+// Cancel asks why first: a click opens the field, and Enter on it, empty or not, ends the hold.
+const REASON = 'blast-reason'
+const endHold = async (band: any, reason = '') => {
+  await click(band, 'blast-cancel')
+  await band.input({ key: REASON, text: reason, kind: 'submit' })
+}
+
 // Answers the hold on screen with Cancel.
 const cancel = async ($: any) => {
   const band = await $.ui.mount({ plugin: PLUGIN, surface: 'terminal', ...BAND })
-  await click(band, 'blast-cancel')
+  await endHold(band)
   await band.unmount()
 }
 
@@ -194,7 +201,7 @@ async function withCard($: any, on: any, command: string, setup: World, check: (
   await holding(seen)
   const mounted = await $.ui.mount({ plugin: PLUGIN, surface: 'terminal', ...band })
   await check(mounted, seen)
-  await click(mounted, 'blast-cancel')
+  await endHold(mounted)
   await call
   await mounted.unmount()
 }
@@ -246,7 +253,7 @@ test('other kinds speak plainly: overwrite, drop table, and a check with no prev
     for (let tries = 0; tries < 100 && !(await $.ui.mount({ plugin: PLUGIN, surface: 'terminal', ...BAND }).then(async band => ((await textOf(band, heading)) ? (await band.unmount(), true) : (await band.unmount(), false)))); tries++) await sleep(10)
     const band = await $.ui.mount({ plugin: PLUGIN, surface: 'terminal', ...BAND })
     expect(await labelOf(band, 'blast-run')).toBe(run)
-    await click(band, 'blast-cancel')
+    await endHold(band)
     await call
     await band.unmount()
   }
@@ -360,6 +367,8 @@ test('a digit typed into the empty prompt answers the hold: 1 cancels, 3 runs', 
   await holding(seen)
   let band = await $.ui.mount({ plugin: PLUGIN, surface: 'terminal', ...BAND })
   await band.press({ key: 'blast-cancel-hotkey' })
+  expect(await band.find({ key: REASON })).toBeDefined()
+  await band.input({ key: REASON, text: '', kind: 'submit' })
   expect(JSON.stringify(await first)).toContain('pressed Cancel')
   await band.unmount()
 
@@ -370,6 +379,105 @@ test('a digit typed into the empty prompt answers the hold: 1 cancels, 3 runs', 
   await second
   await band.unmount()
   expect(seen.ran).toBe(1)
+})
+
+// Holds a command, opens the reason field with Cancel, and hands over the band.
+async function asking($: any, on: any) {
+  const { seen } = world(on)
+  const call = $.tool.call({ tool: 'Bash', command: 'rm -rf build' })
+  await holding(seen)
+  const band = await $.ui.mount({ plugin: PLUGIN, surface: 'terminal', ...BAND })
+  await click(band, 'blast-cancel')
+  return { seen, call, band }
+}
+
+test('Cancel opens the reason field in place of the actions and draws no hotkey buttons', async ($, on) => {
+  const { seen, call, band } = await asking($, on)
+  const field = await band.find({ key: REASON })
+  expect(field).toBeDefined()
+  expect(JSON.stringify(await band.drawn())).toContain('Why? Enter sends, Enter alone skips')
+  for (const key of ['blast-cancel', 'blast-details', 'blast-run', 'blast-cancel-hotkey', 'blast-details-hotkey', 'blast-run-hotkey']) expect(await band.find({ key })).toBeUndefined()
+  expect(await labelOf(band, 'blast-reason-send')).toBe(' skip ')
+  expect(await labelOf(band, 'blast-reason-back')).toBe(' back to the choices ')
+  // The head line and the sentence stay above the field.
+  expect(await textOf(band, /Delete 2 files/)).toBeDefined()
+  expect(await textOf(band, /Removes the folder/)).toBeDefined()
+  expect(seen.ran).toBe(0)
+  await band.input({ key: REASON, text: '', kind: 'submit' })
+  await call
+  await band.unmount()
+})
+
+test('typing a reason turns skip into send, and Enter with text denies with the quoted reason', async ($, on) => {
+  const { seen, call, band } = await asking($, on)
+  await band.input({ key: REASON, text: 'wrong folder, it is "dist2"', kind: 'change' })
+  await band.redraw()
+  expect(await labelOf(band, 'blast-reason-send')).toBe(' send ')
+  await band.input({ key: REASON, text: 'wrong folder, it is "dist2"', kind: 'submit' })
+  const result = JSON.stringify(await call)
+  await band.unmount()
+
+  expect(seen.ran).toBe(0)
+  expect(result).toContain('the person cancelled and said why: \\"wrong folder, it is \\\\\\"dist2\\\\\\"\\".')
+  expect(result).toContain('Reason: Recursive deletion')
+  expect(result).toContain('Do not retry it')
+  expect(result).not.toContain('pressed Cancel')
+})
+
+test('Enter on an empty field denies as before, with no reason', async ($, on) => {
+  const { call, band } = await asking($, on)
+  await band.input({ key: REASON, text: '   ', kind: 'submit' })
+  const result = JSON.stringify(await call)
+  await band.unmount()
+
+  expect(result).toContain('the person pressed Cancel. Reason: Recursive deletion')
+  expect(result).not.toContain('said why')
+})
+
+test('Esc back returns to the actions and decides nothing', async ($, on) => {
+  const { seen, call, band } = await asking($, on)
+  await band.input({ key: REASON, text: 'half a thought', kind: 'change' })
+  await click(band, 'blast-reason-back')
+  expect(await band.find({ key: REASON })).toBeUndefined()
+  for (const key of ['blast-cancel', 'blast-details', 'blast-run']) expect(await band.find({ key })).toBeDefined()
+  expect(seen.ran).toBe(0)
+  let isDone = false
+  void call.then(() => (isDone = true))
+  await sleep(60)
+  expect(isDone).toBe(false)
+  await click(band, 'blast-run')
+  await call
+  await band.unmount()
+  expect(seen.ran).toBe(1)
+})
+
+test('a long or multi-line reason is flattened, stripped of control characters and cut', async ($, on) => {
+  const { call, band } = await asking($, on)
+  await band.input({ key: REASON, text: `first line\n\n  second\tline\u0007 ${'x'.repeat(400)}`, kind: 'submit' })
+  const result = (await call) as { deny: string }
+  await band.unmount()
+
+  const said = /said why: "(.*)"\. Reason:/.exec(result.deny)![1]!
+  expect(said.startsWith('first line second line xxx')).toBe(true)
+  expect(said).not.toMatch(/[\n\t\u0007]/)
+  expect(said.endsWith('...')).toBe(true)
+  expect([...said].length).toBeLessThanOrEqual(303)
+})
+
+test('digits typed in the reason field neither run nor cancel the hold', async ($, on) => {
+  const { seen, call, band } = await asking($, on)
+  await band.input({ key: REASON, text: '1 or 3', kind: 'change' })
+  await band.redraw()
+  expect(await band.find({ key: REASON })).toBeDefined()
+  expect(seen.ran).toBe(0)
+  let isDone = false
+  void call.then(() => (isDone = true))
+  await sleep(60)
+  expect(isDone).toBe(false)
+  await band.input({ key: REASON, text: '1 or 3', kind: 'submit' })
+  expect(JSON.stringify(await call)).toContain('said why: \\"1 or 3\\"')
+  await band.unmount()
+  expect(seen.ran).toBe(0)
 })
 
 test('Cancel refuses the call with a reason Claude reads, and the command never runs', async ($, on) => {
@@ -504,7 +612,7 @@ test('icons=nerd gives the Details pane a tab chip with the Nerd shell icon', { 
   expect(title).toContain(String.fromCodePoint(0xf120))
   expect(await labelOf(pane, 'mod-blast-radius-details-tab')).toBe(' Details ')
   await pane.unmount()
-  await click(band, 'blast-cancel')
+  await endHold(band)
   await call
   await band.unmount()
 })
@@ -520,7 +628,7 @@ test('icons=safe gives the Details pane a tab chip with the safe shell mark', { 
   expect(title).toContain('" $ "')
   expect(await labelOf(pane, 'mod-blast-radius-details-tab')).toBe(' Details ')
   await pane.unmount()
-  await click(band, 'blast-cancel')
+  await endHold(band)
   await call
   await band.unmount()
 })
@@ -583,7 +691,7 @@ test('Details is on every card, even a short one, and opens the read-only pane; 
   expect(seen.panes.has('blast-radius-list')).toBe(false)
   await click(band, 'blast-details')
   expect(seen.panes.has('blast-radius-list')).toBe(true)
-  await click(band, 'blast-cancel')
+  await endHold(band)
   await call
   await band.unmount()
   expect(seen.panes.has('blast-radius-list')).toBe(false)
@@ -610,7 +718,7 @@ test('Details sections: each piece of the command, why it was held, what it touc
   expect(await textOf(pane, /^No\. Deleted files skip/)).toBe('No. Deleted files skip the trash.')
   expect(await textOf(pane, new RegExp(`^cd ~ && rm -r`))).toBe(command)
   await pane.unmount()
-  await click(band, 'blast-cancel')
+  await endHold(band)
   await call
   await band.unmount()
 })
@@ -643,7 +751,7 @@ test('Details: a long script is one step, the full command is capped at twelve r
   expect(((await pane.findAll({ type: 'Text', text: /^console\.log/ })) as unknown[]).length).toBeLessThanOrEqual(12)
   expect(words(await pane.drawn({ in: 'blast-more' }))).toBe(' ▾ 31 more lines ')
   await pane.unmount()
-  await click(band, 'blast-cancel')
+  await endHold(band)
   await call
   await band.unmount()
 })
@@ -666,7 +774,7 @@ test('Details draws the full command in syntax colors, the risky part in alert, 
   expect(await textOf(pane, /^ ?--option ?$/)).toBeDefined()
   expect(await textOf(pane, /^command · --option/)).toBeUndefined()
   await pane.unmount()
-  await click(band, 'blast-cancel')
+  await endHold(band)
   await call
   await band.unmount()
 })
@@ -683,7 +791,7 @@ test('Details names where a rule comes from, for the person\u2019s own rules too
   const pane = await $.ui.mount({ plugin: PLUGIN, surface: 'terminal', ...DETAILS })
   expect(await textOf(pane, /^Held by: /)).toBe('Held by: Your rule, from ~/.claude/mods-data/mod-blast-radius/rules.json')
   await pane.unmount()
-  await click(band, 'blast-cancel')
+  await endHold(band)
   await call
   await band.unmount()
 })
@@ -958,7 +1066,7 @@ test('the Details and Settings tabs swap the panes, each closing the other, and 
   await click(settings, 'mod-blast-radius-details-tab')
   expect([...seen.panes]).toEqual(['blast-radius-list'])
   await settings.unmount()
-  await click(band, 'blast-cancel')
+  await endHold(band)
   await call
   await band.unmount()
 })
@@ -989,7 +1097,7 @@ test('the full command wraps between words, never inside one', async ($, on) => 
   const words = command.split(' ')
   for (const row of rows) for (const word of row.split(' ').filter(Boolean)) expect(words, row).toContain(word)
   await pane.unmount()
-  await click(band, 'blast-cancel')
+  await endHold(band)
   await call
   await band.unmount()
 })
@@ -1008,7 +1116,7 @@ test('hovering a card button shows its tip in the band tip row, and the Details 
   const pane = await $.ui.mount({ plugin: PLUGIN, surface: 'terminal', ...DETAILS })
   expect(await textOf(pane, /full breakdown/)).toContain('opens the full breakdown of this command')
   await pane.unmount()
-  await click(band, 'blast-cancel')
+  await endHold(band)
   await call
   await band.unmount()
 })
@@ -1041,7 +1149,7 @@ test('a toast raised during a hold draws above the card', async ($, on) => {
   expect(await band.find({ type: 'Text', text: /^!/ })).toBeDefined()
   await click(band, 'toast-blast-1')
   expect(await textOf(band, /^List waiting/)).toBeUndefined()
-  await click(band, 'blast-cancel')
+  await endHold(band)
   await call
   await band.unmount()
 })
@@ -1216,7 +1324,7 @@ test('the card tips carry a bare glyph, with no brackets or padding', { options:
   expect(await pane.find({ type: 'Text', text: '×' })).toBeDefined()
   expect(await pane.find({ type: 'Text', text: '[×]' })).toBeUndefined()
   await pane.unmount()
-  await click(band, 'blast-cancel')
+  await endHold(band)
   await call
   await band.unmount()
 })

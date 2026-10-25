@@ -146,6 +146,7 @@ async function heldCard($: any, on: any) {
   const band = await $.ui.mount({ plugin: PLUGIN, surface: 'terminal', ...BAND })
   const got = await capture(await band.find({ key: 'blast-card-box' }), key => band.drawn({ in: key }), CARD_COLUMNS)
   await band.pointer({ type: 'down', x: 1, y: 0, button: 'left', in: 'blast-cancel' })
+  await band.input({ key: 'blast-reason', text: '', kind: 'submit' })
   await call
   await band.unmount()
   return got

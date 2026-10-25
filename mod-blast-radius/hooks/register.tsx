@@ -3,7 +3,7 @@
 import type { ConfigValue, EngineInterface, Register, RenderElement } from 'claude-code'
 
 import { cardFill, cardGap, detectNerd, FOOTER_ROWS, lookFor, paneFooter, section, titleEdge, type IconMode, type Look } from './look'
-import { isTipMessage, tipText, type EntryMessage, type EntryProps, type Tip, type TipMessage } from './entry'
+import { entryCells, isTipMessage, tipText, type EntryMessage, type EntryProps, type Tip, type TipMessage } from './entry'
 import { pill, pillRow, splitRow, tabRow, tipLine } from './pills'
 import { TOAST_MS, ToastList, toastCards } from './toasts'
 import { ACTION_EXTRA, ACTION_GAP, actionLabels, canOpenDoes, cardRows, HOTKEY, plainFor, segmentsOf, stepsView, whyOf, type Plain } from './explain'
@@ -13,6 +13,7 @@ import { measure, tilde, type Io, type Report } from './preview'
 import { CHECKS, compileRules, evaluate, type Risk, type UserRule } from './risk'
 import { actionReveals, settingChoice, settingsBody, type Action, type Previews } from './settings'
 import { recordSpend } from './spend'
+import style from './style'
 import text from './text'
 import { decodeAll, fill, MARK, mix, statusColor, SYNTAX, THEME, WASH } from './theme'
 import { familyOf, isRefusal, settle, summarize, tally, upsert, verdictOfCheck, type Check, type Counts, type Verdict } from './checks'
@@ -31,10 +32,15 @@ const plural = (count: number, unit: Unit) => fill(count === 1 ? unit.one : unit
 type Decision = 'run' | 'cancel' | 'interrupted' | 'error'
 // isDescribing: Haiku is still writing the card's words.
 // isFull: the Details pane shows the whole command, not its first rows; isDoesOpen: the card shows its whole sentence, not two rows.
-type Held = { command: string; risk: Risk; report: Report | null; plain: Plain | null; decision: Decision | null; described?: Described; isDescribing?: boolean; isFull?: boolean; isDoesOpen?: boolean }
+type Held = { command: string; risk: Risk; report: Report | null; plain: Plain | null; decision: Decision | null; described?: Described; isDescribing?: boolean; isFull?: boolean; isDoesOpen?: boolean; isAsking?: boolean; draft?: string; reason?: string }
 
 const MORE = 'blast-more'
 const DOES_MORE = 'blast-does-more'
+const REASON_FIELD = 'blast-reason'
+const REASON_SEND = 'blast-reason-send'
+const REASON_BACK = 'blast-reason-back'
+// Claude reads the reason in one line, so a long one is cut here.
+const REASON_MAX = 300
 // The Details pane's full command: this many rows closed, and at most this many opened.
 const FULL_ROWS = 12
 const FULL_ROWS_OPEN = 400
@@ -312,12 +318,14 @@ const oneLine = (command: string) => {
   return line.length > 80 ? `${line.slice(0, 77)}...` : line
 }
 
-const refusal = (decision: Decision | null) =>
-  ({
-    cancel: 'the person pressed Cancel',
-    interrupted: 'the turn was interrupted',
-    error: 'Blast radius hit an error while holding it',
-  } as Record<string, string | undefined>)[decision ?? 'error'] ?? 'no answer was recorded'
+const refusal = (decision: Decision | null) => (text.refusal as Record<string, string | undefined>)[decision ?? 'error'] ?? text.refusal.none
+
+// What the person typed as one quoted line: flat, no control characters, cut, and its quotes escaped.
+const cleanReason = (raw: string) => {
+  const flat = raw.replace(/\s+/g, ' ').replace(/\p{Cc}/gu, '').trim()
+  const cut = [...flat].length > REASON_MAX ? `${[...flat].slice(0, REASON_MAX).join('').trimEnd()}...` : flat
+  return cut.replace(/"/g, '\\"')
+}
 
 type Elements = { Box: (props: any) => RenderElement; Client: (props: any) => RenderElement; Text: (props: any) => RenderElement }
 
@@ -446,10 +454,12 @@ function spansText(Text: Elements['Text'], spans: Span[], key: string) {
 }
 
 // The held command as a card above the pills: what happens in plain words, what it touches, then Cancel, Details and the consequence. Every row fits the band.
-function holdCard({ Box, Button, Client, Text }: Elements & { Button: (props: any) => RenderElement }, state: Held, columns: number, maxRows: number, onKey: (id: string) => unknown, sessionNote = '') {
+function holdCard({ Box, Button, Client, Input, Text }: Elements & { Button: (props: any) => RenderElement; Input: (props: any) => RenderElement }, state: Held, columns: number, maxRows: number, onKey: (id: string) => unknown, onInput: (value: string) => unknown, onSubmit: (value: string) => unknown, sessionNote = '') {
   const width = Math.max(20, columns - 4)
   // The card's rows are what is left after its border, its action row and the pill row below.
-  const bodyRows = Math.max(1, maxRows - 2 - 3)
+  const isAsking = state.isAsking === true
+  // While the person types a reason, the field and its hint replace the action row, one row more.
+  const bodyRows = Math.max(1, maxRows - 2 - 3 - (isAsking ? 1 : 0))
   const isOpen = state.isDoesOpen === true
   // The expand standard: arrow, then a muted label, bottom right on the action row; with no room beside the actions it takes a row of its own below them.
   const moreLabel = isOpen ? text.card.showLess : text.card.showAll
@@ -460,7 +470,7 @@ function holdCard({ Box, Button, Client, Text }: Elements & { Button: (props: an
   const beside = actionLabels(state.plain!, width)
   const isBeside = fitsBeside(beside)
   const ownRowBody = Math.max(1, bodyRows - 1)
-  const hasControl = canOpenDoes(state.plain!, state.report!, width, isBeside ? bodyRows : ownRowBody)
+  const hasControl = !isAsking && canOpenDoes(state.plain!, state.report!, width, isBeside ? bodyRows : ownRowBody)
   const rows = cardRows(state.plain!, state.report!, width, hasControl && !isBeside ? ownRowBody : bodyRows, isOpen)
   const labels = hasControl && isBeside ? beside : actionLabels(state.plain!, width)
   const actionsWidth = labels.cancel.length + labels.details.length + labels.run.length + 3 * ACTION_EXTRA + 2 * ACTION_GAP
@@ -517,7 +527,30 @@ function holdCard({ Box, Button, Client, Text }: Elements & { Button: (props: an
     </Box>
   )
 
-  const card = (
+  const hint = (id: string, key: string, label: string, tipBody: string) => {
+    const props = { id, label, isOpen: false, bg: fill, subLead: key, subLeadColor: THEME.onSurface, idle: THEME.muted, still, nerd: look.nerd, tip: { glyph: key, label, text: tipBody } } satisfies EntryProps
+    return <Client key={id} module="./entry.tsx" width={entryCells(props)} height={1} props={props} />
+  }
+  const isEmpty = (state.draft ?? '').trim() === ''
+  const sendLabel = isEmpty ? text.reason.skip : text.reason.send
+  const reasonRows = (
+    <Box key="hold-reason" flexDirection="column">
+      <Box key="hold-reason-field" backgroundColor={THEME.surface3} paddingX={1}>
+        <Input key={REASON_FIELD} placeholder={text.reason.placeholder} value={state.draft ?? ''} submitLabel={sendLabel} autoFocus onInput={onInput} onSubmit={onSubmit} />
+      </Box>
+      <Box key="hold-reason-hint" flexDirection="row" columnGap={1}>
+        {hint(REASON_SEND, text.reason.enter, sendLabel, isEmpty ? text.tips.reasonSkip : text.tips.reasonSend)}
+        <Text key="hold-reason-sep" color={style.colors.pills.separator}>{MARK.sep}</Text>
+        {hint(REASON_BACK, text.reason.esc, text.reason.back, text.tips.reasonBack)}
+      </Box>
+    </Box>
+  )
+  const card = isAsking ? (
+    <Box key="blast-card-box" flexDirection="column" borderStyle="round" borderColor={edge} backgroundColor={fill} paddingX={1}>
+      {body}
+      {reasonRows}
+    </Box>
+  ) : (
     <Box key="blast-card-box" flexDirection="column" borderStyle="round" borderColor={edge} backgroundColor={fill} paddingX={1}>
       {body}
       <Box key="hold-actions" flexDirection="row" columnGap={ACTION_GAP}>
@@ -555,9 +588,32 @@ function holdCard({ Box, Button, Client, Text }: Elements & { Button: (props: an
 // A card action, from a click on its entry or its digit typed into the empty prompt.
 async function choose($: EngineInterface, id: string) {
   if (!held || held.decision !== null) return
+  if (held.isAsking) {
+    if (id === REASON_SEND) sendReason($, held.draft ?? '')
+    if (id === REASON_BACK) {
+      held.isAsking = false
+      held.draft = undefined
+    }
+    $.ui.invalidate('ui.render')
+    return
+  }
   if (id === 'blast-run') held.decision = 'run'
-  if (id === 'blast-cancel') held.decision = 'cancel'
+  // Cancel asks why first; Enter on the field, empty or not, ends the hold.
+  if (id === 'blast-cancel') held.isAsking = true
   if (id === 'blast-details') await toggleList($)
+  $.ui.invalidate('ui.render')
+}
+
+function sendReason($: EngineInterface, value: string) {
+  if (!held || held.decision !== null || !held.isAsking) return
+  held.reason = cleanReason(value)
+  held.decision = 'cancel'
+  $.ui.invalidate('ui.render')
+}
+
+function typeReason($: EngineInterface, value: string) {
+  if (!held?.isAsking) return
+  held.draft = value
   $.ui.invalidate('ui.render')
 }
 
@@ -587,11 +643,11 @@ async function holdRisky($: EngineInterface, next:{ signal: AbortSignal }, risk:
 
   // `held` is claimed with no await between the check and the claim, so two waiting calls cannot both pass.
   while (held !== null) {
-    if (next.signal.aborted) return { deny: `Blast radius held this command and did not run it: ${refusal('interrupted')}. Do not retry it unless the person asks you to.` }
+    if (next.signal.aborted) return { deny: fill(text.deny.held, { why: refusal('interrupted') }) }
     try {
       await pause($)
     } catch {
-      return { deny: `Blast radius held this command and did not run it: ${refusal('error')}. Do not retry it unless the person asks you to.` }
+      return { deny: fill(text.deny.held, { why: refusal('error') }) }
     }
   }
   const mine: Held = { command, risk, report: null, plain: null, decision: null }
@@ -634,7 +690,8 @@ async function holdRisky($: EngineInterface, next:{ signal: AbortSignal }, risk:
     if (!isSilent) toast($, text.ui.running)
     return 'run'
   }
-  return { deny: `Blast radius held this command and did not run it: ${refusal(mine.decision)}. Reason: ${mine.risk.reason}. It would have: ${mine.report?.summary ?? mine.risk.label}. Do not retry it unless the person asks you to.` }
+  const why = mine.decision === 'cancel' && mine.reason ? fill(text.refusal.cancelWhy, { said: mine.reason }) : refusal(mine.decision)
+  return { deny: fill(text.deny.heldWhy, { why, reason: mine.risk.reason, summary: mine.report?.summary ?? mine.risk.label }) }
 }
 
 // Checks that failed, by message: a burst of commands toasts each distinct failure once.
@@ -942,7 +999,7 @@ export const register: Register = (on, options) => {
   on('ui.render', { component: 'AbovePrompt' }, async ($, e, next) => {
     await loadLook($)
     // @ts-expect-error The host's types omit Client from a Pane's elements, yet a Pane draws it.
-    const { Box, Button, Client, Text } = $.ui.resolve(e)
+    const { Box, Button, Client, Input, Text } = $.ui.resolve(e)
     if (!held || !held.report || !held.plain || held.decision !== null) {
       if (toasts.items.length === 0) return next(e)
       const others = await next(e)
@@ -961,6 +1018,6 @@ export const register: Register = (on, options) => {
     const tip = hovered?.id ? tipLine({ Box, Text }, tipText(hovered)) : menuTip
 
     // While a call is held only the card and the pill row draw, so other rows cannot fill the band and cut the card off.
-    return pillRow({ Box, Client, Text }, look.nerd, group, row, [...cards, holdCard({ Box, Button, Client, Text }, held, e.props.bodyColumns, e.props.maxRows, id => choose($, id), sessionCount(checks))], tip, e.props.bodyColumns)
+    return pillRow({ Box, Client, Text }, look.nerd, group, row, [...cards, holdCard({ Box, Button, Client, Input, Text }, held, e.props.bodyColumns, e.props.maxRows, id => choose($, id), value => typeReason($, value), value => sendReason($, value), sessionCount(checks))], tip, e.props.bodyColumns)
   })
 }

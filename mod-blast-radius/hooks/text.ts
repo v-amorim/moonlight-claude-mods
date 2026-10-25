@@ -24,7 +24,29 @@ export default {
     "details": "opens the full breakdown of this command",
     "run": "runs the command as it is",
     "showAll": "shows the whole sentence",
-    "showLess": "cuts the sentence back to two rows"
+    "showLess": "cuts the sentence back to two rows",
+    "reasonSend": "sends your reason to Claude and cancels the command",
+    "reasonSkip": "cancels the command without a reason",
+    "reasonBack": "goes back to the choices, nothing is decided"
+  },
+  "reason": {
+    "placeholder": "Why? Enter sends, Enter alone skips",
+    "enter": "Enter",
+    "esc": "Esc",
+    "send": "send",
+    "skip": "skip",
+    "back": "back to the choices"
+  },
+  "refusal": {
+    "cancel": "the person pressed Cancel",
+    "cancelWhy": "the person cancelled and said why: \"{said}\"",
+    "interrupted": "the turn was interrupted",
+    "error": "Blast radius hit an error while holding it",
+    "none": "no answer was recorded"
+  },
+  "deny": {
+    "held": "Blast radius held this command and did not run it: {why}. Do not retry it unless the person asks you to.",
+    "heldWhy": "Blast radius held this command and did not run it: {why}. Reason: {reason}. It would have: {summary}. Do not retry it unless the person asks you to."
   },
   "atLeast": "at least ",
   "orMore": " or more",
@@ -273,7 +295,7 @@ export default {
   "ui": {
     "notifyTitle": "Blast radius",
     "notifyHeld": "Waiting for you: {command}",
-    "paneName": "mod-blast-radius",
+    "paneName": "Blast radius",
     "commandDescription": "Show what blast radius holds; `settings` opens its settings panel",
     "listWaiting": "List waiting: {reason}",
     "settingsWaiting": "Settings panel waiting: {reason}",

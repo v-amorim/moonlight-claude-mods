@@ -142,6 +142,7 @@ test('checks settle: a Blast radius Cancel is a denial', async ($, on) => {
     await band.redraw()
   }
   await band.pointer({ type: 'down', x: 1, y: 0, button: 'left', in: 'blast-cancel' })
+  await band.input({ key: 'blast-reason', text: '', kind: 'submit' })
   await call
   await band.unmount()
   expect(seen.ran).toBe(0)
@@ -234,6 +235,7 @@ const heldCard = async ($: any, on: any, columns: number, check: (band: any) => 
   }
   await check(band)
   await band.pointer({ type: 'down', x: 1, y: 0, button: 'left', in: 'blast-cancel' })
+  await band.input({ key: 'blast-reason', text: '', kind: 'submit' })
   await call
   await band.unmount()
   return seen
@@ -301,6 +303,7 @@ async function withStrip($: any, on: any, icons: boolean, columns: number, check
   await check(pane, icons ? String.fromCodePoint(0xf0c8) : '■', icons ? String.fromCodePoint(0xf00d) : '×')
   await pane.unmount()
   await band.pointer({ type: 'down', x: 1, y: 0, button: 'left', in: 'blast-cancel' })
+  await band.input({ key: 'blast-reason', text: '', kind: 'submit' })
   await call
   await band.unmount()
   return seen
