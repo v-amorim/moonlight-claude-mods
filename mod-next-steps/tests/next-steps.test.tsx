@@ -410,6 +410,27 @@ test('hovering a suggestion or the dismiss control shows its tip in the band tip
   await ui.unmount()
 })
 
+test('a band tip whose entry was redrawn while hovered clears after 5 s with no newer hover', async ($, on) => {
+  const { clock } = setup(on, () => answered('add a test'))
+  await $.turn.complete(DONE as never)
+  await clock.settle()
+  // Live, a band redraw mid-turn replaced the hovered entry, so its own quiet timer, and the leave, never came.
+  const first = await mount($)
+  await first.pointer({ type: 'enter', x: 1, y: 0, in: 'steps-row-0' })
+  await first.unmount()
+  const showsNow = async () => {
+    const ui = await mount($)
+    const shown = (await ui.find({ type: 'Text', text: /puts this suggestion/ })) !== undefined
+    await ui.unmount()
+    return shown
+  }
+  expect(await showsNow()).toBe(true)
+  await clock.advance(4000)
+  expect(await showsNow()).toBe(true)
+  await clock.advance(1000)
+  expect(await showsNow()).toBe(false)
+})
+
 test('the row and dismiss tips carry bare glyphs, and the pane footer keeps its rows free', { options: { icons: 'safe' } }, async ($, on) => {
   const { clock } = setup(on, () => answered('add a test'))
   on('fs.read', () => {

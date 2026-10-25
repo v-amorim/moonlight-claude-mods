@@ -32,6 +32,21 @@ let look = lookFor(false)
 let hovered: TipMessage | null = null
 const hoveredTip = (): Tip | null => (hovered?.id && hovered.label ? { glyph: hovered.glyph ?? '', label: hovered.label, text: hovered.text ?? '' } : null)
 
+// A band redraw can replace a hovered entry, whose leave and quiet timer then never come, so a band tip ends on its own.
+const BAND_TIP_MS = 5000
+let bandTipAt = 0
+// The tip the band stopped showing; the pane footer keeps its own.
+let bandExpired: TipMessage | null = null
+
+function expireBandTip($: EngineInterface) {
+  const at = ++bandTipAt
+  $.clock.after(BAND_TIP_MS, () => {
+    if (at !== bandTipAt || !hovered?.id) return
+    bandExpired = hovered
+    $.ui.invalidate('ui.render')
+  })
+}
+
 // Suggestions on show. `epoch` counts turn starts and submits, so a reply that arrives late is dropped.
 let steps: string[] = []
 let epoch = 0
@@ -289,6 +304,7 @@ export const register: Register = (on, options) => {
   on('ui.message', async ($, e, next) => {
     if (isTipMessage(e.data)) {
       hovered = e.data
+      if (hovered.id) expireBandTip($)
       $.ui.invalidate('ui.render')
       return next(e)
     }
@@ -338,7 +354,7 @@ export const register: Register = (on, options) => {
     // Joins the shared pill row's top section when other mods drew one below; wrapping it would hide the row from mods drawn around this one, which then start a second row.
     const above = (below: RenderChildren, items: RenderChildren[]) => {
       const { group, row, rest, tip: menuTip } = splitRow(below)
-      const tip = hovered?.id ? tipLine({ Box, Text }, tipText(hovered)) : menuTip
+      const tip = hovered?.id && hovered !== bandExpired ? tipLine({ Box, Text }, tipText(hovered)) : menuTip
       // A heads-up card drawn below this mod still goes above the suggestions: it is rarer and more urgent. Without mod-heads-up nothing matches.
       const isHeadsup = (node: unknown) => keyOf(node).startsWith('headsup-')
       const ours = items.findIndex(item => keyOf(item).startsWith('nextsteps'))
