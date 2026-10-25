@@ -2,7 +2,7 @@
 // Registers the wrap-up pill, commands, settings pane and handoff or compact actions with the engine.
 import type { ConfigValue, EngineInterface, ModelCompleteRequest, ModelCompleteResult, ModelForkResult, Register, RenderElement } from 'claude-code'
 
-import { AUTO_SYSTEM, autoPrompt, capWords, clampCompactAt, clampCompactTokens, clampEvery, emptyLedger, flip, isDue, ledgerMarkdown, mergeDelta, parseRelated, parseUpdate, projectSlug, readLedger, RELATED_SYSTEM, relatedPrompt, restoreContext, shortGoal, shouldCompact, yieldsToManual, type Carry, type CompactMarks, type Ledger } from './ledger'
+import { AUTO_SYSTEM, autoPrompt, capWords, clampCompactAt, clampCompactTokens, clampEvery, emptyLedger, flip, gatherFragments, isDue, ledgerMarkdown, mergeDelta, mergeFragments, parseRelated, parseUpdate, readLedger, RELATED_SYSTEM, relatedPrompt, restoreContext, shortGoal, shouldCompact, yieldsToManual, type Carry, type CompactMarks, type Fragment, type Ledger } from './ledger'
 import { ALSO_KEEP, buildPrompt, clampWords, compactNote, FORK_FAILURES, isFresh, parseNames, parseThreads, scopeNote, threadsPrompt, THREADS_SYSTEM, transcriptText, type AlsoId, type Names, type Thread } from './handoff'
 import { cardFill, detectNerd, FOOTER_ROWS, lookFor, paneFooter, sepText, subpill, titleEdge, type IconMode, withMark } from './look'
 import { isTipMessage, tipText, type EntryMessage, type EntryProps, type Tip, type TipMessage } from './entry'
@@ -433,16 +433,16 @@ async function configDir($: EngineInterface) {
   return home ? `${home}/.claude` : ''
 }
 
-// One folder per project under the mod's data dir; empty when the config folder is unknown.
+// One folder for every chain, with no cwd in the path, so a chain keeps one ledger wherever the session's folder moves; empty when the config folder is unknown.
 async function ledgerDir($: EngineInterface) {
   try {
     const config = await configDir($)
     if (!config) return ''
-    const dir = `${config}/mods-data/mod-wrap-up/${projectSlug(await $.session.cwd())}`
+    const dir = `${config}/mods-data/mod-wrap-up/chains`
     // A reload mid-session forgets the chain; the ledger that lists this session or the one before a clear still names it.
     if (!chain) {
       const id = await $.session.id()
-      chain = (await chainOf($, dir, id)) ?? (clearedFrom ? await chainOf($, dir, clearedFrom) : undefined) ?? id
+      chain = (await chainFor($, dir, [id, clearedFrom])) ?? id
     }
     return dir
   } catch {
@@ -456,8 +456,8 @@ async function ledgerFile($: EngineInterface) {
   return ledgerPath
 }
 
-// One file per chain, so sessions sharing a folder never read or write each other's ledger.
-const fileOf = (dir: string, of = chain) => `${dir}/ledgers/${of}.json`
+// One file per chain, so sessions never read or write each other's ledger.
+const fileOf = (dir: string, of = chain) => `${dir}/${of}.json`
 
 const loadLedger = async ($: EngineInterface, dir: string, of = chain) => readLedger(await $.fs.read(fileOf(dir, of)).then(String).catch(() => ''))
 
@@ -473,7 +473,7 @@ const withSession = (ledger: Ledger, id: string) => ({ ...ledger, sessions: ledg
 
 // A resumed session's chain is the ledger that already lists it.
 async function chainOf($: EngineInterface, dir: string, id: string) {
-  const entries = await $.fs.list(`${dir}/ledgers`).catch(() => [])
+  const entries = await $.fs.list(dir).catch(() => [])
   for (const entry of entries) {
     if (entry.kind !== 'file' || !entry.name.endsWith('.json')) continue
     const of = entry.name.slice(0, -'.json'.length)
@@ -482,13 +482,44 @@ async function chainOf($: EngineInterface, dir: string, id: string) {
   return undefined
 }
 
-// A startup starts its own chain; a resume (the transcript has messages) picks its chain back up.
+// Every per-folder ledger an older version left under `<slug>/ledgers/`; read only, never edited.
+async function oldFragments($: EngineInterface, dir: string) {
+  const root = dir.replace(/\/chains$/, '')
+  const found: Fragment[] = []
+  for (const folder of await $.fs.list(root).catch(() => [])) {
+    if (folder.kind !== 'dir' || folder.name === 'chains') continue
+    for (const entry of await $.fs.list(`${root}/${folder.name}/ledgers`).catch(() => [])) {
+      if (entry.kind !== 'file' || !entry.name.endsWith('.json')) continue
+      const ledger = readLedger(await $.fs.read(`${root}/${folder.name}/ledgers/${entry.name}`).then(String).catch(() => ''))
+      if (ledger) found.push({ chain: entry.name.slice(0, -'.json'.length), ledger })
+    }
+  }
+  return found
+}
+
+// The chain of any of these sessions: the ledger in chains/ that lists one, else the old per-folder fragments merged into a new chains/ file.
+async function chainFor($: EngineInterface, dir: string, ids: string[]) {
+  for (const id of ids.filter(Boolean)) {
+    const of = await chainOf($, dir, id)
+    if (of) return of
+  }
+  const gathered = gatherFragments(await oldFragments($, dir), ids)
+  if (!gathered) return undefined
+  // A chains/ file of that name that does not list the session is merged in, never overwritten.
+  const existing = await loadLedger($, dir, gathered.chain)
+  const merged = mergeFragments(existing ? [existing, ...gathered.fragments] : gathered.fragments)
+  await saveLedger($, dir, merged, gathered.chain)
+  return gathered.chain
+}
+
+// A startup starts its own chain; a resume (the transcript has messages) picks its chain back up, and so does a reload, whose transcript can read empty.
 async function openLedger($: EngineInterface) {
   const dir = await ledgerDir($)
   if (!dir) return
   const id = await $.session.id()
   const messages = await $.session.messages().catch(() => [])
-  chain = Array.isArray(messages) && messages.length > 0 ? ((await chainOf($, dir, id)) ?? id) : id
+  const isResume = Array.isArray(messages) && messages.length > 0
+  chain = (await chainOf($, dir, id)) ?? (isResume ? await chainFor($, dir, [id]) : undefined) ?? id
   if (!(await loadLedger($, dir))) await saveLedger($, dir, emptyLedger(await $.clock.now(), id))
   await ledgerFile($)
 }

@@ -214,29 +214,64 @@ export type CompactMarks = { percent: number; tokens: number }
 export const shouldCompact = (usage: { percent?: number; tokens?: number }, marks: CompactMarks) =>
   (typeof usage.percent === 'number' && usage.percent >= marks.percent) || (typeof usage.tokens === 'number' && usage.tokens >= marks.tokens)
 
-// Every shell's spelling of a drive path (C:\x, /c/x, /cygdrive/c/x, /mnt/c/x) becomes c:/x, lowercased since Windows ignores case; POSIX paths keep theirs.
-export function normalizeCwd(cwd: string) {
-  let path = cwd.trim().replace(/\\/g, '/').replace(/^\/\/[?.]\//, '').replace(/\/{2,}/g, '/')
-  const mounted = /^(?:\/cygdrive|\/mnt)?\/([a-z])(\/.*)?$/i.exec(path)
-  if (mounted) path = `${mounted[1]}:${mounted[2] ?? '/'}`
-  if (/^[a-z]:/i.test(path)) path = path.toLowerCase().replace(/^([a-z]:)(?!\/)/, '$1/')
-  return path.length > 1 && !/^[a-z]:\/$/.test(path) ? path.replace(/\/$/, '') : path
+export type Fragment = { chain: string; ledger: Ledger }
+
+// Which fragments make up the chain a session belongs to: the chain named by the newest fragment listing the first matching id, then every fragment of that name or listing that id.
+export function gatherFragments(found: Fragment[], ids: string[]): { chain: string; fragments: Ledger[] } | null {
+  for (const id of ids.filter(Boolean)) {
+    // A chain named after the session itself is the one a cwd move started by mistake, so a chain it joined wins.
+    const holders = found.filter(item => item.ledger.sessions.includes(id)).sort((a, b) => Number(a.chain === id) - Number(b.chain === id) || b.ledger.updatedAt - a.ledger.updatedAt)
+    if (!holders.length) continue
+    const chain = holders[0].chain
+    return { chain, fragments: found.filter(item => item.chain === chain || item.ledger.sessions.includes(id)).map(item => item.ledger) }
+  }
+  return null
 }
 
-// FNV-1a: a short stable id with no dependency, enough to keep two folders apart.
-const hashOf = (text: string) => {
-  let hash = 0x811c9dc5
-  for (const char of text) hash = Math.imul(hash ^ char.codePointAt(0)!, 0x01000193)
-  return (hash >>> 0).toString(16).padStart(8, '0')
-}
-
-const MAX_TAIL = 30
-
-// One folder per project: its last two folder names to read, then a hash of the whole path so long or alike paths never share one.
-export const projectSlug = (cwd: string) => {
-  const path = normalizeCwd(cwd)
-  const tail = path.split('/').filter(part => part && !/^[a-z]:$/i.test(part)).slice(-2).join('-').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, MAX_TAIL).replace(/-+$/, '')
-  return `${tail || 'project'}-${hashOf(path)}`
+// Folds the fragments one chain left in several folders into one ledger, oldest first, by the append-only rules of mergeDelta; ids are renumbered, the newest fragment's scalars win.
+export function mergeFragments(fragments: Ledger[]): Ledger {
+  const ordered = [...fragments].sort((a, b) => a.updatedAt - b.updatedAt)
+  const merged = emptyLedger(0, '')
+  const newest = (pick: (item: Ledger) => string) => [...ordered].reverse().map(pick).find(Boolean) ?? ''
+  for (const fragment of ordered) {
+    for (const item of fragment.decisions) {
+      const found = merged.decisions.find(own => same(own.text, item.text))
+      if (!found) merged.decisions.push({ id: `d${merged.decisions.length + 1}`, text: item.text, at: item.at, ...(item.supersededBy ? { supersededBy: item.supersededBy } : {}) })
+      else if (!found.supersededBy && item.supersededBy) found.supersededBy = item.supersededBy
+    }
+    for (const item of fragment.tasks) {
+      const found = merged.tasks.find(own => same(own.text, item.text))
+      if (!found) merged.tasks.push({ id: `t${merged.tasks.length + 1}`, text: item.text, status: item.status, at: item.at })
+      else if (item.status === 'done') found.status = 'done'
+    }
+    for (const item of fragment.problems) {
+      const found = merged.problems.find(own => same(own.problem, item.problem))
+      if (!found) merged.problems.push({ ...item, id: `p${merged.problems.length + 1}` })
+      else if (!found.fix && item.fix) found.fix = item.fix
+    }
+    for (const item of fragment.ideas) {
+      const found = merged.ideas.find(own => same(own.text, item.text))
+      if (!found) merged.ideas.push({ ...item, id: `i${merged.ideas.length + 1}` })
+      else if (found.status !== item.status) Object.assign(found, { status: item.status, reason: item.reason || found.reason })
+    }
+    for (const item of fragment.picks) {
+      if (!merged.picks.some(own => same(own.family, item.family) && same(own.pick, item.pick))) merged.picks.push({ ...item, id: `k${merged.picks.length + 1}` })
+    }
+    for (const id of fragment.sessions) if (!merged.sessions.includes(id)) merged.sessions.push(id)
+  }
+  const handoffFrom = [...ordered].reverse().find(item => item.handoff)
+  const namesFrom = [...ordered].reverse().find(item => item.names.this || item.names.next)
+  const starts = ordered.map(item => item.startedAt).filter(Boolean)
+  return {
+    ...merged,
+    goal: newest(item => item.goal),
+    runState: newest(item => item.runState),
+    handoff: handoffFrom?.handoff ?? '',
+    handoffAt: handoffFrom?.handoffAt ?? 0,
+    names: namesFrom?.names ?? merged.names,
+    startedAt: starts.length ? Math.min(...starts) : 0,
+    updatedAt: Math.max(0, ...ordered.map(item => item.updatedAt)),
+  }
 }
 
 const lines = (items: string[]) => (items.length ? items.map(line => `- ${line}`).join('\n') : 'none')
@@ -261,6 +296,9 @@ export function ledgerMarkdown(ledger: Ledger) {
 }
 
 export const RESTORE_WORDS = 700
+
+// A merged chain can leave hundreds of items out; past this many the ids stop being a useful list.
+const MAX_IDS = 40
 
 const wordCount = (line: string) => line.split(/\s+/).filter(Boolean).length
 
@@ -289,7 +327,7 @@ export function restoreContext(ledger: Ledger, mdPath: string, cap = RESTORE_WOR
     `Earlier in this work, a handoff was written:\n${ledger.handoff}`,
     `Open tasks, from the ledger:\n${taskLines}`,
     `Decisions in force, from the ledger:\n${decisionLines}`,
-    skipped.length ? `By id only, text in ${mdPath}: ${skipped.join(', ')}` : '',
+    skipped.length ? `By id only, text in ${mdPath}: ${skipped.slice(0, MAX_IDS).join(', ')}${skipped.length > MAX_IDS ? `, and ${skipped.length - MAX_IDS} more in the file` : ''}` : '',
     `The ledger also holds ${plural(ledger.problems.length, 'problem')}, ${plural(ledger.ideas.length, 'idea')}, ${plural(ledger.picks.length, 'pick')}, not shown here. Read ${mdPath} before proposing an option, changing a look, retrying a fix, or answering what is next. The ledger beats this handoff when they disagree.`,
   ]
     .filter(Boolean)

@@ -4,7 +4,7 @@ import { expect, mock, test as kitTest } from 'claude-code/testing'
 import { compactNote } from '../hooks/handoff'
 import { latestTitle, lateNext, planNames, remember } from '../hooks/titles'
 import { bytesOf, scanTail, textOf } from '../hooks/tail'
-import { autoPrompt, capWords, clampCompactAt, clampCompactTokens, clampEvery, digest, emptyLedger, flip, isDue, mergeDelta, parseRelated, parseUpdate, normalizeCwd, projectSlug, ledgerMarkdown, readLedger, restoreContext, shouldCompact, yieldsToManual } from '../hooks/ledger'
+import { autoPrompt, capWords, clampCompactAt, clampCompactTokens, clampEvery, digest, emptyLedger, flip, gatherFragments, type Delta, isDue, mergeDelta, mergeFragments, parseRelated, parseUpdate, ledgerMarkdown, readLedger, restoreContext, shouldCompact, yieldsToManual } from '../hooks/ledger'
 
 // Automatic handoff is opt-in, so these tests turn it on unless a test sets its own value.
 const test = ((name: string, first: any, second?: any) => {
@@ -15,8 +15,9 @@ const test = ((name: string, first: any, second?: any) => {
 const SKILL ='---\nname: session-handoff\ndescription: x\n---\n\n# session-handoff\n\nWrite one message.'
 const USAGE = { input_tokens: 0, output_tokens: 0, cache_read_input_tokens: 0, cache_creation_input_tokens: 0 }
 const NONE = { decisions: [], superseded: [], done: [], opened: [] }
-const DIR = `C:/home/.claude/mods-data/mod-wrap-up/${projectSlug('C:/work/proj')}`
-const fileOf = (chain: string) => `${DIR}/ledgers/${chain}.json`
+const ROOT = 'C:/home/.claude/mods-data/mod-wrap-up'
+const DIR = `${ROOT}/chains`
+const fileOf = (chain: string) => `${DIR}/${chain}.json`
 const LEDGER_FILE = fileOf('s1')
 const MD_FILE = LEDGER_FILE.replace(/.json$/, '.md')
 const BAND = {
@@ -83,19 +84,50 @@ test('the reply parses into a delta and a handoff; a reply with no handoff is no
   expect(parseUpdate('{ broken')).toBeNull()
 })
 
-test('every shell spelling of one folder maps to one ledger folder, and different folders never share one', () => {
-  const one = ['C:\\Users\\Ana\\.claude', 'c:/users/ana/.claude/', '/c/Users/Ana/.claude', '/mnt/c/Users/Ana/.claude', '/cygdrive/c/Users/Ana/.claude', '\\\\?\\C:\\Users\\Ana\\.claude', 'C:\\Users\\Ana\\\\.claude\\']
-  expect(new Set(one.map(projectSlug)).size).toBe(1)
-  expect(normalizeCwd('/c/Users/Ana/.claude')).toBe('c:/users/ana/.claude')
-  expect(normalizeCwd('/c')).toBe('c:/')
-  expect(projectSlug('C:\\Users\\Ana\\.claude')).not.toBe(projectSlug('D:\\Users\\Ana\\.claude'))
-  // The old slug kept only the last 40 characters, so these two collided.
-  const deep = 'C:\\aaaaaaaaaaaaaaaaaaaaaaaa\\claude-mods-mod-transcript'
-  expect(projectSlug(deep)).not.toBe(projectSlug(deep.replace('aaaa', 'bbbb')))
-  expect(projectSlug('C:\\Users\\Ana\\.claude\\mods\\mod-transcript')).toMatch(/^mods-mod-transcript-[0-9a-f]{8}$/)
-  // POSIX paths keep their case: two folders that differ only in case stay apart.
-  expect(projectSlug('/home/ana/Work')).not.toBe(projectSlug('/home/ana/work'))
-  expect(projectSlug('/')).toMatch(/^project-[0-9a-f]{8}$/)
+const frag = (sessions: string[], updatedAt: number, delta: Partial<Delta> & { handoff?: string; names?: { this: string; next: string } } = {}) => {
+  const { handoff, names, ...rest } = delta
+  return { ...mergeDelta(emptyLedger(updatedAt - 1, ''), { ...NONE, ...rest }, updatedAt), sessions, handoff: handoff ?? '', handoffAt: handoff ? updatedAt : 0, names: names ?? { this: '', next: '' } }
+}
+
+test('fragments of one chain merge oldest first: deduped, done wins, superseded survives, ids renumbered, newest scalars win, sessions unite', () => {
+  const old = frag(['a'], 10, { goal: 'Old goal', decisions: ['Use Postgres', 'Use REST'], opened: ['Write schema', 'Add tests'], problems: [{ problem: 'Hung', fix: '' }], ideas: [{ text: 'Sound', status: 'parked', reason: '' }], picks: [{ family: 'c', pick: 'c: A' }], handoff: 'OLD HANDOFF', names: { this: 'old', next: 'older' } })
+  const mid = { ...frag(['b'], 20, { decisions: ['use postgres', 'Use gRPC'], opened: ['WRITE SCHEMA', 'Ship it'], done: [], problems: [{ problem: 'hung', fix: 'Timeout' }], ideas: [{ text: 'sound', status: 'rejected', reason: 'Annoying' }], picks: [{ family: 'C', pick: 'C: a' }] }) }
+  mid.tasks[0].status = 'done'
+  old.decisions[1].supersededBy = 'Use gRPC'
+  const newest = frag(['a', 'c'], 30, { goal: 'New goal', handoff: 'NEW HANDOFF', names: { this: 'n1', next: 'n2' } })
+  const merged = mergeFragments([newest, old, mid])
+  expect(merged.decisions.map(item => `${item.id}:${item.text}`)).toEqual(['d1:Use Postgres', 'd2:Use REST', 'd3:Use gRPC'])
+  expect(merged.decisions[1].supersededBy).toBe('Use gRPC')
+  expect(merged.tasks.map(item => `${item.id}:${item.text}:${item.status}`)).toEqual(['t1:Write schema:done', 't2:Add tests:open', 't3:Ship it:open'])
+  expect(merged.problems).toHaveLength(1)
+  expect(merged.problems[0]).toMatchObject({ id: 'p1', fix: 'Timeout' })
+  expect(merged.ideas).toEqual([expect.objectContaining({ id: 'i1', status: 'rejected', reason: 'Annoying' })])
+  expect(merged.picks.map(item => item.id)).toEqual(['k1'])
+  expect([merged.goal, merged.handoff, merged.handoffAt, merged.names]).toEqual(['New goal', 'NEW HANDOFF', 30, { this: 'n1', next: 'n2' }])
+  expect(merged.sessions).toEqual(['a', 'b', 'c'])
+  expect([merged.startedAt, merged.updatedAt]).toEqual([9, 30])
+  // A newest fragment with no goal or handoff leaves the older one standing.
+  const quiet = mergeFragments([old, frag(['z'], 40)])
+  expect([quiet.goal, quiet.handoff, quiet.names.this]).toEqual(['Old goal', 'OLD HANDOFF', 'old'])
+  expect(mergeFragments([])).toMatchObject({ decisions: [], sessions: [], goal: '' })
+})
+
+test('gatherFragments names the chain from the newest fragment that lists the session and takes every fragment of it', () => {
+  const found = [
+    { chain: 'X', ledger: frag(['a'], 10) },
+    { chain: 'X', ledger: frag(['a', 'b'], 20) },
+    { chain: 'Y', ledger: frag(['q'], 30) },
+    { chain: 'Z', ledger: frag(['b'], 5) },
+  ]
+  const got = gatherFragments(found, ['nope', 'b'])!
+  expect(got.chain).toBe('X')
+  expect(got.fragments).toHaveLength(3)
+  expect(gatherFragments(found, ['nobody', ''])).toBeNull()
+  // A chain named after the session was started by a lost lookup; the older chain the session joined wins, and its fragments come in.
+  const split = [{ chain: 'X', ledger: frag(['a', 'n'], 10) }, { chain: 'n', ledger: frag(['n'], 40) }]
+  expect(gatherFragments(split, ['n'])).toMatchObject({ chain: 'X' })
+  expect(gatherFragments(split, ['n'])!.fragments).toHaveLength(2)
+  expect(gatherFragments([split[1]], ['n'])).toMatchObject({ chain: 'n' })
 })
 
 test('the cap cuts a long handoff to its words, and the settings clamp holds', () => {
@@ -103,7 +135,6 @@ test('the cap cuts a long handoff to its words, and the settings clamp holds', (
   expect(capWords('short', 100)).toBe('short')
   expect([clampEvery(undefined), clampEvery(0), clampEvery(-3), clampEvery(2.4), clampEvery(9999), clampEvery('x')]).toEqual([1, 1, 1, 2, 50, 1])
   expect([isDue(1, 1), isDue(1, 2), isDue(2, 2)]).toEqual([true, false, true])
-  expect(projectSlug('C:\\Work\\My Proj')).toMatch(/^work-my-proj-[0-9a-f]{8}$/)
 })
 
 const richDelta = {
@@ -237,7 +268,7 @@ function world(on: any, files: Map<string, string>, reply: (system: string, prom
   const submittedText: string[] = []
   const clears: string[] = []
   const forks: string[] = []
-  const flags: { messages: unknown[]; percent?: number; tokens?: number; id: string; draft: string; onClear?: () => Promise<unknown>; clearFails: boolean; renameFails: boolean; started: boolean } = { messages, id: 's1', draft: '', clearFails: false, renameFails: false, started: false }
+  const flags: { messages: unknown[]; percent?: number; tokens?: number; id: string; cwd: string; draft: string; onClear?: () => Promise<unknown>; clearFails: boolean; renameFails: boolean; started: boolean } = { messages, id: 's1', cwd: 'C:/work/proj', draft: '', clearFails: false, renameFails: false, started: false }
   on('session.usage', () => ({ value: { startedAt: 0, context: { percent: flags.percent, tokens: flags.tokens }, rateLimits: {}, cost: {} } }))
   on('fs.read', (_$: unknown, e: { path: string }) => {
     const path = drivePath(e.path)
@@ -250,11 +281,13 @@ function world(on: any, files: Map<string, string>, reply: (system: string, prom
     files.set(drivePath(e.path), e.text)
     return { value: undefined }
   })
-  on('session.cwd', () => ({ value: 'C:/work/proj' }))
+  on('session.cwd', () => ({ value: flags.cwd }))
   on('session.id', () => ({ value: flags.id }))
   on('fs.list', (_$: unknown, e: { path: string }) => {
     const dir = drivePath(e.path).replace(/\/$/, '')
-    return { value: [...files.keys()].filter(path => path.startsWith(`${dir}/`) && !path.slice(dir.length + 1).includes('/')).map(path => ({ name: path.slice(dir.length + 1), kind: 'file', size: 1 })) }
+    const below = [...files.keys()].filter(path => path.startsWith(`${dir}/`)).map(path => path.slice(dir.length + 1))
+    const folders = [...new Set(below.filter(path => path.includes('/')).map(path => path.split('/')[0]))]
+    return { value: [...below.filter(path => !path.includes('/')).map(name => ({ name, kind: 'file', size: 1 })), ...folders.map(name => ({ name, kind: 'dir', size: 0 }))] }
   })
   on('session.messages', () => ({ value: flags.messages }))
   on('model.complete', async (_$: unknown, e: { model: string; effort?: string; system: string; prompt: string }) => {
@@ -325,7 +358,7 @@ test('a main turn end runs one Sonnet call at low effort and the ledger and hand
 })
 
 test('a set CLAUDE_CONFIG_DIR is where the ledger and handoff land', async ($, on) => {
-  const inCfg = `C:/cfg/mods-data/mod-wrap-up/${projectSlug('C:/work/proj')}/ledgers/s1.json`
+  const inCfg = 'C:/cfg/mods-data/mod-wrap-up/chains/s1.json'
   const w = world(on, new Map([[inCfg, JSON.stringify(seeded())]]), () => UPDATE('HANDOFF-CFG'), undefined, { CLAUDE_CONFIG_DIR: 'C:\\cfg\\' })
   await $.turn.complete(MAIN_TURN)
   await w.clock.advance(1)
@@ -444,7 +477,7 @@ test('the countdown ending updates a stale ledger first, then clears once and ke
   expect(w.prompts).toHaveLength(2)
   expect(w.prompts[1].prompt).toContain('one more thing')
   expect(w.clears).toEqual(['clear'])
-  expect([...w.files.keys()].filter(path => path.includes('/ledgers/'))).toEqual([LEDGER_FILE, MD_FILE])
+  expect([...w.files.keys()].filter(path => path.includes('/chains/'))).toEqual([LEDGER_FILE, MD_FILE])
   expect(saved(w).sessions).toEqual(['s1', 's2'])
   await band.unmount()
 })
@@ -864,6 +897,74 @@ test('a resume picks up the chain that lists the session, even one that joined i
   await compacted($, w)
   await $.prompt.submit({ text: 'go on', wait: false, origin: COMPOSER } as never)
   expect(w.submitted.at(-1)?.[0]).toContain('HANDOFF-ONE')
+})
+
+test('a reload whose transcript reads empty keeps the chain that already lists the session', async ($, on) => {
+  const w = world(on, autoFiles({ ...seeded(), sessions: ['s1', 's2'] }), () => UPDATE('X'), [])
+  w.flags.id = 's2'
+  await $.session.start({ cwd: '/w' } as never)
+  await w.clock.advance(1)
+  expect(w.files.has(fileOf('s2'))).toBe(false)
+})
+
+test('one chain keeps one ledger however the session folder moves', async ($, on) => {
+  const w = world(on, autoFiles(), () => UPDATE('HANDOFF-MOVED', { decisions: ['Cache with Redis'] }))
+  await $.turn.complete(MAIN_TURN)
+  await w.clock.advance(1)
+  w.flags.cwd = 'D:/elsewhere/deep'
+  w.flags.messages = [...w.flags.messages, { role: 'user', text: 'more', toolUses: [] }]
+  await $.turn.complete(MAIN_TURN)
+  await w.clock.advance(1)
+  expect([...w.files.keys()].filter(path => path.includes('/mod-wrap-up/') && !path.includes('/bridge/') && !path.includes('SKILL'))).toEqual([LEDGER_FILE, MD_FILE])
+  expect(saved(w).decisions.map(item => item.text)).toEqual(['Use PostgreSQL, not MySQL', 'Cache with Redis'])
+})
+
+const fragmentAt = (folder: string, chain: string, ledger: object) => [`${ROOT}/${folder}/ledgers/${chain}.json`, JSON.stringify(ledger)] as const
+
+test('a resumed session with no chains/ file merges the chain\'s per-folder fragments into chains/ and leaves the fragments as they were', async ($, on) => {
+  const older = frag(['s0'], 10, { goal: 'Old goal', decisions: ['Use Postgres'], opened: ['Write schema'], handoff: 'HANDOFF-OLD' })
+  const newer = frag(['s0', 's1'], 20, { goal: 'New goal', decisions: ['Use REST'], opened: ['write SCHEMA', 'Ship it'], handoff: 'HANDOFF-NEW' })
+  newer.tasks[0].status = 'done'
+  const unrelated = frag(['zzz'], 30, { decisions: ['Other work'] })
+  const files = new Map<string, string>([fragmentAt('a-11111111', 'c1', older), fragmentAt('b-22222222', 'c1', newer), fragmentAt('b-22222222', 'zzz', unrelated)])
+  const before = new Map(files)
+  const w = world(on, files, () => UPDATE('X'), [{ role: 'user', text: 'earlier', toolUses: [] }])
+  await $.session.start({ cwd: '/w' } as never)
+  await w.clock.advance(1)
+  const merged = readLedger(w.files.get(fileOf('c1')))!
+  expect(merged.decisions.map(item => item.text)).toEqual(['Use Postgres', 'Use REST'])
+  expect(merged.tasks.map(item => `${item.text}:${item.status}`)).toEqual(['Write schema:done', 'Ship it:open'])
+  expect([merged.goal, merged.handoff, merged.sessions]).toEqual(['New goal', 'HANDOFF-NEW', ['s0', 's1']])
+  expect(w.files.get(fileOf('c1').replace(/\.json$/, '.md'))).toContain('## Open tasks\n- t2 Ship it')
+  expect(w.files.has(fileOf('s1'))).toBe(false)
+  expect(w.files.has(fileOf('zzz'))).toBe(false)
+  for (const [path, text] of before) expect(w.files.get(path)).toBe(text)
+  w.flags.started = true
+  await compacted($, w)
+  await $.prompt.submit({ text: 'go on', wait: false, origin: COMPOSER } as never)
+  expect(w.submitted.at(-1)?.[0]).toContain('HANDOFF-NEW')
+})
+
+test('a chains/ file of the chain\'s name that does not list the session is merged in by the migration, never dropped', async ($, on) => {
+  const files = new Map<string, string>([[fileOf('c1'), JSON.stringify(frag(['s9'], 50, { decisions: ['Kept'] }))], fragmentAt('a-11111111', 'c1', frag(['s1'], 10, { decisions: ['Old'] }))])
+  const w = world(on, files, () => UPDATE('X'), [{ role: 'user', text: 'earlier', toolUses: [] }])
+  await $.session.start({ cwd: '/w' } as never)
+  await w.clock.advance(1)
+  expect(readLedger(w.files.get(fileOf('c1')))!.decisions.map(item => item.text)).toEqual(['Old', 'Kept'])
+})
+
+test('a resumed session that no fragment lists starts its own chain', async ($, on) => {
+  const lone = world(on, new Map(), () => UPDATE('X'), [{ role: 'user', text: 'earlier', toolUses: [] }])
+  await $.session.start({ cwd: '/w' } as never)
+  await lone.clock.advance(1)
+  expect(saved(lone).sessions).toEqual(['s1'])
+})
+
+test('the restore of a merged chain with over a hundred tasks stays near its cap', () => {
+  const many = mergeDelta(emptyLedger(1, 's1'), { ...NONE, opened: Array.from({ length: 130 }, (_, n) => `task ${n} ${'word '.repeat(12)}`.trim()), decisions: Array.from({ length: 55 }, (_, n) => `decision ${n} ${'word '.repeat(20)}`.trim()) }, 2)
+  const context = restoreContext({ ...many, handoff: 'H' }, '/d/ledger.md')
+  expect(wordsOf(context)).toBeLessThan(700 + 150)
+  expect(context).toMatch(/, and \d+ more in the file/)
 })
 
 const SUMMARY = { role: 'user', text: 'SUMMARY-OF-EARLIER', toolUses: [] }

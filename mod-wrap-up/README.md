@@ -69,7 +69,7 @@ The Sonnet calls are pinned to Sonnet. When Sonnet is blocked or unavailable for
 
 With Auto handoff at the mark on, the countdown first runs one more ledger update if turns are waiting. Set Automatic handoff to off and only the Wrap up pill hands off. Change settings with `/mod-wrap-up settings`.
 
-The ledger holds the handoff text. It is one JSON file per session chain, written under `~/.claude/mods-data/mod-wrap-up/<project>/ledgers/`. When `CLAUDE_CONFIG_DIR` is set, the folder is `$CLAUDE_CONFIG_DIR/mods-data/mod-wrap-up/` instead. The mod never prunes these files, so delete old ones by hand.
+The ledger holds the handoff text. It is one JSON file per session chain, written under `~/.claude/mods-data/mod-wrap-up/chains/`. When `CLAUDE_CONFIG_DIR` is set, the folder is `$CLAUDE_CONFIG_DIR/mods-data/mod-wrap-up/` instead. The mod never prunes these files, so delete old ones by hand.
 
 ## Settings
 
