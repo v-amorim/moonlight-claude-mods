@@ -387,7 +387,28 @@ test('a hovered control names itself in the tip row, a model menu entry and the 
   await ui.unmount()
 })
 
-test('the settings pane footer shows the tip of the hovered tab', { options: { icons: 'safe' } }, async ($, on) => {
+test('a band tip whose entry was redrawn while hovered clears after 5 s with no newer hover', { options: { icons: 'safe' } }, async ($, on) => {
+  const clock = mock.clock(on)
+  band(on as never)
+  on('store.get', () => ({ value: undefined }))
+  // Live, a band redraw mid-turn replaced the hovered entry, so its own quiet timer, and the leave, never came.
+  const first = await $.ui.mount(NARROW)
+  await pointer(first, { in: 'meter', type: 'move', x: 0, y: 0 })
+  await first.unmount()
+  const showsNow = async () => {
+    const ui = await $.ui.mount(NARROW)
+    const shown = (await ui.find({ type: 'Text', text: ' switches the model' })) !== undefined
+    await ui.unmount()
+    return shown
+  }
+  expect(await showsNow()).toBe(true)
+  await clock.advance(4000)
+  expect(await showsNow()).toBe(true)
+  await clock.advance(1000)
+  expect(await showsNow()).toBe(false)
+})
+
+test('the settings pane footer shows the tip of the hovered tab',{ options: { icons: 'safe' } }, async ($, on) => {
   on('config.list', () => ({ value: [] }))
   const pane = await $.ui.mount({ plugin: 'mod-model-effort', surface: 'terminal', component: 'Pane', requestId: 'model-effort-settings', props: { scroll: { offset: 0, bodyRows: 20 }, bodyColumns: 80 } } as never)
   await pointer(pane, { in: 'mod-model-effort-settings-tab', type: 'move', x: 1, y: 0 })
