@@ -4,7 +4,7 @@ import type { ConfigValue, EngineInterface, Register } from 'claude-code'
 
 import { bridgeOn, endBridge, startBridge, type BridgeRecord } from './bridge'
 import { NAME_COLOR, OPEN_CELLS, type ListMessage, type Row as ListRow } from './list'
-import { detectNerd, FOOTER_ROWS, heading, lookFor, section, paneFooter, subpill, withIcon, type IconMode, type Look, withMark } from './look'
+import { detectNerd, FOOTER_ROWS, lookFor, section, paneFooter, sepText, subpill, withIcon, type IconMode, type Look, withMark } from './look'
 import { isTipMessage, mix, type EntryMessage, type EntryProps, type Tip } from './entry'
 import { labelsOf, menuEntry, pill, pillRow, splitRow, tabRow, tipLine } from './pills'
 import { TOAST_MS, ToastList, toastCards } from './toasts'
@@ -505,9 +505,9 @@ function listRows(current: Log, rows: ReturnType<typeof rowsOf>, glyphs: Look, w
     const done = entry ? landed.get(entry.path) : undefined
     // Once the edit lands the row stops being live and glows instead, until Claude touches another file.
     const isLive = Boolean(entry && current.working && entry.seq === current.seq && done?.seq !== entry.seq)
-    const mark = row.isDir
-      ? [row.isFolded ? glyphs.glyph.collapsed : glyphs.glyph.expanded, icon(row.isFolded ? 'folder' : 'folder-open')].filter(Boolean).join(' ')
-      : icon(iconOf(row.name))
+    const lead = row.isDir ? (row.isFolded ? glyphs.glyph.collapsed : glyphs.glyph.expanded) : ''
+    const mark = row.isDir ? icon(row.isFolded ? 'folder' : 'folder-open') : icon(iconOf(row.name))
+    const marks = [lead, mark].filter(Boolean).join(' ')
     // Safe mode has no folder icon, so a trailing slash tells a folder from a file.
     const name = row.isDir && !glyphs.nerd ? `${row.name}/` : row.name
     const status = entry && isLive ? WORD[entry.last].live : ''
@@ -519,11 +519,13 @@ function listRows(current: Log, rows: ReturnType<typeof rowsOf>, glyphs: Look, w
     // The counts' pill adds a cap on each side where the font has them.
     const stats = cells(counts) + (counts && glyphs.nerd ? 2 : 0) + (status && counts ? 1 : 0)
     // The live word sits in a pill, one cell wider on each side.
-    const used = cells(guides) + (mark ? cells(mark) + 1 : 0) + stats + cells(status) + (isLive ? 2 : 0) + OPEN_CELLS
+    const used = cells(guides) + (marks ? cells(marks) + 1 : 0) + stats + cells(status) + (isLive ? 4 : 0) + OPEN_CELLS
     const shown = cut(name, Math.max(6, width - used - 1))
     return {
       guides,
+      lead,
       mark,
+      markColor: row.isDir ? THEME.folder : THEME.accent,
       name: shown,
       tone: !entry ? 'dir' : isLive ? 'live' : STATUS[entry.kind].tone,
       add,
@@ -858,7 +860,7 @@ export const register: Register = (on, options) => {
       return (
         <Box flexDirection="column" paddingX={1} minHeight={e.props.scroll.bodyRows} backgroundColor={THEME.bg}>
           {tabRow({ Box, Client, Text }, look.nerd, tabs(true, 0), still)}
-          <Text wrap="truncate-end" color={statusColor(note)}>{withMark(look, note) || fill(text.settingsHint, { sep: MARK.sep })}</Text>
+          {sepText({ Text }, withMark(look, note) || fill(text.settingsHint, { sep: MARK.sep }), statusColor(note), 'status-line', { wrap: 'truncate-end' })}
           <Box marginTop={0}>{settingsBody({ Box, Button, Client, Text }, look, { rows, actions, working: false, run, previews, fields, still })}</Box>
           <Box key="footer-space" height={FOOTER_ROWS} flexShrink={0} />
           {paneFooter({ Box, Text }, hoveredTip, e.props.bodyColumns, e.props.scroll)}
@@ -880,13 +882,13 @@ export const register: Register = (on, options) => {
       </Box>
     )
     // A Nerd icon as a subpill before the label; safe mode has none, so the prop stays out.
-    const iconLead = (name: string, color: string) => (look.glyph.icon[name] ? { subLead: look.glyph.icon[name], subLeadColor: color } : {})
     // A switch is the settings page's choice bar, so both read the same.
     const choiceBar = (key: string, options: { id: string; label: string; isOn: boolean; icon?: string; tip: string }[]) =>
       sharedChoiceBar({ Box, Button, Client, Text }, look, key, THEME.bg, options.map(option => ({
         key: option.id,
         isOn: option.isOn,
-        props: { id: option.id, label: option.label, still, nerd: look.nerd, ...(option.icon ? iconLead(option.icon, option.isOn ? THEME.accent : THEME.muted) : {}), tip: { glyph: look.glyph.icon[option.icon ?? ''] ?? look.glyph.title, label: option.label, text: option.tip } },
+        // No icon subpill: it changes the options' widths between states, so the bar shifts on every switch.
+        props: { id: option.id, label: option.label, still, nerd: look.nerd, tip: { glyph: look.glyph.icon[option.icon ?? ''] ?? look.glyph.title, label: option.label, text: option.tip } },
       })))
 
     const emptyText = (legit: string) => (loadError ? fill(text.unreadableWhy, { reason: loadError }) : legit)
@@ -917,7 +919,7 @@ export const register: Register = (on, options) => {
               <Text color={THEME.accent} bold wrap="truncate-start">{withIcon(look, iconOf(step.path), step.path)}</Text>
             </Box>
             <Box key="replay-meta" flexDirection="row" columnGap={1}>
-              <Text color={THEME.muted}>{[step.tool, step.note].filter(Boolean).join(` ${MARK.sep} `)}</Text>
+              {sepText({ Text }, [step.tool, step.note].filter(Boolean).join(` ${MARK.sep} `), THEME.muted, 'replay-meta-text')}
               {step.add > 0 ? <Text color={THEME.good}>{`+${step.add}`}</Text> : null}
               {step.del > 0 ? <Text color={THEME.alert}>{`−${step.del}`}</Text> : null}
             </Box>
@@ -946,7 +948,8 @@ export const register: Register = (on, options) => {
       ) : (
         entry(id, label, false, THEME.surface3, { idle: THEME.secondary, ...sub, tip: { glyph: mark, label, text: tipText } })
       )
-      return pill({ Box, Text }, look.nerd, THEME.surface3, body, `${id}-pill`, THEME.surface1)
+      // The steppers sit in the card's top edge, on bg.
+      return pill({ Box, Text }, look.nerd, THEME.surface3, body, `${id}-pill`, THEME.bg)
     }
     const replayNav = step ? (
       <Box key="replay-nav" flexDirection="row" columnGap={1}>
@@ -956,25 +959,12 @@ export const register: Register = (on, options) => {
       </Box>
     ) : null
     const replayTitle = fill(text.replayHeading, { sep: MARK.sep, n: steps.length, unit: steps.length === 1 ? text.editOne : text.editMany })
-    const replayHead = (
-      <Box key="replay-heading-row" flexDirection="row">
-        {heading(elements, look, 'replay', 'replay', replayTitle)}
-        <Box key="replay-heading-gap" flexGrow={1} />
-        {replayNav}
-      </Box>
-    )
 
     // Keyed on folded, not open: the live fold keeps the edited folder open through a Fold all.
     const isAnyFolded = rows.some(row => row.isDir && row.isFolded)
     const foldToggle = (id: string, label: string, arrow: string, tipText: string) =>
-      entry(id, label, false, THEME.surface1, { idle: THEME.muted, lead: arrow, leadColor: THEME.accent, tip: { glyph: arrow, label, text: tipText } })
-    const treeHead = (
-      <Box key="tree-heading-row" flexDirection="row" columnGap={1}>
-        {heading(elements, look, 'tree', 'folder-open', rootName)}
-        <Box key="tree-heading-gap" flexGrow={1} />
-        {!rows.some(row => row.isDir) ? null : isAnyFolded ? foldToggle('unfold-all', text.unfoldAll, glyph.more, text.unfoldAllTip) : foldToggle('fold-all', text.foldAll, glyph.less, text.foldAllTip)}
-      </Box>
-    )
+      entry(id, label, false, THEME.bg, { idle: THEME.muted, lead: arrow, leadColor: THEME.accent, tip: { glyph: arrow, label, text: tipText } })
+    const fold = !rows.some(row => row.isDir) ? null : isAnyFolded ? foldToggle('unfold-all', text.unfoldAll, glyph.more, text.unfoldAllTip) : foldToggle('fold-all', text.foldAll, glyph.less, text.foldAllTip)
 
     const hint =
       mode === 'tree'
@@ -985,9 +975,9 @@ export const register: Register = (on, options) => {
       <Box flexDirection="column" paddingX={1} minHeight={e.props.scroll.bodyRows} backgroundColor={THEME.bg}>
         <Box key="title-line" flexDirection="row" columnGap={1}>
           {tabRow({ Box, Client, Text }, look.nerd, tabs(false, touched), still)}
-          {current.working ? <Text color={THEME.muted}>{text.working}</Text> : null}
+          {current.working ? entry('working', text.working, false, THEME.bg, { spinner: true, idle: THEME.muted }) : null}
         </Box>
-        <Text wrap="truncate-end" color={statusColor(note)}>{withMark(look, note) || hint}</Text>
+        {sepText({ Text }, withMark(look, note) || hint, statusColor(note), 'status-line', { wrap: 'truncate-end' })}
         <Box key="tabs" flexDirection="row" columnGap={1} marginTop={1}>
           {choiceBar('view', [
             { id: 'tab-tree', label: text.tabTree, isOn: mode === 'tree', icon: 'files', tip: text.tabTreeTip },
@@ -1001,7 +991,9 @@ export const register: Register = (on, options) => {
               ])
             : null}
         </Box>
-        {mode === 'tree' ? section(elements, look, 'tree', '', '', [treeHead, tree]) : section(elements, look, 'replay', '', '', [replayHead, replay])}
+        {mode === 'tree'
+          ? section(elements, look, 'tree', 'folder-open', rootName, tree, THEME.accent, { right: fold })
+          : section(elements, look, 'replay', 'replay', replayTitle, replay, THEME.accent, { right: replayNav })}
         {mode === 'tree' ? <Box key="legend-push" flexGrow={1} /> : null}
         {mode === 'tree' ? (
           <Box key="legend" flexDirection="column">
@@ -1010,7 +1002,7 @@ export const register: Register = (on, options) => {
                 pill({ Box, Text }, look.nerd, mix(NAME_COLOR[tone], THEME.bg, LEGEND_WASH), <Text color={NAME_COLOR[tone]}>{look.nerd ? text.legend[tone] : ` ${text.legend[tone]} `}</Text>, `legend-${tone}`, THEME.bg),
               )}
               <Box key="legend-gap" flexGrow={1} />
-              {pill({ Box, Text }, look.nerd, THEME.surface3, entry('session-reveal', text.sessionFolder, false, THEME.surface3, { subLead: look.glyph.icon.folder ?? look.glyph.reveal, subLeadColor: THEME.folder, tip: { glyph: look.glyph.icon.folder ?? look.glyph.reveal, label: text.sessionFolder, text: text.sessionFolderTip } }), 'session-reveal-pill', THEME.bg)}
+              {pill({ Box, Text }, look.nerd, THEME.surface3, entry('session-reveal', text.sessionFolder, false, THEME.surface3, { idle: THEME.onSurface, subLead: look.glyph.icon.folder ?? look.glyph.reveal, subLeadColor: THEME.folder, tip: { glyph: look.glyph.icon.folder ?? look.glyph.reveal, label: text.sessionFolder, text: text.sessionFolderTip } }), 'session-reveal-pill', THEME.bg)}
             </Box>
           </Box>
         ) : null}

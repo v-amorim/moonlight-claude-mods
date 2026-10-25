@@ -44,6 +44,8 @@ export default {
   "noOutputYet": "No output yet",
   "outputUnreadable": "Output file not readable (over 4 MiB or gone)",
   "commandLead": "$",
+  "commandTitle": "Command",
+  "outputTitle": "Output",
   "moreLines": "{n} more lines",
   "showAll": "Show all",
   "showLess": "Show less",

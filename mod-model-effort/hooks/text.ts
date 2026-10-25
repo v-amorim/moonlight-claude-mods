@@ -8,6 +8,7 @@ export default {
   "modelBusy": "Claude is working, {name} is available once it is idle",
   "allModels": "All models…",
   "labelModel": "Model",
+  "labelEffort": "Effort",
   "labelClose": "Close",
   "tipModel": "switches the model",
   "tipRest": "shows the effort levels",

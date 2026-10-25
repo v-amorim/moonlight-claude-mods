@@ -4,7 +4,7 @@ export const snapshot: Snapshot = {
   "enabled": {
     "true": {
       "frame": {
-        "border": "border",
+        "border": "#4b2935",
         "bg": "#1f1b2b"
       },
       "nerd": [

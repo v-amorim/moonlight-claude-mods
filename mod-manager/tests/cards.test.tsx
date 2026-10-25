@@ -1,6 +1,10 @@
 // mod-manager / tests/cards.test.tsx, by v-amorim: the first-run and updates cards above the prompt
 import { expect, test } from 'claude-code/testing'
 
+import { updatesCard } from '../hooks/cards'
+import { lookFor } from '../hooks/look'
+import { THEME } from '../hooks/theme'
+
 const neutral = (path: string) => path.replace(/\\/g, '/').replace(/^[A-Za-z]:/, '')
 const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms))
 const hooks = JSON.stringify({ modules: ['./register.tsx'] })
@@ -195,14 +199,28 @@ test('update-card: shows with updates', async ($, on) => {
   await eventually(ui, () => hasCard(ui, 'card-updates'))
   expect(await ui.find({ type: 'Text', text: '2 mods have updates' })).toBeDefined()
   expect(await ui.find({ type: 'Text', text: /^Twomod {2}$/ })).toBeDefined()
-  expect(await ui.find({ type: 'Text', text: '1.0.0 → 2.0.0' })).toBeDefined()
-  expect(await ui.find({ type: 'Text', text: '1.9.9 → 2.0.0' })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: '1.0.0 → ' })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: '1.9.9 → ' })).toBeDefined()
+  // The new version is drawn in accent, and the buttons sit at the card's right end.
+  expect((await ui.findAll({ type: 'Text', text: '2.0.0' })).map((node: any) => node.props.color)).toContain(THEME.accent)
+  expect((await ui.find({ key: 'card-updates-buttons' }))?.props.justifyContent).toBe('flex-end')
   // The current mod has no row, and no welcome card shows.
   expect(await ui.find({ type: 'Text', text: /^Onmod/ })).toBeUndefined()
   expect(await hasCard(ui, 'card-welcome')).toBeUndefined()
   expect(await drawn(ui, 'card-update-run')).toContain('Update 2')
   expect(await drawn(ui, 'card-update-skip')).toContain('Not now')
   await ui.unmount()
+})
+
+test('update-card: while updating the button spins and says Updating, with no icon', () => {
+  const part = (type: string) => (props: object) => ({ type, props })
+  const elements = { Box: part('Box'), Client: part('Client'), Text: part('Text'), Link: part('Link') }
+  const mod = (name: string) => ({ name, version: '2.0.0', installedVersion: '1.0.0' }) as never
+  const draw = (isUpdating: boolean) => JSON.stringify(updatesCard(elements, lookFor(true), { updates: [mod('upmod')], shown: name => name, isWorking: isUpdating, isUpdating, still: true, maxRows: 12 }))
+  expect(draw(true)).toContain('"label":"Updating"')
+  expect(draw(true)).toContain('"spinner":true,"tight":true')
+  expect(draw(true)).not.toContain('subLead')
+  expect(draw(false)).not.toContain('"spinner"')
 })
 
 test('update-card: runs the update steps only, then reloads', async ($, on) => {
@@ -348,7 +366,7 @@ test('cards: nerd and safe (nerd draws icons and caps)', { options: { icons: 'ne
   expect(updates).toContain(PILL_CAP)
   expect(updates).toContain(String.fromCodePoint(0xf0aa))
   expect(updates).toContain(String.fromCodePoint(0xf021))
-  expect(updates).toContain('1.9.9 ' + String.fromCodePoint(0xf061) + ' 2.0.0')
+  expect(updates).toContain('1.9.9 ' + String.fromCodePoint(0xf061) + ' ')
 })
 
 test('cards: nerd and safe (safe draws plain headings and common glyphs)', { options: { icons: 'safe' } }, async ($, on) => {
@@ -357,7 +375,7 @@ test('cards: nerd and safe (safe draws plain headings and common glyphs)', { opt
   expect(isPrivate(updates)).toBe(false)
   expect(welcome).toContain('Claude Code mods are in')
   expect(updates).toContain('2 mods have updates')
-  expect(updates).toContain('1.9.9 → 2.0.0')
+  expect(updates).toContain('1.9.9 → ')
 })
 
 test('cards: buttons post tips', async ($, on) => {
@@ -400,7 +418,7 @@ test('cards: update click while Claude works is a toast, and runs nothing', asyn
 
 test('cards: a short band keeps the buttons and counts the rows it cuts', async ($, on) => {
   const { band } = rig($, on, { store: WELCOMED })
-  const ui = await band({ maxRows: 7 })
+  const ui = await band({ maxRows: 6 })
   await eventually(ui, () => hasCard(ui, 'card-updates'))
   expect(await ui.find({ type: 'Text', text: '+1 more' })).toBeDefined()
   expect(await ui.find({ key: 'card-update-run' })).toBeDefined()

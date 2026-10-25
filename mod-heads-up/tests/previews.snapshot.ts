@@ -14,60 +14,11 @@ export const snapshot: Snapshot = {
               "text": " "
             },
             {
-              "text": "\ue0b6",
-              "color": "#333b5d",
-              "bg": "#1a1e30"
-            },
-            {
-              "text": "Heads up",
-              "color": "accent",
-              "bg": "#333b5d",
-              "bold": true
-            },
-            {
-              "text": "\ue0b4",
-              "color": "#333b5d",
-              "bg": "#1a1e30"
-            },
-            {
-              "text": " "
-            },
-            {
-              "text": "The main agent cached /ask, so one-off",
+              "text": "The main agent cached /ask, so",
               "color": "onSurface"
-            }
-          ]
-        },
-        {
-          "spans": [
-            {
-              "text": " "
             },
             {
-              "text": " ",
-              "bg": "#1a1e30"
-            },
-            {
-              "text": "        ",
-              "bg": "#333b5d"
-            },
-            {
-              "text": " ",
-              "bg": "#1a1e30"
-            },
-            {
-              "text": " "
-            },
-            {
-              "text": "questions cost more.",
-              "color": "onSurface"
-            }
-          ]
-        },
-        {
-          "spans": [
-            {
-              "text": " "
+              "text": "     "
             },
             {
               "text": "\ue0b6",
@@ -119,6 +70,45 @@ export const snapshot: Snapshot = {
               "bg": "#1a1e30"
             }
           ]
+        },
+        {
+          "spans": [
+            {
+              "text": " "
+            },
+            {
+              "text": "one-off questions cost more.",
+              "color": "onSurface"
+            },
+            {
+              "text": "       "
+            },
+            {
+              "text": " ",
+              "bg": "#1a1e30"
+            },
+            {
+              "text": "         "
+            },
+            {
+              "text": " ",
+              "bg": "#1a1e30"
+            },
+            {
+              "text": " "
+            },
+            {
+              "text": " ",
+              "bg": "#1a1e30"
+            },
+            {
+              "text": "   "
+            },
+            {
+              "text": " ",
+              "bg": "#1a1e30"
+            }
+          ]
         }
       ],
       "safe": [
@@ -128,40 +118,9 @@ export const snapshot: Snapshot = {
               "text": " "
             },
             {
-              "text": " Heads up ",
-              "color": "accent",
-              "bg": "#333b5d",
-              "bold": true
-            },
-            {
-              "text": " "
-            },
-            {
               "text": "The main agent cached /ask, so one-off",
               "color": "onSurface"
-            }
-          ]
-        },
-        {
-          "spans": [
-            {
-              "text": " "
             },
-            {
-              "text": "          ",
-              "bg": "#333b5d"
-            },
-            {
-              "text": " "
-            },
-            {
-              "text": "questions cost more.",
-              "color": "onSurface"
-            }
-          ]
-        },
-        {
-          "spans": [
             {
               "text": " "
             },
@@ -183,6 +142,17 @@ export const snapshot: Snapshot = {
               "text": " × ",
               "color": "onSurface",
               "bg": "surface3"
+            }
+          ]
+        },
+        {
+          "spans": [
+            {
+              "text": " "
+            },
+            {
+              "text": "questions cost more.",
+              "color": "onSurface"
             }
           ]
         }

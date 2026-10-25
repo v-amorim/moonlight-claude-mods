@@ -20,8 +20,8 @@ test('the card paints one gap row under itself, so the first list row never touc
   expect(gap.backgroundColor).toBe(THEME.bg)
 })
 
-test('the space held in the flow covers the card and its gap row', () => {
-  expect((cardSpace(els, 6) as Node).height).toBe(7)
+test('the space held in the flow covers the card alone; the section under it brings the gap row', () => {
+  expect((cardSpace(els, 6) as Node).height).toBe(6)
 })
 
 test('the card sticks at the top of the view, below the heading rows', () => {

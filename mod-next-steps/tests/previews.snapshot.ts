@@ -5,7 +5,7 @@ export const snapshot: Snapshot = {
     "true": {
       "frame": {
         "border": "border",
-        "bg": "#161929"
+        "bg": "#151827"
       },
       "nerd": [
         {
@@ -16,7 +16,7 @@ export const snapshot: Snapshot = {
             {
               "text": "\ue0b6",
               "color": "surface2",
-              "bg": "#161929"
+              "bg": "#151827"
             },
             {
               "text": "\ue0b6",
@@ -42,7 +42,7 @@ export const snapshot: Snapshot = {
             {
               "text": "\ue0b4",
               "color": "surface2",
-              "bg": "#161929"
+              "bg": "#151827"
             },
             {
               "text": "           "
@@ -50,7 +50,7 @@ export const snapshot: Snapshot = {
             {
               "text": "\ue0b6",
               "color": "surface2",
-              "bg": "#161929"
+              "bg": "#151827"
             },
             {
               "text": " \uf00d ",
@@ -60,7 +60,7 @@ export const snapshot: Snapshot = {
             {
               "text": "\ue0b4",
               "color": "surface2",
-              "bg": "#161929"
+              "bg": "#151827"
             }
           ]
         },
@@ -72,7 +72,7 @@ export const snapshot: Snapshot = {
             {
               "text": "\ue0b6",
               "color": "surface2",
-              "bg": "#161929"
+              "bg": "#151827"
             },
             {
               "text": "\ue0b6",
@@ -98,7 +98,7 @@ export const snapshot: Snapshot = {
             {
               "text": "\ue0b4",
               "color": "surface2",
-              "bg": "#161929"
+              "bg": "#151827"
             }
           ]
         },
@@ -110,7 +110,7 @@ export const snapshot: Snapshot = {
             {
               "text": "\ue0b6",
               "color": "surface2",
-              "bg": "#161929"
+              "bg": "#151827"
             },
             {
               "text": "\ue0b6",
@@ -136,7 +136,7 @@ export const snapshot: Snapshot = {
             {
               "text": "\ue0b4",
               "color": "surface2",
-              "bg": "#161929"
+              "bg": "#151827"
             }
           ]
         }

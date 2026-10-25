@@ -2,7 +2,7 @@
 // Wires the mod into the engine: holds risky Bash commands, draws the card, pane and settings.
 import type { ConfigValue, EngineInterface, Register, RenderElement } from 'claude-code'
 
-import { cardFill, cardGap, detectNerd, FOOTER_ROWS, heading, lookFor, paneFooter, section, type IconMode, type Look } from './look'
+import { cardFill, cardGap, detectNerd, FOOTER_ROWS, lookFor, paneFooter, section, titleEdge, type IconMode, type Look } from './look'
 import { isTipMessage, tipText, type EntryMessage, type EntryProps, type Tip, type TipMessage } from './entry'
 import { pill, pillRow, splitRow, tabRow, tipLine } from './pills'
 import { TOAST_MS, ToastList, toastCards } from './toasts'
@@ -407,16 +407,14 @@ function checksSection({ Box, Text }: Pick<Elements, 'Box' | 'Text'>, list: Chec
     look,
     'checks',
     'tool',
-    '',
+    text.checks.sectionTitle,
     [
-      <Box key="checks-head-row" flexDirection="row">
-        {heading({ Box, Text }, look, 'checks', 'tool', text.checks.sectionTitle)}
-        <Text color={THEME.muted}>{` ${MARK.sep} ${plural(counts.total, text.checks.permissionCheck)}`}</Text>
-      </Box>,
       ...cells,
       <Box key="checks-legend"><Text wrap="wrap">{legend}</Text></Box>,
       <Box key="checks-families"><Text color={THEME.muted} wrap="wrap">{fill(text.checks.families, { file: counts.file, shell: counts.shell, other: counts.other, sep: MARK.sep })}</Text></Box>,
     ],
+    THEME.accent,
+    { hint: `${MARK.sep} ${plural(counts.total, text.checks.permissionCheck)}` },
   )
 }
 
@@ -466,7 +464,7 @@ function holdCard({ Box, Button, Client, Text }: Elements & { Button: (props: an
   const rows = cardRows(state.plain!, state.report!, width, hasControl && !isBeside ? ownRowBody : bodyRows, isOpen)
   const labels = hasControl && isBeside ? beside : actionLabels(state.plain!, width)
   const actionsWidth = labels.cancel.length + labels.details.length + labels.run.length + 3 * ACTION_EXTRA + 2 * ACTION_GAP
-  const isShimmering = state.isDescribing === true && !hasControl && actionsWidth + ACTION_GAP + text.card.explaining.length + 2 <= width
+  const isShimmering = state.isDescribing === true && !hasControl && actionsWidth + ACTION_GAP + text.card.explaining.length + 4 <= width
   // The session count comes last on the row and is the first thing dropped: the actions and the toggle keep their room.
   const countWidth = [...sessionNote].length
   const showCount = sessionNote !== '' && !isShimmering && actionsWidth + (hasControl && isBeside ? moreWidth + ACTION_GAP : 0) + ACTION_GAP + countWidth <= width
@@ -483,7 +481,14 @@ function holdCard({ Box, Button, Client, Text }: Elements & { Button: (props: an
         </Text>
       )
     }
-    if (row.kind === 'verdict' && row.isOk) return <Text key={key} color={THEME.ok}>{`${MARK.ok} ${row.text}`}</Text>
+    if (row.kind === 'verdict' && row.isOk) {
+      return (
+        <Text key={key}>
+          <Text key={`${key}-mark`} color={THEME.good}>{MARK.ok}</Text>
+          <Text key={`${key}-text`} color={THEME.onSurface}>{` ${row.text}`}</Text>
+        </Text>
+      )
+    }
     if (row.kind === 'verdict') {
       return (
         <Text key={key}>
@@ -496,6 +501,8 @@ function holdCard({ Box, Button, Client, Text }: Elements & { Button: (props: an
     return <Text key={key} color={THEME.muted}>{row.text}</Text>
   })
   const fill = cardFill(THEME.alert)
+  // The one card that holds a risky command keeps an alert-tinted edge, the user's pick over the standard's neutral border.
+  const edge = mix(THEME.bg, THEME.alert, 0.33)
   const moreGlyph = isOpen ? look.glyph.less : look.glyph.more
   const moreControl = (
     <Client key={DOES_MORE} module="./entry.tsx" width={moreWidth} height={1} props={{ id: DOES_MORE, label: moreLabel, lead: moreGlyph, leadColor: THEME.accent, isOpen: false, bg: fill, idle: THEME.muted, still, nerd: look.nerd, tip: { glyph: moreGlyph, label: moreLabel, text: isOpen ? text.tips.showLess : text.tips.showAll } } satisfies EntryProps} />
@@ -510,8 +517,8 @@ function holdCard({ Box, Button, Client, Text }: Elements & { Button: (props: an
     </Box>
   )
 
-  return (
-    <Box key="blast-card" flexDirection="column" borderStyle="round" borderColor={THEME.border} backgroundColor={fill} paddingX={1}>
+  const card = (
+    <Box key="blast-card-box" flexDirection="column" borderStyle="round" borderColor={edge} backgroundColor={fill} paddingX={1}>
       {body}
       <Box key="hold-actions" flexDirection="row" columnGap={ACTION_GAP}>
         {entry('blast-cancel', labels.cancel, HOTKEY.cancel, labels.cancel, text.tips.cancel, bare(look.glyph.close))}
@@ -526,7 +533,7 @@ function holdCard({ Box, Button, Client, Text }: Elements & { Button: (props: an
         {/* While Haiku writes the plain words, a shimmer on the right says they are coming; only where the row has room. */}
         {isShimmering ? (
           <Box key="hold-explaining-row" flexGrow={1} justifyContent="flex-end">
-            <Client key="hold-explaining" module="./entry.tsx" height={1} props={{ id: 'hold-explaining', label: text.card.explaining, isOpen: false, bg: fill, isBusy: true, still }} />
+            <Client key="hold-explaining" module="./entry.tsx" height={1} props={{ id: 'hold-explaining', label: text.card.explaining, isOpen: false, bg: fill, isBusy: true, spinner: true, still }} />
           </Box>
         ) : null}
       </Box>
@@ -535,6 +542,12 @@ function holdCard({ Box, Button, Client, Text }: Elements & { Button: (props: an
           {moreControl}
         </Box>
       ) : null}
+    </Box>
+  )
+  return (
+    <Box key="blast-card" flexDirection="column">
+      {card}
+      {titleEdge({ Box, Text }, look, 'blast-card', '', text.card.title, text.card.titleHint, 0, edge)}
     </Box>
   )
 }

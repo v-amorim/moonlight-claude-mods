@@ -2,25 +2,24 @@
 // Draws the mod list rows with status marks, tips and theme colors.
 import type { ClientModule } from 'claude-code'
 
-import { HOVER_STEPS, HOVER_TICK_MS, hoverMix, mix, postTip, stepToward } from './entry'
+import { HOVER_STEPS, HOVER_TICK_MS, hoverMix, postTip, stepToward } from './entry'
 import type { Tip } from './entry'
 import { COST_CELLS, costPill, gearPill } from './cost'
+import { cardFill, sepText } from './look'
+import style from './style'
 import { CAPS, MARK, THEME } from './theme'
 
 // index is the mod's place in the pane's full list; update is the accent text beside the version when the marketplace has a newer one.
 export type Row = { index: number; name: string; version: string; enabled: boolean; commands: string[]; hasSettings: boolean; update?: string; cost?: string }
 
 // gear marks a mod with settings, icon leads each name (empty in safe mode); nameWidth lines the columns up; still: hover switches at once.
-export type ListProps = { rows: Row[]; gear: string; icon: string; nameWidth: number; nerd: boolean; on: string; off: string; switchTip: Tip; openTip: string; costGlyph: string; costLabel: string; still?: boolean }
+export type ListProps = { rows: Row[]; gear: string; icon: string; nameWidth: number; nerd: boolean; switchTip: Tip; openTip: string; costGlyph: string; costLabel: string; still?: boolean }
 
 // The pointer's row and part post a tip (id manager-row-<index>), which also tells the pane which mod's card to show.
 export type ListMessage = { type: 'select'; index: number } | { type: 'toggle'; index: number }
 
-// The share of green left in an on switch, as the mod-transcript chips tint their counts.
-const WASH = 0.72
-
-// Cells the switch pill takes: its two ends, the dot, a space and the longer label.
-export const switchWidth = (on: string, off: string) => 2 + 2 + Math.max(on.length, off.length)
+// Cells the switch takes: its track's two ends around the line and the knob.
+export const SWITCH_CELLS = 2 + [...MARK.track].length + [...MARK.knob].length
 
 // levels: each row's hover fade, kept only while above 0.
 type State = { row: number; zone: number; levels: Record<number, number> }
@@ -42,11 +41,11 @@ const fades = new WeakMap<object, () => void>()
 // One row per mod: the switch pill turns it on or off, the rest of the row opens its page; the row under the pointer lights as a lifted row with accent text.
 const ModList: ClientModule<ListProps, State> = (props, surface) => {
   const { Box, Text } = surface.elements
-  const { rows, gear, icon, nameWidth, nerd, on, off, switchTip, openTip, costGlyph, costLabel, still } = props
+  const { rows, gear, icon, nameWidth, nerd, switchTip, openTip, costGlyph, costLabel, still } = props
   // A Client takes no hover prop, so it tracks the row under the pointer itself.
   const hovered = surface.state?.row ?? -1
   const levels = surface.state?.levels ?? {}
-  const toggleCells = switchWidth(on, off)
+  const toggleCells = SWITCH_CELLS
   // The badges sit right, before the version padded to one width; a column no row uses is left out, a row without its badge keeps the blank.
   const hasCost = rows.some(row => row.cost)
   const hasGear = rows.some(row => row.hasSettings)
@@ -83,10 +82,8 @@ const ModList: ClientModule<ListProps, State> = (props, surface) => {
     <Box flexDirection="column">
       {rows.map((row, at) => {
         const level = levels[at] ?? 0
-        const bg = hoverMix(THEME.surface1, THEME.lifted, level)
-        const fill = row.enabled ? mix(THEME.ok, bg, WASH) : THEME.surface3
-        const label = (row.enabled ? on : off).padEnd(Math.max(on.length, off.length))
-        const end = (side: string, key: string) => <Text key={key} color={fill} backgroundColor={nerd ? bg : fill}>{nerd ? side : ' '}</Text>
+        const bg = hoverMix(cardFill(), THEME.lifted, level)
+        const end = (side: string, key: string) => <Text key={key} color={THEME.surface3} backgroundColor={nerd ? bg : THEME.surface3}>{nerd ? side : ' '}</Text>
         // An off mod's name dims too, so its state never rests on the switch alone.
         const nameColor = hoverMix(row.enabled ? THEME.onSurface : THEME.muted, THEME.accent, level)
         return (
@@ -94,7 +91,10 @@ const ModList: ClientModule<ListProps, State> = (props, surface) => {
             {/* Only the commands give way: a squeezed Text wraps and makes the row two tall. */}
             <Box key={`switch-${at}-pill`} flexDirection="row" flexShrink={0}>
               {end(CAPS.left, `switch-${at}-left`)}
-              <Text key={`switch-${at}`} color={row.enabled ? THEME.ok : THEME.muted} backgroundColor={fill}>{`${row.enabled ? MARK.stopOpen : MARK.stop} ${label}`}</Text>
+              {/* The switch: `━━●` on, `●━━` off, the knob joined to the line. */}
+              {row.enabled
+                ? [<Text key={`switch-${at}-line`} color={THEME.accent} backgroundColor={THEME.surface3}>{MARK.track}</Text>, <Text key={`switch-${at}`} color={THEME.ok} backgroundColor={THEME.surface3}>{MARK.knob}</Text>]
+                : [<Text key={`switch-${at}`} color={style.colors.pills.readout} backgroundColor={THEME.surface3}>{MARK.knob}</Text>, <Text key={`switch-${at}-line`} color={THEME.trackOff} backgroundColor={THEME.surface3}>{MARK.track}</Text>]}
               {end(CAPS.right, `switch-${at}-right`)}
             </Box>
             <Box key={`row-${at}-name`} flexShrink={0}>
@@ -102,7 +102,7 @@ const ModList: ClientModule<ListProps, State> = (props, surface) => {
             </Box>
             {row.commands.length ? (
               <Box key={`row-${at}-commands`} flexShrink={1}>
-                <Text color={THEME.muted} wrap="truncate-end">{` ${row.commands.map(name => `/${name}`).join(` ${MARK.sep} `)}`}</Text>
+                {sepText({ Text }, ` ${row.commands.map(name => `/${name}`).join(` ${MARK.sep} `)}`, THEME.muted, `row-${at}-commands-text`, { wrap: 'truncate-end' })}
               </Box>
             ) : null}
             <Box key={`row-${at}-gap`} flexGrow={1} />

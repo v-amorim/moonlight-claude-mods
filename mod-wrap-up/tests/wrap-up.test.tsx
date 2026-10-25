@@ -83,7 +83,7 @@ const click = (band: Band, key: string) => band.pointer({ type: 'down', x: 1, y:
 const label = async (band: Band, key: string) => JSON.stringify(await band.drawn({ in: key }))
 
 // The pill is one Client: ` Wrap up ` (cells 0 to 8), ` Handoff ` (9 to 17), ` Compact ` (18 to 26); Nerd adds the pill's left cap and a cap cell each side of an option.
-const OPTION_X = { safe: { handoff: 10, compact: 20 }, nerd: { handoff: 12, compact: 24 } }
+const OPTION_X = { safe: { handoff: 12, compact: 22 }, nerd: { handoff: 15, compact: 25 } }
 const choose = (band: Band, option: 'handoff' | 'compact', icons: 'safe' | 'nerd' = 'safe') =>
   band.pointer({ type: 'down', x: OPTION_X[icons][option], y: 0, button: 'left', in: 'wrap-up-entry' } as never)
 
@@ -283,7 +283,7 @@ test('Handoff shows both names; Go renames this session, clears, then renames th
   await choose(band, 'handoff')
   await w.clock.advance(10)
 
-  expect(await band.find({ type: 'Text', text: 'Rename' })).toBeDefined()
+  expect(await band.find({ type: 'Text', text: 'RENAME' })).toBeDefined()
   expect(await label(band, 'wrap-up-name-this')).toContain(' EP-1 build fix ')
   expect(await label(band, 'wrap-up-name-next')).toContain(' EP-2 deploy ')
   expect(await band.find({ type: 'Text', text: '· this session' })).toBeDefined()
@@ -413,8 +413,8 @@ test('the typed command opens the card, in Compact mode with `compact`', async (
   expect(await label(band, 'wrap-up-go')).toContain(THEME.surface3)
   expect(await label(band, 'wrap-up-go')).not.toContain(THEME.lifted)
   expect(await label(band, 'wrap-up-cancel')).toContain(THEME.surface3)
-  expect(await band.find({ type: 'Text', text: 'Threads' })).toBeDefined()
-  expect(await band.find({ type: 'Text', text: 'Also keep' })).toBeDefined()
+  expect(await band.find({ type: 'Text', text: 'THREADS' })).toBeDefined()
+  expect(await band.find({ type: 'Text', text: 'ALSO KEEP' })).toBeDefined()
   expect(w.calls).toEqual([])
   await band.unmount()
 })
@@ -553,8 +553,7 @@ test('icons=nerd keeps the Wrap up labels plain, with no icon', { options: { ico
   expect(await label(band, 'wrap-up-entry')).toContain(' Handoff ')
   expect(await label(band, 'wrap-up-entry')).toContain(CAPS.right)
   await choose(band, 'handoff', 'nerd')
-  expect(await band.find({ type: 'Text', text: String.fromCodePoint(0xf005) })).toBeDefined()
-  expect(await band.find({ type: 'Text', text: String.fromCodePoint(0xf075) })).toBeDefined()
+  expect(await band.find({ type: 'Text', text: 'THREADS' })).toBeDefined()
   expect(await label(band, 'wrap-up-go')).toContain(`"${String.fromCodePoint(0xf054)}"`)
   await band.unmount()
 })
@@ -586,7 +585,7 @@ test('the settings pane draws its title, status line and settings', { options: {
     requestId: 'wrap-up',
     props: { scroll: { offset: 0, bodyRows: 20 }, bodyColumns: 80 },
   } as never)
-  expect(JSON.stringify(await pane.drawn({ in: 'mod-wrap-up-settings-tab' }))).toContain('Wrap up · Settings')
+  expect(JSON.stringify(await pane.drawn({ in: 'mod-wrap-up-settings-tab' }))).toMatch(/Wrap up [^]*"#3B446A"[^]*·[^]* Settings/)
   expect(await pane.find({ type: 'Text', text: /Click a setting to change it/ })).toBeDefined()
   expect(await pane.find({ type: 'Text', text: 'Handoff length' })).toBeDefined()
   await pane.unmount()
@@ -624,7 +623,8 @@ test('the pill offers Auto with an off switch, its tip says what is set now, and
   })
   const band = await $.ui.mount(BAND())
   await band.pointer({ type: 'move', x: 1, y: 0, in: 'wrap-up-entry' } as never)
-  expect(JSON.stringify(await band.drawn({ in: 'wrap-up-entry' }))).toContain('[○] Auto')
+  expect(JSON.stringify(await band.drawn({ in: 'wrap-up-entry' }))).toContain(' Auto ')
+  expect(await label(band, 'wrap-up-entry')).not.toContain(THEME.lifted)
   await band.pointer({ type: 'move', x: 31, y: 0, in: 'wrap-up-entry' } as never)
   expect(await band.find({ type: 'Text', text: ' off, click to hand off between turns at 400K tokens or 65%' })).toBeDefined()
   await band.pointer({ type: 'down', x: 31, y: 0, button: 'left', in: 'wrap-up-entry' } as never)
@@ -636,7 +636,8 @@ test('with auto compact on, the switch shows on and its tip names the marks it c
   world(on, answered)
   const band = await $.ui.mount(BAND())
   await band.pointer({ type: 'move', x: 1, y: 0, in: 'wrap-up-entry' } as never)
-  expect(JSON.stringify(await band.drawn({ in: 'wrap-up-entry' }))).toContain('[◉] Auto')
+  expect(JSON.stringify(await band.drawn({ in: 'wrap-up-entry' }))).toContain(' Auto ')
+  expect(await label(band, 'wrap-up-entry')).toContain(THEME.lifted)
   await band.pointer({ type: 'move', x: 31, y: 0, in: 'wrap-up-entry' } as never)
   expect(await band.find({ type: 'Text', text: ' on, counts down 5 s then clears with the handoff at 300K tokens or 70%, click to turn off' })).toBeDefined()
   await band.unmount()
@@ -672,7 +673,7 @@ test('the settings pane footer shows the tip of the hovered tab', { options: { i
   await pane.unmount()
 })
 
-test('the open wrap-up pill spaces its options like the menu, one rail between neighbours, and a click lands on the option drawn there', () => {
+test('the open wrap-up pill draws its options in a track after the head, one rail between neighbours, and a click lands on the option drawn there', () => {
   const posted: any[] = []
   let pointer: (event: any) => void = () => {}
   const surface: any = {
@@ -694,7 +695,7 @@ test('the open wrap-up pill spaces its options like the menu, one rail between n
   Choice(props, surface)
   pointer({ type: 'move', x: 1, y: 0 })
   const drawn = textOf(Choice(props, surface)).slice(1, -1)
-  expect(drawn).toBe(' Wrap up │ Handoff │ Compact ')
+  expect(drawn).toBe(' Wrap up ' + CAPS.right + ' ' + CAPS.left + ' Handoff │ Compact ')
   pointer({ type: 'down', button: 'left', x: 1 + drawn.indexOf('Compact'), y: 0 })
   expect(posted.at(-1)).toEqual({ type: 'menu-entry', id: 'compact' })
 })
@@ -759,16 +760,16 @@ test('an option fades out step by step after the pointer leaves it, and the tick
   Choice(props, surface)
   send({ type: 'move', x: 1, y: 0 })
   Choice(props, surface)
-  send({ type: 'move', x: 10, y: 0 })
+  send({ type: 'move', x: 12, y: 0 })
   expect(colorOf(Choice(props, surface), 'go-label')).toBe(THEME.accent)
   send({ type: 'move', x: 1, y: 0 })
   expect(running.size).toBe(2)
   ;[...running].forEach(fn => fn())
   const half = colorOf(Choice(props, surface), 'go-label')
   expect(half).not.toBe(THEME.accent)
-  expect(half).not.toBe(THEME.pill)
+  expect(half).not.toBe(THEME.muted)
   ;[...running].forEach(fn => fn())
-  expect(colorOf(Choice(props, surface), 'go-label')).toBe(THEME.pill)
+  expect(colorOf(Choice(props, surface), 'go-label')).toBe(THEME.muted)
   expect(running.size).toBe(1)
 })
 
@@ -778,10 +779,10 @@ test('with animations off the option color switches at once and no fade ticker s
   Choice(still, surface)
   send({ type: 'move', x: 1, y: 0 })
   Choice(still, surface)
-  send({ type: 'move', x: 10, y: 0 })
+  send({ type: 'move', x: 12, y: 0 })
   expect(colorOf(Choice(still, surface), 'go-label')).toBe(THEME.accent)
   send({ type: 'move', x: 1, y: 0 })
-  expect(colorOf(Choice(still, surface), 'go-label')).toBe(THEME.pill)
+  expect(colorOf(Choice(still, surface), 'go-label')).toBe(THEME.muted)
   expect(running.size).toBe(1)
 })
 

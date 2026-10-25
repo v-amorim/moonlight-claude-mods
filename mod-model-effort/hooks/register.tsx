@@ -5,9 +5,10 @@ import type { ConfigValue, EngineInterface, Register, RenderElement } from 'clau
 import { bridgeOn, endBridge, startBridge, type BridgeRecord } from './bridge'
 import { displayName, LEVEL_LOOK, LEVELS, plainModel, withEffort, withModel } from './levels'
 import { entryCells, isTipMessage, tipText, type EntryMessage, type EntryProps, type Tip, type TipMessage } from './entry'
-import { cardFill, detectNerd, FOOTER_ROWS, lookFor, paneFooter, type IconMode, withMark } from './look'
+import { cardFill, detectNerd, FOOTER_ROWS, lookFor, paneFooter, sepText, titleEdge, type IconMode, withMark } from './look'
 import { meterCells, type MeterMessage } from './meter'
 import { settingChoice, settingsBody } from './settings'
+import style from './style'
 import { firstText, isSpeed, replySpeed, watch } from './speed'
 import { fill, MARK, statusColor, THEME } from './theme'
 import { labelsOf, PILL, pill, pillRow, splitRow, tabRow, tipLine } from './pills'
@@ -337,6 +338,7 @@ function modelMenu(elements: Elements, currentId: string, columns: number) {
   const stacked = models.map(([id, bg, entry]) => draw([id, bg, entry.subLead ? entry : { ...entry, label: `${blank}${entry.label}` }]))
   return (
     <Box key="effort-models-row" flexDirection="row" justifyContent="flex-end">
+      <Box key="effort-models-block" flexDirection="column">
       {lineCells <= columns ? (
         <Box key="effort-models" flexDirection="row" columnGap={1} paddingX={1} borderStyle="round" borderColor={THEME.border} backgroundColor={cardFill()}>
           {line.map(draw)}
@@ -351,6 +353,8 @@ function modelMenu(elements: Elements, currentId: string, columns: number) {
           {draw(all)}
         </Box>
       )}
+      {titleEdge(elements, look, 'effort-models', '', text.labelModel, '', 0)}
+      </Box>
     </Box>
   )
 }
@@ -361,9 +365,12 @@ function effortCard(elements: Elements, meterProps: Record<string, unknown>) {
   const close = menuEntry(elements, 'effort-card-close', THEME.surface3, { label: bare(look.glyph.close), isOpen: false, tip: { glyph: bare(look.glyph.close), label: text.labelClose, text: text.tipCardClose } })
   return (
     <Box key="effort-card-row" flexDirection="row" justifyContent="flex-end">
+      <Box key="effort-card-block" flexDirection="column">
       <Box key="effort-card" flexDirection="row" columnGap={1} paddingX={1} borderStyle="round" borderColor={THEME.border} backgroundColor={cardFill()}>
         <Client key="effort-card-meter" module="./meter.tsx" height={1} props={{ ...meterProps, card: true, compact: false, under: cardFill() }} />
         {close}
+      </Box>
+      {titleEdge(elements, look, 'effort-card', '', text.labelEffort, '', 0)}
       </Box>
     </Box>
   )
@@ -585,7 +592,7 @@ export const register: Register = (on, options) => {
     const meter = <Client key="meter" module="./meter.tsx" height={1} props={meterProps} />
     // The level word follows the pill, so it never moves the glyphs under the pointer.
     const shownWord = hoveredLevel() ?? flash
-    const word = shownWord ? <Text key="menu-flash" color={LEVEL_LOOK[shownWord]?.color}>{(text.levelNames as Record<string, string>)[shownWord] ?? shownWord}</Text> : null
+    const word = shownWord ? <Text key="menu-flash" color={style.colors.pills.readout}>{(text.levelNames as Record<string, string>)[shownWord] ?? shownWord}</Text> : null
 
     const menu = isModelMenuOpen ? [modelMenu({ Box, Client, Text }, modelId, e.props.bodyColumns)] : isEffortCardOpen ? [effortCard({ Box, Client, Text }, meterProps)] : []
     return pillRow({ Box, Client, Text }, look.nerd, group, [...row, <Box key="menu-pill" flexDirection="row">{meter}</Box>, word], [...toastCards({ Box, Client, Text }, toasts, look, text.tipToast), ...rest, ...menu], bandTip?.id ? tipLine({ Box, Text }, tipText(bandTip)) : tip, e.props.bodyColumns)
@@ -602,7 +609,7 @@ export const register: Register = (on, options) => {
     return (
       <Box flexDirection="column" backgroundColor={THEME.bg} paddingX={1} minHeight={e.props.scroll.bodyRows}>
         {tabRow({ Box, Client, Text }, look.nerd, [{ id: 'mod-model-effort-settings-tab', label: `${text.paneName} ${MARK.sep} ${text.paneSettings}`, icon: look.glyph.gear, isOpen: true, tip: { glyph: look.glyph.gear, label: text.paneSettings, text: text.tipTab } }], still)}
-        <Text wrap="truncate-end" color={statusColor(note)}>{withMark(look, note) || `${text.statusHint} ${MARK.sep} ${text.statusHintSaved}`}</Text>
+        {sepText({ Text }, withMark(look, note) || `${text.statusHint} ${MARK.sep} ${text.statusHintSaved}`, statusColor(note), 'settings-status', { wrap: 'truncate-end' })}
         {settingsBody({ Box, Button, Client, Text }, look, { rows, actions: [], working: false, run: async () => {}, previews: undefined, still: still })}
         <Box key="footer-space" height={FOOTER_ROWS} flexShrink={0} />
         {paneFooter({ Box, Text }, paneTip, e.props.bodyColumns, e.props.scroll)}

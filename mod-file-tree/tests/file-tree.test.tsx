@@ -4,8 +4,7 @@ import { expect, mock, test, type Mounted, type TestBody } from 'claude-code/tes
 
 import { cells, cut } from '../hooks/cells'
 import FileList, { type Row as ListRow } from '../hooks/list'
-import { mix } from '../hooks/entry'
-import { THEME, WASH } from '../hooks/theme'
+import { THEME } from '../hooks/theme'
 import { TranscriptFiles } from '../hooks/transcript'
 import { diffLines, emptyLog, commit, iconOf, relPath, rootOf, rowsOf, touch, turnView } from '../hooks/tree'
 
@@ -168,7 +167,7 @@ test('tool calls fill the tree live, a click opens the diff in the replay, Prev 
 
   const ui = await $.ui.mount(PANE)
   expect(JSON.stringify(await ui.drawn({ in: 'filetree-tab' }))).toContain('2')
-  expect(await ui.find({ type: 'Text', text: '· Working' })).toBeDefined()
+  expect(JSON.stringify(await ui.drawn({ in: 'working' }))).toContain('Working')
   expect(JSON.stringify(await ui.drawn({ in: 'tab-tree' }))).toContain(' Tree ')
   // The folder without docs/new.md folds; new.md's write landed, so it glows, with no action word and no status letter.
   const drawn = JSON.stringify(await ui.drawn({ in: 'list-0' }))
@@ -207,9 +206,9 @@ test('tool calls fill the tree live, a click opens the diff in the replay, Prev 
   expect(await replay()).toContain('"y"')
   expect(await replay()).toContain(THEME.addBg)
   expect(await replay()).toContain(THEME.delBg)
-  // Prev and Next ride on the section's heading row; the open view's option is a washed ok subpill, as on a settings page.
-  expect(JSON.stringify(await ui.find({ key: 'replay-heading-row' }))).toContain('replay-next')
-  expect(JSON.stringify(await ui.find({ key: 'tab-replay-chosen' }))).toContain(mix(THEME.ok, THEME.surface3, WASH))
+  // Prev and Next ride on the section's top edge; the open view's option is a washed ok subpill, as on a settings page.
+  expect(JSON.stringify(await ui.find({ key: 'replay-edge-right' }))).toContain('replay-next')
+  expect(JSON.stringify(await ui.find({ key: 'tab-replay-chosen' }))).toContain(THEME.lifted)
   await click('replay-next')
   expect(await ui.find({ type: 'Text', text: '2 of 2' })).toBeDefined()
   expect(await ui.find({ type: 'Text', text: 'docs/new.md' })).toBeDefined()
@@ -353,13 +352,10 @@ test('icons=nerd leads the kinds and the title with Nerd icons', { options: { ic
   const ui = await $.ui.mount(PANE)
   expect(JSON.stringify(await ui.drawn({ in: 'filetree-tab' }))).toContain(nf(0xeb86))
   expect(JSON.stringify(await ui.drawn({ in: 'list-0' }))).toContain(`${nf(0xe609)} `)
-  // The view bar's icons are subpills before the label, the open mark a capped pill at the row's end.
+  // The view bar carries labels only: an icon subpill changed the options' widths and shifted the bar on every switch.
   const replayTab = JSON.stringify(await ui.drawn({ in: 'tab-replay' }))
-  expect(replayTab).toContain(nf(0xea82))
   expect(replayTab).toContain(' Replay ')
-  // An idle option's icon is capped like the chosen one's, never a padded square.
-  expect(replayTab).toContain(nf(0xe0b6))
-  expect(replayTab).not.toContain(` ${nf(0xea82)} `)
+  expect(replayTab).not.toContain(nf(0xea82))
   const list = JSON.stringify(await ui.drawn({ in: 'list-0' }))
   expect(list).toContain(`"color":"${THEME.accent}","backgroundColor":"${THEME.surface3}"},"children":["↗"]`)
   expect(list).toContain(nf(0xe0b6))
@@ -437,7 +433,7 @@ test("icons=nerd keeps a settings choice bar's labels in place whichever option 
 })
 
 for (const nerd of [false, true]) {
-  test(`icons=${nerd ? 'nerd' : 'safe'} draws a settings choice as one pill with a rail between options, and every cell of an option picks it`, { options: { icons: nerd ? 'nerd' : 'safe' } }, async ($, on) => {
+  test(`icons=${nerd ? 'nerd' : 'safe'} draws a settings choice as one track, no rails, and every cell of an option picks it`, { options: { icons: nerd ? 'nerd' : 'safe' } }, async ($, on) => {
     stubs(on)
     const saved: unknown[] = []
     on('config.list', () => ({
@@ -450,8 +446,8 @@ for (const nerd of [false, true]) {
     const ui = pointing(await $.ui.mount({ ...(PANE as object), requestId: 'filetree-settings' } as never))
     const bar = await drawnText(ui, await ui.find({ key: 'setting-0-bar' }))
     const [left, right] = [nf(0xe0b6), nf(0xe0b4)]
-    expect(bar).toBe(nerd ? `${left}${left}one${right}│ two │ three ${right}` : '  one │ two │ three  ')
-    // The hit area of an option is the cells its own Client draws, whatever the caps and rails around it.
+    expect(bar).toBe(nerd ? `${left}${left}one${right} two  three ${right}` : '  one  two  three  ')
+    // The hit area of an option is the cells its own Client draws, whatever the caps around it.
     for (const [at, word] of ['one', 'two', 'three'].entries()) {
       const width = cells(await drawnText(ui, await ui.find({ key: `setting-0-option-${at}` })))
       expect(width).toBe(word.length + (word === 'one' && nerd ? 0 : 2))
@@ -485,7 +481,7 @@ test('the live action word sits in its own pill', async ($, on) => {
   await $.tool.call({ tool: 'Read', file_path: '/w/live.ts' } as never)
   const ui = await $.ui.mount(PANE)
   const drawn = JSON.stringify(await ui.drawn({ in: 'list-0' }))
-  expect(drawn).toContain('"color":"#CED9FF","backgroundColor":"#3A3F5C"},"children":["reading"]')
+  expect(drawn).toContain('"color":"#B9C6F5","backgroundColor":"#242839"},"children":["reading"]')
   await ui.unmount()
 })
 
@@ -860,7 +856,8 @@ test('a list at rest runs no timer; a live row moves it until it settles, and a 
   FileList(props('changed'), list.surface)
   expect(list.running.size).toBe(0)
   FileList(props('live'), list.surface)
-  expect(list.running.size).toBe(1)
+  // The shimmer's timer and the spinner's own 80 ms one.
+  expect(list.running.size).toBe(2)
   FileList(props('changed'), list.surface)
   list.tick()
   expect(list.running.size).toBe(0)
@@ -896,9 +893,9 @@ test('one toggle at the tree heading row\'s right end folds every folder, then t
   stubs(on)
   await FOLDERS($)
   const ui = await $.ui.mount(PANE)
-  const head = async () => JSON.stringify(await ui.find({ key: 'tree-heading-row' }))
-  // The expand standard: after the spacer, the arrow before a muted label, and only one of the two at a time.
-  expect(await head()).toMatch(/tree-heading-gap.*"id":"fold-all","label":"Fold all".*"lead":"▴"/)
+  const head = async () => JSON.stringify(await ui.find({ key: 'tree-edge-right' }))
+  // The expand standard: the arrow before a muted label, and only one of the two at a time.
+  expect(await head()).toMatch(/"id":"fold-all","label":"Fold all".*"lead":"▴"/)
   expect(await head()).not.toContain('unfold-all')
   const tree = async () => JSON.stringify(await ui.drawn({ in: 'list-0' }))
   const click = (key: string) => pointing(ui).pointer({ in: key, type: 'down', button: 'left', x: 2, y: 0 })

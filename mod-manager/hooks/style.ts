@@ -7,8 +7,9 @@ export default {
       "surface1": "#141726",
       "surface2": "#1C2033",
       "surface3": "#252A42",
-      "lifted": "#3D4258",
-      "border": "#3A3F5C",
+      "lifted": "#2F3654",
+      "trackOff": "#4B5270",
+      "border": "#242839",
       "onSurface": "#EEEEFA",
       "muted": "#9BA3C4",
       "accent": "#7386D0",
@@ -18,7 +19,7 @@ export default {
       "alert": "#CA5F71",
       "warn": "#FFCB6B",
       "folder": "#86E1FC",
-      "pill": "#CED9FF",
+      "pill": "#B9C6F5",
       "addBg": "#1D3B38",
       "delBg": "#3D2737"
     },
@@ -33,13 +34,13 @@ export default {
     "pills": {
       "primary": "#252A42",
       "secondary": "#1C2033",
-      "separator": "#5C6380",
+      "separator": "#3B446A",
       "readout": "#7E86A4"
     },
     "shimmer": [
-      "#CED9FF",
-      "#B9C6F5",
-      "#AAB4DC"
+      "#A2B0EA",
+      "#949FCE",
+      "#8993B9"
     ],
     "usage": [
       "#CED9FF",
@@ -149,6 +150,9 @@ export default {
     "stopOpen": "●",
     "rail": "│",
     "rule": "─",
+    "track": "━━",
+    "knob": "●",
+    "spinner": "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏",
     "open": "↗",
     "strip": "▎"
   },
@@ -212,6 +216,7 @@ export default {
       "icon": {
         "settings": "{U+F1DE}",
         "actions": "{U+F0E7}",
+        "wrapup": "{U+F187}",
         "features": "{U+F005}",
         "mod": "{U+F12E}",
         "installed": "{U+F487}",

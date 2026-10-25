@@ -510,7 +510,7 @@ export const snapshot: Snapshot = {
             },
             {
               "text": "\uf040 ",
-              "color": "pill",
+              "color": "#CED9FF",
               "bg": "surface2"
             },
             {
@@ -525,7 +525,7 @@ export const snapshot: Snapshot = {
             },
             {
               "text": "1",
-              "color": "pill",
+              "color": "#CED9FF",
               "bg": "#4e546c",
               "bold": true
             },
@@ -786,7 +786,7 @@ export const snapshot: Snapshot = {
             },
             {
               "text": "± ",
-              "color": "pill",
+              "color": "#CED9FF",
               "bg": "surface2"
             },
             {
@@ -800,7 +800,7 @@ export const snapshot: Snapshot = {
             },
             {
               "text": "1",
-              "color": "pill",
+              "color": "#CED9FF",
               "bg": "#4e546c",
               "bold": true
             },
@@ -1072,7 +1072,7 @@ export const snapshot: Snapshot = {
             },
             {
               "text": "\uf040 ",
-              "color": "pill",
+              "color": "#CED9FF",
               "bg": "surface2"
             },
             {
@@ -1087,7 +1087,7 @@ export const snapshot: Snapshot = {
             },
             {
               "text": "1",
-              "color": "pill",
+              "color": "#CED9FF",
               "bg": "#4e546c",
               "bold": true
             },
@@ -1348,7 +1348,7 @@ export const snapshot: Snapshot = {
             },
             {
               "text": "± ",
-              "color": "pill",
+              "color": "#CED9FF",
               "bg": "surface2"
             },
             {
@@ -1362,7 +1362,7 @@ export const snapshot: Snapshot = {
             },
             {
               "text": "1",
-              "color": "pill",
+              "color": "#CED9FF",
               "bg": "#4e546c",
               "bold": true
             },
@@ -1649,7 +1649,7 @@ export const snapshot: Snapshot = {
             },
             {
               "text": "●",
-              "color": "ok",
+              "color": "good",
               "bg": "surface1"
             },
             {
@@ -1918,7 +1918,7 @@ export const snapshot: Snapshot = {
             },
             {
               "text": "●",
-              "color": "ok",
+              "color": "good",
               "bg": "surface1"
             },
             {

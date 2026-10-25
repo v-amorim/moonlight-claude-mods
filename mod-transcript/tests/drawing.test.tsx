@@ -186,6 +186,30 @@ test('a reply naming hex colors gets a strip of colored squares under it, and on
   expect(await plain.find({ type: 'Text', text: '●' })).toBeUndefined()
 })
 
+const TABLE_REPLY = 'Here is where each mod draws:\n\n| Mod | Surface | Rows |\n| --- | --- | ---: |\n| `blast-radius` | band + pane | 42 |\n| file-tree | pane | 318 |\n\nThe transcript is the busiest.'
+
+test('a reply table draws caps headers in the dim colour, hairlines between rows, no sides, and numbers aligned right', async ($, on) => {
+  const mount = await open($, on)
+  const reply = await mount('AssistantMessage', ID(7), { text: TABLE_REPLY, isFirstOfReply: true })
+  expect(await reply.find({ type: 'Text', text: 'base AssistantMessage' })).toBeUndefined()
+  const drawn = JSON.stringify(await reply.drawn())
+  expect(drawn).toContain('MOD')
+  expect((await reply.find({ type: 'Text', text: /^SURFACE/ }))?.props.color).toBe('#7E86A4')
+  expect((await reply.findAll({ type: 'Text', text: /^blast-radius$/ })).some((cell: any) => cell.props.bold === true)).toBe(true)
+  expect((await reply.findAll({ type: 'Text', text: 'blast-radius' })).some((cell: any) => cell.props.color === THEME.accent)).toBe(true)
+  expect(await reply.find({ type: 'Text', text: /^ {2}42$/ })).toBeDefined()
+  expect(await reply.find({ type: 'Text', text: /^─+$/ })).toBeDefined()
+  expect(drawn).not.toContain('|')
+  expect(await reply.find({ type: 'Markdown', props: { text: 'The transcript is the busiest.' } } as never)).toBeDefined()
+})
+
+test('a reply table wider than the bubble goes back to Claude Code\'s own table', async ($, on) => {
+  const mount = await open($, on)
+  const wide = `| ${'a'.repeat(60)} | ${'b'.repeat(60)} |\n| --- | --- |\n| x | y |`
+  const reply = await mount('AssistantMessage', ID(7), { text: wide, isFirstOfReply: true }, 100)
+  expect(await reply.find({ type: 'Text', text: 'base AssistantMessage' })).toBeDefined()
+})
+
 test('an API error that needs the person is one red line that says so', async ($, on) => {
   const mount = await open($, on)
   await mount.hook({ hook_event_name: 'StopFailure', error: 'billing_error', last_assistant_message: 'API Error: Billing' })

@@ -57,7 +57,7 @@ test('the hover card is the shared sticky card with no strip, a neutral border, 
   expect(card?.props.borderColor).toBe(THEME.border)
   expect(card?.props.backgroundColor).toBe(mix(THEME.surface1, THEME.accent, 0.06))
   expect((await ui.find({ key: 'card-gap' }))?.props.backgroundColor).toBe(THEME.bg)
-  expect((await ui.find({ key: 'card-space' }))?.props.height).toBe(6)
+  expect((await ui.find({ key: 'card-space' }))?.props.height).toBe(4)
   await ui.unmount()
 })
 

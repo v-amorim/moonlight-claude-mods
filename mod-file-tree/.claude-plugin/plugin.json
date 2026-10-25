@@ -1,6 +1,6 @@
 {
   "name": "mod-file-tree",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "A sidebar tree of the files Claude touched this session, marked read, edited, written or created, with the current one lit while Claude works. A replay steps through the last turn's edits, one diff at a time. Opens from /mod-file-tree or the Files pill in mod-menu",
   "license": "MIT",
   "author": { "name": "Vinicius Amorim", "url": "https://github.com/v-amorim" },

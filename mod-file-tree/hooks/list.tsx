@@ -2,7 +2,8 @@
 // Draws the file tree rows with indent guides, icons and tone colors for Claude's activity.
 import type { ClientModule, RenderElement } from 'claude-code'
 
-import { HOVER_STEPS, HOVER_TICK_MS, hoverMix, mix, postTip, shimmerColor, stepToward, TICK_MS } from './entry'
+import { HOVER_STEPS, HOVER_TICK_MS, hoverMix, mix, postTip, shimmerColor, SPIN_FRAMES, SPIN_MS, stepToward, TICK_MS } from './entry'
+import { cardFill } from './look'
 import { CAPS, THEME } from './theme'
 
 // live: Claude is on this file right now; added, changed and read set the name's color.
@@ -11,8 +12,11 @@ export type Tone = 'live' | 'added' | 'changed' | 'read' | 'dir'
 export type Row = {
   // Indent guides, one `│ ` per level above the row.
   guides: string
-  // Chevron and icon of a folder, or the file-type icon of a file; empty parts are dropped.
+  // A folder's chevron.
+  lead?: string
+  // The folder or file-type icon, drawn in markColor.
   mark: string
+  markColor?: string
   name: string
   tone: Tone
   add: number
@@ -54,7 +58,7 @@ const countsPill = (Text: (props: any) => RenderElement, add: number, del: numbe
 }
 
 // levels: each row's hover fade, marks: the open mark's, kept only while above 0.
-type State = { hovered: number; phase: number; levels: Record<number, number>; marks?: Record<number, number>; onMark?: boolean }
+type State = { hovered: number; phase: number; spin?: number; levels: Record<number, number>; marks?: Record<number, number>; onMark?: boolean }
 
 // Moonlight surface-3: the row Claude is on stands out from the tree's surface-1 as a band.
 const LIVE_BG = THEME.surface3
@@ -104,9 +108,9 @@ const isFading = (levels: Record<number, number>, hovered: number) =>
 const latest = new WeakMap<object, ListProps>()
 
 // Each list's two timers run only while there is something to move, a live or glowing row or a fading hover: idle lists ticking cost a wakeup each.
-const timers = new WeakMap<object, Partial<Record<'move' | 'fade', () => void>>>()
+const timers = new WeakMap<object, Partial<Record<'move' | 'fade' | 'spin', () => void>>>()
 
-const run = (surface: Parameters<ClientModule<ListProps, State>>[1], kind: 'move' | 'fade', ms: number, step: () => boolean) => {
+const run = (surface: Parameters<ClientModule<ListProps, State>>[1], kind: 'move' | 'fade' | 'spin', ms: number, step: () => boolean) => {
   const own = timers.get(surface) ?? {}
   if (own[kind]) return
   const stop = surface.every(ms, () => {
@@ -145,6 +149,16 @@ const FileList: ClientModule<ListProps, State> = (props, surface) => {
       return true
     })
   }
+  // The spinner beside the live word keeps its own 80 ms clock, apart from the shimmer's.
+  const hasLive = (list: ListProps['rows']) => list.some(row => row.tone === 'live')
+  if (!props.still && hasLive(rows)) {
+    run(surface, 'spin', SPIN_MS, () => {
+      const state = surface.state
+      if (!state || latest.get(surface)?.still || !hasLive(latest.get(surface)?.rows ?? [])) return false
+      surface.setState({ ...state, spin: (state.spin ?? 0) + 1 })
+      return true
+    })
+  }
 
   surface.onPointer(event => {
     // The hover fade runs on its own, faster timer.
@@ -178,13 +192,14 @@ const FileList: ClientModule<ListProps, State> = (props, surface) => {
         const glow = props.still ? 0 : glowOf(row, Date.now())
         const restColor = mix(NAME_COLOR[row.tone], THEME.pill, glow)
         const nameColor = hoverMix(restColor, THEME.accent, levels[index] ?? 0)
-        const rest = isLive ? LIVE_BG : glow > 0 ? mix(THEME.surface1, LIVE_BG, glow) : undefined
+        const rest = isLive ? LIVE_BG : glow > 0 ? mix(cardFill(), LIVE_BG, glow) : undefined
         const lift = levels[index] ?? 0
-        const background = lift > 0 ? hoverMix(rest ?? THEME.surface1, THEME.lifted, lift) : rest
+        const background = lift > 0 ? hoverMix(rest ?? cardFill(), THEME.lifted, lift) : rest
         return (
           <Box key={`row-${index}`} flexDirection="row" backgroundColor={background}>
             <Text color={THEME.border}>{row.guides}</Text>
-            {row.mark ? <Text color={isLive ? THEME.accent : THEME.muted}>{`${row.mark} `}</Text> : null}
+            {row.lead ? <Text color={isLive ? THEME.accent : THEME.muted}>{`${row.lead} `}</Text> : null}
+            {row.mark ? <Text color={row.markColor ?? THEME.muted}>{`${row.mark} `}</Text> : null}
             {isLive && !props.still ? (
               [...row.name].map((char, at) => (
                 <Text key={`c${at}`} color={shimmerColor(at, phase, row.name.length)} bold>
@@ -197,7 +212,7 @@ const FileList: ClientModule<ListProps, State> = (props, surface) => {
             <Text>{' '.repeat(Math.max(1, row.pad))}</Text>
             {/* The live word sits left of the counts, so the counts keep one right edge whether a row is live or not. */}
             {/* It never shrinks: a row a cell too wide takes the cell from the gap, not from the word. */}
-            {isLive && row.status ? <Box key="live" flexDirection="row" flexShrink={0}>{livePill(Text, row.status, props.nerd === true)}</Box> : null}
+            {isLive && row.status ? <Box key="live" flexDirection="row" flexShrink={0}>{livePill(Text, row.status, props.nerd === true)}<Text key="live-spin" color={THEME.accent}>{` ${SPIN_FRAMES[props.still ? 0 : (surface.state?.spin ?? 0) % SPIN_FRAMES.length]}`}</Text></Box> : null}
             {isLive && row.status && (row.add > 0 || row.del > 0) ? <Text> </Text> : null}
             {row.add > 0 || row.del > 0 ? countsPill(Text, row.add, row.del, props.nerd === true) : null}
             {row.endMark ? openPill(Text, row.endMark, row.endColor, props.nerd === true, marks[index] ?? 0) : null}

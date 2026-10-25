@@ -1,6 +1,6 @@
 {
   "name": "mod-menu",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Owns /mod-menu, which hides or shows the panel pills above the prompt; each panel mod draws its own entry there",
   "license": "MIT",
   "author": { "name": "Vinicius Amorim", "url": "https://github.com/v-amorim" },

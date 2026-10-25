@@ -331,7 +331,9 @@ test('icons=nerd draws the Nerd gauge, spinner and agent icon', { options: { ico
   await $.session.start({ cwd: '/w' } as never)
   const ui = await $.ui.mount(PANE)
   const list = JSON.stringify(await ui.drawn({ in: 'loops' }))
-  for (const point of [0xf035b, 0xf0c8, 0xf096, 0xf110, 0xe0b6]) expect(list).toContain(String.fromCodePoint(point))
+  for (const point of [0xf035b, 0xf0c8, 0xe0b6]) expect(list).toContain(String.fromCodePoint(point))
+  expect(list).toContain('⠋')
+  expect(list).not.toContain(String.fromCodePoint(0xf096))
   expect(JSON.stringify(await ui.drawn({ in: 'progress-tab' }))).toContain(String.fromCodePoint(0xebbc))
   await ui.unmount()
 })
@@ -356,10 +358,11 @@ test('icons=safe draws only plain glyphs', { options: { icons: 'safe' } }, async
   await $.session.start({ cwd: '/w' } as never)
   const ui = await $.ui.mount(PANE)
   const list = JSON.stringify(await ui.drawn({ in: 'loops' }))
-  expect(list).toContain('↻')
+  expect(list).toContain('⠋')
+  expect(list).not.toContain('↻')
   expect(list).toContain('▦')
   expect(list).toContain('■')
-  expect(list).toContain('□')
+  expect(list).not.toContain('□')
   expect(list).not.toContain(String.fromCodePoint(0xf035b))
   expect(list).not.toContain(String.fromCodePoint(0xe0b6))
   await ui.unmount()
@@ -854,9 +857,9 @@ for (const icons of ['nerd', 'safe'] as const) {
     const ui = await $.ui.mount(PANE)
     const pill = JSON.stringify(await ui.drawn({ in: 'loops' }))
     const cells = [
-      [icons === 'nerd' ? String.fromCodePoint(0xf0c8) : '■', THEME.ok],
+      [icons === 'nerd' ? String.fromCodePoint(0xf0c8) : '■', THEME.accent],
       [icons === 'nerd' ? String.fromCodePoint(0xf0c8) : '■', THEME.warn],
-      [icons === 'nerd' ? String.fromCodePoint(0xf096) : '□', THEME.muted],
+      [icons === 'nerd' ? String.fromCodePoint(0xf0c8) : '■', THEME.lifted],
       [icons === 'nerd' ? String.fromCodePoint(0xf00d) : '×', THEME.alert],
     ] as const
     const text = pill.replace(/\\"/g, '"')
@@ -874,7 +877,7 @@ test('gates strip: overflow past the row scales the cells to the room, met share
   await $.session.start({ cwd: '/w' } as never)
   const ui = await $.ui.mount(PANE)
   const text = JSON.stringify(await ui.drawn({ in: 'loops' }))
-  const open = (text.match(/□/g) ?? []).length - 3
+  const open = (text.match(new RegExp(`"color":"${THEME.lifted}"[^}]*},"children":\\["■"\\]`, 'g')) ?? []).length
   expect(open).toBeGreaterThan(0)
   expect(open).toBeLessThan(18)
   expect(text).not.toMatch(/"\+\d+"/)
@@ -1111,7 +1114,7 @@ for (const icons of ['nerd', 'safe'] as const) {
       expect(rows[2]).toContain('3m')
       const drawn = JSON.stringify(tree)
       for (const color of [THEME.ok, THEME.accent, THEME.alert, THEME.border]) expect(drawn).toContain(color)
-      expect(rows[1]).toContain(icons === 'nerd' ? String.fromCodePoint(0xf110) : '↻')
+      expect(rows[1]).toContain('⠋')
       await ui.unmount()
     })
   }

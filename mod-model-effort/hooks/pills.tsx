@@ -41,7 +41,9 @@ export const tipLine = ({ Box, Text }: Elements, text: string) => {
   return (
     <Box key="menu-tip" paddingLeft={2} flexDirection="row">
       {at < 0 ? null : <Text color={THEME.accent} bold>{text.slice(0, at + 1)}</Text>}
-      <Text color={THEME.muted}>{at < 0 ? text : text.slice(at + 1)}</Text>
+      <Text color={THEME.muted}>
+        {(at < 0 ? text : text.slice(at + 1)).split(style.marks.sep).flatMap((part, index) => (index === 0 ? [part] : [<Text key={`sep-${index}`} color={style.colors.pills.separator}>{style.marks.sep}</Text>, part]))}
+      </Text>
     </Box>
   )
 }
@@ -151,10 +153,11 @@ export function tabRow({ Box, Client, Text }: Elements & { Client: (props: any) 
       {tabs.map(tab => {
         const bg = tab.isOpen ? THEME.surface3 : THEME.surface2
         // Client props refuse an undefined value, so a tab without a count or tip leaves the key out.
-        const badge = tab.count === undefined ? {} : { badge: { text: String(tab.count), color: THEME.accent, bg: mix(THEME.accent, bg, WASH) } }
+        const countColor = tab.isOpen ? THEME.accent : style.colors.pills.readout
+        const badge = tab.count === undefined ? {} : { badge: { text: String(tab.count), color: countColor, bg: mix(countColor, bg, WASH) } }
         const tip = tab.tip ? { tip: tab.tip } : {}
         const entry = (
-          <Client key={tab.id} module="./entry.tsx" height={1} props={{ id: tab.id, label: tab.label, isOpen: tab.isOpen, bg, idle: THEME.muted, still, subLead: tab.icon, subLeadColor: THEME.accent, nerd, ...badge, ...tip } satisfies EntryProps} />
+          <Client key={tab.id} module="./entry.tsx" height={1} props={{ id: tab.id, label: tab.label, isOpen: tab.isOpen, bg, idle: THEME.muted, still, subLead: tab.icon, subLeadColor: THEME.accent, nerd, ...(tab.isOpen ? { color: THEME.secondary } : {}), ...badge, ...tip } satisfies EntryProps} />
         )
         return pill({ Box, Text }, nerd, bg, entry, `${tab.id}-pill`)
       })}

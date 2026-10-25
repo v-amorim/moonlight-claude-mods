@@ -421,8 +421,8 @@ test('before the transcript is read, turns come from the session messages and ro
   expect(log.turnOf(ID(11))).toBe(log.turns[1])
 })
 
-test('a block holding a markdown table drops the bubble padding, since Claude Code sizes the table to the whole terminal', async ($, on) => {
-  const table = 'Two ways:\n\n| | How |\n| --- | --- |\n| A | Copy the scanner |'
+test('a table too wide for the mod goes to Claude Code and drops the bubble padding, since Claude Code sizes it to the whole terminal', async ($, on) => {
+  const table = `Two ways:\n\n| | How |\n| --- | --- |\n| A | ${'Copy the scanner '.repeat(8)}|`
   on('store.get', () => ({ value: undefined }))
   on('store.set', () => ({ value: undefined }))
   on('session.messages', () => ({ value: [{ role: 'user', text: 'compare them', toolUses: [] }, { role: 'assistant', text: table, toolUses: [] }, { role: 'assistant', text: 'Plain text.', toolUses: [] }] }))
@@ -747,7 +747,7 @@ test('/mod-transcript settings opens its own panel: a click saves a setting, an 
   // A Button posts no tip, so each action's tip waits hidden in the footer for its pill's hover.
   expect(await ui.find({ key: 'footer-reveal-0' })).toBeDefined()
   expect(JSON.stringify(await ui.drawn())).toContain('"still":false')
-  expect(JSON.stringify(await ui.drawn({ in: 'setting-0-flip' }))).toContain('On')
+  expect(JSON.stringify(await ui.drawn({ in: 'setting-0-flip' }))).toContain('━━')
   // The example card shows the folded turn this value draws: the prompt, its + line, the reply.
   expect(await ui.find({ key: 'setting-preview-0' })).toBeDefined()
   expect(await ui.find({ type: 'Text', text: /^ 2 tools · Edit$/ })).toBeDefined()
@@ -973,7 +973,7 @@ test('this mod draws its own toasts as cards in the band, the × shows its tip, 
     return <Text>{`base ${e.component}`}</Text>
   })
   const band = await $.ui.mount({ plugin: 'mod-transcript', surface: 'terminal', component: 'AbovePrompt', props: { hasSurvey: false, isWorking: false, maxRows: 6, bodyColumns: 100, scroll: { offset: 0, bodyRows: 6 }, view: {} } } as never)
-  const toast = () => band.find({ type: 'Text', text: /Settings panel waiting: too narrow/ })
+  const toast = () => band.find({ type: 'Text', text: 'Settings panel waiting' })
   expect(await toast()).toBeUndefined()
 
   await $.command.run({ command: 'mod-transcript', args: 'settings' } as never)

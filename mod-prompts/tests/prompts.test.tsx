@@ -88,9 +88,10 @@ test('the timeline lists prompts and the turn of the open one, a click opens a s
   expect(JSON.stringify(await ui.drawn({ in: 'timeline-before' }))).toContain(' second prompt')
   expect(await ui.find({ type: 'Text', text: '23s' })).toBeDefined()
   expect(await ui.find({ type: 'Text', text: '2 tools' })).toBeDefined()
-  // The card's number is a subpill, padded in safe mode.
-  expect(await ui.find({ key: 'card-number' })).toBeDefined()
-  expect(await ui.find({ type: 'Text', text: ' #3 ' })).toBeDefined()
+  // The card's number sits in its top edge, not in a row inside it.
+  expect(await ui.find({ key: 'card-edge' })).toBeDefined()
+  expect(await ui.find({ key: 'card-number' })).toBeUndefined()
+  expect(await ui.find({ type: 'Text', text: '#3' })).toBeDefined()
   // A stop shows the clock time its prompt was sent; the queued fixture row has no timestamp, so it shows none.
   const sent = new Date('2026-10-03T11:58:00Z')
   const hhmm = `${String(sent.getHours()).padStart(2, '0')}:${String(sent.getMinutes()).padStart(2, '0')}`
@@ -98,7 +99,8 @@ test('the timeline lists prompts and the turn of the open one, a click opens a s
 
   // A hovered stop or tab puts its tip in the pane footer; leaving clears it.
   const lineOf = async (stop: number) => JSON.stringify(await ui.drawn({ in: 'timeline-before' })).split('"key":"stop-')[stop + 1] ?? ''
-  expect(await lineOf(2)).toContain(`"color":"${THEME.accent}","bold":true`)
+  expect(await lineOf(2)).toContain(`"color":"${THEME.ok}","bold":true`)
+  expect(await lineOf(2)).toContain(THEME.surface3)
   expect(await lineOf(0)).not.toContain(THEME.lifted)
   await pointer(ui, { in: 'timeline-before', type: 'move', x: 8, y: 0 })
   expect(await lineOf(0)).toContain(`"backgroundColor":"${THEME.lifted}"`)

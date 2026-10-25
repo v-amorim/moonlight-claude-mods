@@ -9,6 +9,7 @@ export default {
   "jumped": "Jumped to #{n}",
   "settingSaved": "{label} saved",
   "settingsHint": "Click a setting to change it {sep} The mod reloads",
+  "thisSession": "This session",
   "hint": "Click a prompt to open it {sep} ↗ scrolls to it",
   "settingsTab": "Settings",
   "promptsTabTip": "lists every prompt of this session",

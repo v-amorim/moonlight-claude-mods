@@ -5,7 +5,7 @@ import type { ConfigValue, EngineInterface, Register, SessionMessage } from 'cla
 import { bridgeOn, endBridge, startBridge, type BridgeRecord } from './bridge'
 import { checkPrompt, parseCheck, parseRecheck, parseRewrite, recheckPrompt, rewritePrompt, type Direction } from './ask'
 import { isTipMessage, tipText, type EntryMessage, type EntryProps, type Tip } from './entry'
-import { cardFill, detectNerd, FOOTER_ROWS, lookFor, paneFooter, section, subpill, withMark, type IconMode, type Reveal } from './look'
+import { cardFill, detectNerd, FOOTER_ROWS, lookFor, paneFooter, section, titleEdge, withMark, type IconMode, type Reveal } from './look'
 import { byTurn, canFork, CLEAR_AFTER_PROMPTS, emptySaved, KNOWN_KEPT, pack, recentSessions, remember, restates, sameText, savedOf, SEEN_KEPT, shouldCheck, stringsOf, unreadCount, type Note, type Saved } from './notes'
 import { countSpawn, countTool, endTurn, receiptLine, receiptOf, startTurn, type Open, type Receipt } from './receipt'
 import { recordSpend } from './spend'
@@ -797,17 +797,19 @@ export const register: Register = (on, options) => {
     const keyed = (id: string, label: string, subLead: string | undefined, tipLabel: string, tipBody: string) =>
       pill({ Box, Text }, nerd, THEME.surface3, <Client key={id} module="./entry.tsx" height={1} props={{ id, label, isOpen: true, bg: THEME.surface3, nerd, still, tip: { glyph: subLead ?? bare(look.glyph.close), label: tipLabel, text: tipBody }, ...(subLead ? { subLead } : {}) } satisfies EntryProps} />, `${id}-pill`, cardFill())
     const card = shown ? (
-      <Box key="headsup-card" flexDirection="column" paddingX={1} borderStyle="round" borderColor={THEME.border} backgroundColor={cardFill()}>
-        <Box key="headsup-card-line" flexDirection="row" columnGap={1}>
-          {subpill({ Box, Text }, nerd, cardFill(), shown.tag, 'headsup-card-tag')}
-          <Box key="headsup-card-text" flexShrink={1}>
-            <Text color={THEME.onSurface}>{shown.learn}</Text>
+      <Box key="headsup-card-block" flexDirection="column">
+        <Box key="headsup-card" flexDirection="column" paddingX={1} borderStyle="round" borderColor={THEME.border} backgroundColor={cardFill()}>
+          <Box key="headsup-card-line" flexDirection="row" columnGap={1}>
+            <Box key="headsup-card-text" flexShrink={1} flexGrow={1}>
+              <Text color={THEME.onSurface}>{shown.learn}</Text>
+            </Box>
+            <Box key="headsup-card-keys" flexDirection="row" columnGap={1} flexShrink={0}>
+              {keyed('headsup-card-open', text.open, bare(look.glyph.go), text.open, text.tipOpen)}
+              {keyed('headsup-card-dismiss', bare(look.glyph.close), undefined, text.dismiss, text.tipDismiss)}
+            </Box>
           </Box>
         </Box>
-        <Box key="headsup-card-keys" flexDirection="row" columnGap={1}>
-          {keyed('headsup-card-open', text.open, bare(look.glyph.go), text.open, text.tipOpen)}
-          {keyed('headsup-card-dismiss', bare(look.glyph.close), undefined, text.dismiss, text.tipDismiss)}
-        </Box>
+        {titleEdge({ Box, Text }, look, 'headsup-card', '', text.pillLabel, shown.tag, 0)}
       </Box>
     ) : null
     const items = [...toastCards({ Box, Client, Text }, toasts, look, text.tipToast), card].filter(Boolean)
@@ -869,17 +871,11 @@ export const register: Register = (on, options) => {
       // The card's border and padding take two columns a side; the bullet and its space come before the line.
       const isCut = found.body.some(line => line.length + 2 > e.props.bodyColumns - 2 - 4)
       const isFull = isCut && fullNote === found.id
-      return section(elements, look, 'note-card', '', '', [
-        <Box key="note-card-head" flexDirection="row" columnGap={1}>
-          {pill({ Box, Text }, nerd, THEME.surface3, <Text color={THEME.muted}>{turn}</Text>, 'note-card-turn', cardFill())}
-          <Text color={THEME.onSurface} bold>{clock(found.at)}</Text>
-          <Text color={THEME.accent}>{found.tag}</Text>
-          <Box key="note-card-gap" flexGrow={1} />
-          {entryPill('headsup-close', bare(look.glyph.close), undefined, { glyph: bare(look.glyph.close), label: text.close, text: text.tipClose })}
-        </Box>,
+      const close = pill({ Box, Text }, nerd, THEME.surface3, <Client key="headsup-close" module="./entry.tsx" height={1} props={{ id: 'headsup-close', label: bare(look.glyph.close), isOpen: true, bg: THEME.surface3, nerd, still, tip: { glyph: bare(look.glyph.close), label: text.close, text: text.tipClose } } satisfies EntryProps} />, 'headsup-close-pill', THEME.bg)
+      return section(elements, look, 'note-card', '', `${turn} ${clock(found.at)}`, [
         // A floor on the height, so a short note never moves the actions; a long one grows the card instead of losing rows.
         <Box key="note-card-text" flexDirection="column" flexShrink={0} minHeight={NOTE_TEXT_ROWS}>
-          <Box key={`summary-${found.id}`} marginTop={1}>
+          <Box key={`summary-${found.id}`}>
             <Text color={THEME.onSurface} bold>{found.learn}</Text>
           </Box>
           {found.title ? (
@@ -901,16 +897,16 @@ export const register: Register = (on, options) => {
           )}
         </Box>,
         actionsBar(found, isCut ? moreToggle(found, isFull) : null),
-      ])
+      ], THEME.accent, { hint: found.tag, right: close })
     }
 
     const timeline = (list: Note[], selected: Note | undefined) =>
-      section(elements, look, 'note-timeline', '', '', list.flatMap((found, at) => {
+      section(elements, look, 'note-timeline', '', '', list.map(found => {
         const isSelected = found.id === selected?.id
         const time = clock(found.at)
         // Pane padding, section border and padding, the time, the dot, gaps, and the ↗ pill.
         const room = Math.max(8, inner - time.length - 11)
-        return [
+        return (
           <Box key={`note-row-${found.id}`} flexDirection="row">
             <Client key={`headsup-note-${found.id}`} module="./timeline.tsx" height={1} props={{ id: `headsup-note-${found.id}`, time: ` ${time} `, mark: ` ${found.isRead && !isSelected ? MARK.stop : MARK.stopOpen}`, summary: ` ${fit(found.learn, room).padEnd(room)} `, isSelected, isUnread: !found.isRead, still, tip: { glyph: bare(look.glyph.expanded), label: text.noteLabel, text: text.tipNote } } satisfies RowProps} />
             <Box key={`note-gap-${found.id}`} flexGrow={1} />
@@ -919,9 +915,8 @@ export const register: Register = (on, options) => {
                 <Button key={`note-jump-${found.id}`} label={nerd ? MARK.open : ` ${MARK.open} `} plain hover={{ scope: `note-jump-box-${found.id}`, color: THEME.accent, inverse: true }} onPress={() => jump($, found.turn, found.promptId ?? '')} />
               ), `note-jump-box-${found.id}`, cardFill(), THEME.accent)}
             </Box>
-          </Box>,
-          at < list.length - 1 ? <Text key={`note-rail-${found.id}`} color={THEME.border}>{`${' '.repeat(time.length + 3)}${MARK.rail}`}</Text> : null,
-        ]
+          </Box>
+        )
       }))
 
     // One row, always: Reword swaps the other two buttons for its three choices, so no button changes place with the note's text.
@@ -934,7 +929,7 @@ export const register: Register = (on, options) => {
 
     const actionsBar = (found: Note, more: unknown) => {
       const isRewording = wording === found.id
-      const reword = pill({ Box, Text }, nerd, THEME.surface2, <Client key={`headsup-reword-${found.id}`} module="./entry.tsx" height={1} props={{ id: `headsup-reword-${found.id}`, label: text.reword, isOpen: isRewording, bg: THEME.surface2, idle: THEME.muted, nerd, still, isBusy: rewriting.endsWith(`-${found.id}`), subLead: bare(look.glyph.cycle), tip: { glyph: bare(look.glyph.cycle), label: text.reword, text: text.tipReword } } satisfies EntryProps} />, `headsup-reword-${found.id}-pill`, cardFill())
+      const reword = pill({ Box, Text }, nerd, THEME.surface3, <Client key={`headsup-reword-${found.id}`} module="./entry.tsx" height={1} props={{ id: `headsup-reword-${found.id}`, label: text.reword, isOpen: true, bg: THEME.surface3, nerd, still, isBusy: rewriting.endsWith(`-${found.id}`), spinner: rewriting.endsWith(`-${found.id}`), subLead: bare(look.glyph.cycle), tip: { glyph: bare(look.glyph.cycle), label: text.reword, text: text.tipReword } } satisfies EntryProps} />, `headsup-reword-${found.id}-pill`, cardFill())
       return (
         <Box key="headsup-actions" flexDirection="row" columnGap={1} flexShrink={0} marginTop={1}>
           {isRewording ? null : entryPill(`headsup-understood-${found.id}`, text.gotIt, bare(look.glyph.ok), { glyph: bare(look.glyph.ok), label: text.gotIt, text: text.tipGotIt })}

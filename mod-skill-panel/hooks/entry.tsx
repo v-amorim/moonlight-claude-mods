@@ -9,7 +9,8 @@ import { CAPS, mix, THEME, WASH } from './theme'
 // still: the mod's animations setting is off, so nothing shimmers and the hover color switches at once.
 // lead: a bare glyph before the label in leadColor (after a space, none when tight: the cap is the gap); subLead: an icon before it as a rounded subpill in subLeadColor;
 // badge: a count after it in its own pill. Subpills are capped where `nerd` has the caps.
-// tight: no label padding; tip: posts `tip` instead of `menu-hover`; rail: a divider (a Text between Clients squeezes them).
+// tight: no label padding; tip: posts `tip` instead of `menu-hover`; rail: a divider (a Text between Clients squeezes them); rule: a full-width hairline.
+// spinner: the braille dots lead the label in accent while work runs (write the label without its …); still holds the first frame.
 export type EntryProps = {
   id: string
   label: string
@@ -28,6 +29,8 @@ export type EntryProps = {
   tight?: boolean
   tip?: Tip
   rail?: boolean
+  rule?: boolean
+  spinner?: boolean
   compact?: boolean // false: the pill row may cut the entry to its lead when the row is wider than the band
 }
 
@@ -40,7 +43,8 @@ const entryText = (props: EntryProps) => {
 export const entryCells = (props: EntryProps) => {
   if (props.rail) return 1
   const cells = (text: string) => [...text].length
-  const lead = props.lead ? cells(props.lead) + (props.tight ? 0 : 1) : 0
+  const leadText = props.lead ?? (props.spinner ? SPIN_FRAMES[0]! : '')
+  const lead = leadText ? cells(leadText) + (props.tight ? 0 : 1) : 0
   return lead + (props.subLead ? cells(props.subLead) + 2 : 0) + cells(entryText(props)) + (props.badge ? cells(props.badge.text) + 2 : 0)
 }
 
@@ -68,15 +72,19 @@ const HOVER_QUIET_MS = 5000
 
 export const TICK_MS = 140
 
-// Like Claude Code's "Thinking…": a soft band sweeps the dim text, its edge halfway between secondary and muted.
+// The loading shimmer: a soft primary-70 band sweeps the dim text, then a pause.
 const BAND = style.colors.shimmer
 const SWEEP_PAUSE = 8
 
 export const shimmerColor = (at: number, phase: number, length: number) => {
   const period = length + BAND.length * 2 + SWEEP_PAUSE
   const head = (phase % period) - BAND.length
-  return BAND[Math.abs(at - head)] ?? THEME.muted
+  return BAND[Math.abs(at - head)] ?? style.colors.pills.readout
 }
+
+// The braille dots spinner, one frame every SPIN_MS, in accent.
+export const SPIN_FRAMES = [...style.marks.spinner]
+export const SPIN_MS = 80
 
 // The pointer lights a control at once and its color fades out over this many steps, one every HOVER_TICK_MS.
 export const HOVER_STEPS = 2
@@ -95,7 +103,7 @@ export const hoverMix = (from: string, to: string, level: number) => mix(from, t
 const PRESS_MS = 1200
 
 // pressed: the props a click saw and when it came, cleared once the mod answers.
-type State = { isOver: boolean; at: number; phase: number; level?: number; pressed?: { props: string; at: number } }
+type State = { isOver: boolean; at: number; phase: number; level?: number; spin?: number; pressed?: { props: string; at: number } }
 
 const isPressed = (state: State | undefined, props: EntryProps | undefined) =>
   Boolean(state?.pressed && Date.now() - state.pressed.at < PRESS_MS && state.pressed.props === JSON.stringify(props))
@@ -146,15 +154,35 @@ const startTick = (surface: ClientSurface<State>) => {
   ticks.set(surface, stop)
 }
 
+// Each spinning instance's frame clock, stopped once the entry stops spinning.
+const spins = new WeakMap<object, () => void>()
+
+const startSpin = (surface: ClientSurface<State>) => {
+  if (spins.has(surface)) return
+  const stop = surface.every(SPIN_MS, () => {
+    const state = surface.state
+    const now = latest.get(surface)
+    if (!state || !now?.spinner || now.still) {
+      stop()
+      spins.delete(surface)
+      return
+    }
+    surface.setState({ ...state, spin: (state.spin ?? 0) + 1 })
+  })
+  spins.set(surface, stop)
+}
+
 // A Button inverts under the pointer, so the entry is plain text that lights up like a sidebar row.
 const Entry: ClientModule<EntryProps, State> = (props, surface) => {
   const { Box, Text } = surface.elements
-  if (props.rail) return <Text color={THEME.border} backgroundColor={props.bg}>{style.marks.rail}</Text>
+  if (props.rail) return <Text color={style.colors.pills.separator} backgroundColor={props.bg}>{style.marks.rail}</Text>
+  if (props.rule) return <Text color={THEME.border} backgroundColor={props.bg}>{style.marks.rule.repeat(Math.max(1, surface.columns))}</Text>
   const hovered = surface.state?.isOver === true
   latest.set(surface, props)
 
   if (!surface.state) surface.setState({ isOver: false, at: 0, phase: 0 })
   if (props.isBusy && !props.still) startTick(surface)
+  if (props.spinner && !props.still) startSpin(surface)
 
   surface.onPointer(event => {
     startTick(surface)
@@ -184,10 +212,11 @@ const Entry: ClientModule<EntryProps, State> = (props, surface) => {
     </Box>
   ) : (
     <Text key="label" color={hoverMix(props.isOpen ? (props.color ?? THEME.onSurface) : (props.idle ?? THEME.muted), THEME.accent, surface.state?.level ?? 0)} bold={props.isOpen && Boolean(props.idle)} backgroundColor={props.bg}>
-      {text}
+      {text.split(style.marks.sep).flatMap((part, at) => (at === 0 ? [part] : [<Text key={`sep-${at}`} color={style.colors.pills.separator}>{style.marks.sep}</Text>, part]))}
     </Text>
   )
-  if (!props.lead && !props.subLead && !props.badge) return isShimmering ? <Box flexDirection="row">{label}</Box> : label
+  const lead = props.spinner ? SPIN_FRAMES[props.still ? 0 : (surface.state?.spin ?? 0) % SPIN_FRAMES.length] : props.lead
+  if (!lead && !props.subLead && !props.badge) return isShimmering ? <Box flexDirection="row">{label}</Box> : label
 
   const sub = (key: string, text: string, color: string, bg: string) => (
     <Box key={key} flexDirection="row">
@@ -200,7 +229,7 @@ const Entry: ClientModule<EntryProps, State> = (props, surface) => {
   const { badge } = props
   return (
     <Box flexDirection="row">
-      {props.lead ? <Text key="lead" color={props.leadColor ?? THEME.accent} backgroundColor={props.bg}>{props.tight ? props.lead : ` ${props.lead}`}</Text> : null}
+      {lead ? <Text key="lead" color={props.spinner ? THEME.accent : (props.leadColor ?? THEME.accent)} backgroundColor={props.bg}>{props.tight ? lead : ` ${lead}`}</Text> : null}
       {props.subLead ? sub('sub-lead', props.subLead, subHue, mix(subHue, props.bg, WASH)) : null}
       {label}
       {badge ? sub('badge', badge.text, badge.color, badge.bg) : null}

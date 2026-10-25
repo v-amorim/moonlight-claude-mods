@@ -884,14 +884,14 @@ export const register: Register = (on, options) => {
               {tabRow({ Box, Client, Text }, look.nerd, back, still)}
               <Text wrap="truncate-end" color={THEME.muted}>{status}</Text>
             </Box>
-            {section({ Box, Text }, look, 'task-command', '', '', (
+            {section({ Box, Text }, look, 'task-command', '', text.commandTitle, (
               <Box key="task-command-lines" flexDirection="column">
                 {page.command.split(/\r?\n/).map((line, at) => (
                   <Text key={`command-${at}`} wrap="wrap" color={THEME.onSurface}>{`${at === 0 ? text.commandLead : ' '} ${line}`}</Text>
                 ))}
               </Box>
             ))}
-            {section({ Box, Text }, look, 'task-output', '', '', (
+            {section({ Box, Text }, look, 'task-output', '', text.outputTitle, (
               <Box key="task-output-lines" flexDirection="column">
                 {shown.length === 0 ? <Text key="output-empty" color={THEME.muted}>{empty}</Text> : shown.map((line, at) => {
                   const row = <Text key={`output-${at}`} wrap={isFull ? 'wrap' : 'truncate-end'} color={THEME.muted}>{line || ' '}</Text>
@@ -925,7 +925,7 @@ export const register: Register = (on, options) => {
       if (shown.deny) $.ui.toast(shown.deny)
       $.ui.invalidate('ui.render')
     }
-    const props = JSON.parse(JSON.stringify({ rows, width, expanded: current.expanded, nerd: look.nerd, viewing: e.props.view.agentId ?? '', folded: current.folded ?? [], now })) as LoopsProps
+    const props = JSON.parse(JSON.stringify({ rows, width, expanded: current.expanded, nerd: look.nerd, viewing: e.props.view.agentId ?? '', folded: current.folded ?? [], now, still })) as LoopsProps
     const withTasks = rows.filter(each => each.tasks.length > 0)
     const isAnyOpen = withTasks.some(each => !(current.folded ?? []).includes(each.id))
     const foldLabel = isAnyOpen ? text.foldAll : text.unfoldAll
@@ -936,7 +936,7 @@ export const register: Register = (on, options) => {
       { key: 'view-cards', isOn: !isTimeline, props: { id: VIEW_CARDS, label: text.viewCards, still, tip: { glyph: look.glyph.cycle, label: text.viewCards, text: text.tipViewCards } } },
       { key: 'view-timeline', isOn: isTimeline, props: { id: VIEW_TIMELINE, label: text.viewTimeline, still, tip: { glyph: look.glyph.cycle, label: text.viewTimeline, text: text.tipViewTimeline } } },
     ])
-    const lanes = JSON.parse(JSON.stringify({ rows, width, expanded: current.expanded, nerd: look.nerd, viewing: e.props.view.agentId ?? '', now })) as TimelineProps
+    const lanes = JSON.parse(JSON.stringify({ rows, width, expanded: current.expanded, nerd: look.nerd, viewing: e.props.view.agentId ?? '', now, still })) as TimelineProps
     const foldToggle = withTasks.length === 0 || isTimeline ? null : <Client key="fold-toggle" module="./entry.tsx" width={entryCells(foldProps)} height={1} props={foldProps} />
 
     return (

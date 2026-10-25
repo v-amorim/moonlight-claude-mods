@@ -6,11 +6,12 @@ import { postTip } from './entry'
 import { cardFill, lookFor } from './look'
 import marks from './marks'
 import { countGates, cutText, formatElapsed, gaugeColor, formatTokens, groupGates, modelInfo, stripCells, type Gate, type GateState, type Row } from './progress'
+import { breathColor, keepSpinning, spinFrame, type SpinState } from './spin'
 import style from './style'
 import text from './text'
 import { CAPS, decodeAll, fill, MARK, THEME } from './theme'
 
-export type LoopsProps = { rows: Row[]; width: number; expanded: string; nerd: boolean; viewing: string; folded?: string[]; now?: number }
+export type LoopsProps = { rows: Row[]; width: number; expanded: string; nerd: boolean; viewing: string; folded?: string[]; now?: number; still?: boolean }
 
 const GROUPS: Record<GateState, { label: string; color: string }> = {
   open: { label: text.groupOpen, color: THEME.accent },
@@ -55,16 +56,20 @@ export function layoutLoops(rows: Row[], expanded: string, folded: string[] = []
 const LEVELS = style.levels as Record<string, { glyph: string; color: string }>
 
 // @ts-expect-error Row holds undefined fields, which the host's JsonValue props type refuses.
-const Loops: ClientModule<LoopsProps, number> = (props, surface) => {
+const Loops: ClientModule<LoopsProps, SpinState> = (props, surface) => {
   const { Box, Text } = surface.elements
   const { rows, width, expanded, nerd, viewing } = props
   const folded = props.folded ?? []
   const look = lookFor(nerd)
   const own = decodeAll(marks.glyphs)[nerd ? 'nerd' : 'safe']
   const lines = layoutLoops(rows, expanded, folded)
-  // The state is the line under the pointer, times two, plus one over a card's task toggle: a task line is its own target, any other line stands for its card.
-  const hoveredAt = surface.state !== undefined && surface.state >= 0 ? Math.floor(surface.state / 2) : -1
-  const isFoldHover = surface.state !== undefined && surface.state >= 0 && surface.state % 2 === 1
+  const spin = props.still ? 0 : (surface.state?.spin ?? 0)
+  keepSpinning(surface, rows.some(row => row.status === 'running' || row.tasks.some(task => task.status === 'running')), props.still)
+  // The state's `at` is the line under the pointer, times two, plus one over a card's task toggle: a task line is its own target, any other line stands for its card.
+  const pointed = surface.state?.at ?? -1
+  const hoveredAt = pointed >= 0 ? Math.floor(pointed / 2) : -1
+  const isFoldHover = pointed >= 0 && pointed % 2 === 1
+  const setPointed = (at: number) => surface.setState({ at, spin: surface.state?.spin ?? 0 })
   const taskOf = (at: number) => {
     const line = lines[at]
     return line?.kind === 'task' ? rows[line.loop]?.tasks[line.task!] : undefined
@@ -82,8 +87,8 @@ const Loops: ClientModule<LoopsProps, number> = (props, surface) => {
     const at = event.type === 'leave' || (lines[event.y]?.loop ?? -1) < 0 ? -1 : event.y
     const isFold = at >= 0 && isFoldAt(at, event.x)
     const next = at < 0 ? -1 : at * 2 + (isFold ? 1 : 0)
-    if (next !== (surface.state ?? -1)) {
-      surface.setState(next)
+    if (next !== (surface.state?.at ?? -1)) {
+      setPointed(next)
       if (targetOf(at, isFold) !== targetOf(hoveredAt, isFoldHover)) {
         const task = taskOf(at)
         const row = rows[lines[at]?.loop ?? -1]
@@ -127,7 +132,7 @@ const Loops: ClientModule<LoopsProps, number> = (props, surface) => {
     )
 
     if (line.kind === 'head') {
-      const mark = row.status === 'running' ? { glyph: own.running, color: THEME.accent } : row.status === 'done' ? { glyph: look.glyph.ok, color: THEME.ok } : { glyph: look.glyph.warn, color: THEME.alert }
+      const mark = row.status === 'running' ? { glyph: spinFrame(spin), color: THEME.accent } : row.status === 'done' ? { glyph: look.glyph.ok, color: THEME.good } : { glyph: look.glyph.warn, color: THEME.alert }
       const right = fill(text.tokensTime, { tokens: formatTokens(row.tokens), sep: MARK.sep, time: row.elapsed || '0s' })
       return frame(
         <Box key={`${key}-body`} flexDirection="row" flexGrow={1} columnGap={1}>
@@ -155,7 +160,10 @@ const Loops: ClientModule<LoopsProps, number> = (props, surface) => {
       const before = [row.model ? 2 + [...info.name].length + (level ? 2 : 0) : 0, row.percent === undefined ? 0 : 2 + 3 + marks.gaugeCells + fill(text.gaugePercent, { percent: row.percent }).length].filter(cols => cols > 0)
       // The card's lead and padding, the pills before this one with their gaps, this pill's caps and count, the fold toggle, and a column of slack.
       const room = width - 4 - before.reduce((sum, cols) => sum + cols + 1, 0) - 2 - [...countText].length - (row.tasks.length > 0 ? [...foldText(row)].length : 0) - 1
-      const cellOf = (state: GateState) => (state === 'abandoned' ? { glyph: own.gateDropped, color: THEME.alert } : state === 'open' ? { glyph: own.gateOpen, color: THEME.muted } : { glyph: own.gateMet, color: state === 'met' ? THEME.ok : THEME.warn })
+      const cells = stripCells(row.gates, room)
+      // On a running card the first open gate is the one being worked: it breathes, the rest wait on surface-4.
+      const breathing = row.status === 'running' ? cells.indexOf('open') : -1
+      const cellOf = (state: GateState, at: number) => (state === 'abandoned' ? { glyph: own.gateDropped, color: THEME.alert } : state === 'open' ? { glyph: own.gateOpen, color: at === breathing ? breathColor(spin) : THEME.lifted } : { glyph: own.gateMet, color: state === 'met' ? THEME.accent : THEME.warn })
       const isFoldOver = isHover && isFoldHover
       return frame(
         <Box key={`${key}-row`} flexDirection="row" flexGrow={1}>
@@ -167,11 +175,15 @@ const Loops: ClientModule<LoopsProps, number> = (props, surface) => {
             </Text>
           )) : null}
           {row.percent === undefined ? null : pill(`${key}-gauge`, on, (
-            <Text color={gaugeColor(row.percent)}>{`${own.gaugeIcon} ${own.gaugeFull.repeat(gauge)}${own.gaugeEmpty.repeat(marks.gaugeCells - gauge)} ${fill(text.gaugePercent, { percent: row.percent })}`}</Text>
+            <Text>
+              <Text color={gaugeColor(row.percent)}>{`${own.gaugeIcon} ${own.gaugeFull.repeat(gauge)}`}</Text>
+              <Text color={THEME.lifted}>{own.gaugeEmpty.repeat(marks.gaugeCells - gauge)}</Text>
+              <Text color={gaugeColor(row.percent)}>{` ${fill(text.gaugePercent, { percent: row.percent })}`}</Text>
+            </Text>
           ))}
           {row.hasGates ? pill(`${key}-gates`, on, (
             <Text>
-              {stripCells(row.gates, room).map((state, at) => <Text key={`${key}-cell-${at}`} color={cellOf(state).color}>{cellOf(state).glyph}</Text>)}
+              {cells.map((state, at) => <Text key={`${key}-cell-${at}`} color={cellOf(state, at).color}>{cellOf(state, at).glyph}</Text>)}
               <Text color={THEME.muted}>{countText}</Text>
             </Text>
           )) : null}
@@ -191,7 +203,7 @@ const Loops: ClientModule<LoopsProps, number> = (props, surface) => {
 
     if (line.kind === 'task') {
       const task = row.tasks[line.task!]!
-      const mark = task.status === 'running' ? { glyph: own.running, color: THEME.accent } : task.status === 'done' ? { glyph: look.glyph.ok, color: THEME.ok } : { glyph: look.glyph.warn, color: THEME.alert }
+      const mark = task.status === 'running' ? { glyph: spinFrame(spin), color: THEME.accent } : task.status === 'done' ? { glyph: look.glyph.ok, color: THEME.good } : { glyph: look.glyph.warn, color: THEME.alert }
       return frame(
         <Box key={`${key}-body`} flexDirection="row" flexGrow={1} columnGap={1} paddingLeft={2}>
           <Text key={`${key}-mark`} color={mark.color}>{mark.glyph}</Text>

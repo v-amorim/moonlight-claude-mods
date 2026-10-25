@@ -2,7 +2,7 @@
 // Registers the mod: wires the suggestion band, settings pane, commands and toasts.
 import type { ConfigValue, EngineInterface, Register, RenderChildren } from 'claude-code'
 
-import { cardFill, detectNerd, FOOTER_ROWS, lookFor, paneFooter, type IconMode, withMark } from './look'
+import { cardFill, detectNerd, FOOTER_ROWS, lookFor, paneFooter, sepText, titleEdge, type IconMode, withMark } from './look'
 import { settingChoice, settingsBody, type Action, type Previews, type Range } from './settings'
 import { fill, MARK, statusColor, THEME } from './theme'
 import { isTipMessage, tipText, type EntryMessage, type EntryProps, type Tip, type TipMessage } from './entry'
@@ -357,7 +357,7 @@ export const register: Register = (on, options) => {
         ...cards,
         waiting ? (
           <Box key="nextsteps-waiting" paddingX={1}>
-            <Client key="steps-waiting" module="./entry.tsx" height={1} props={{ id: 'steps-waiting', label: text.thinking, isOpen: false, bg: THEME.bg, isBusy: true, still }} />
+            <Client key="steps-waiting" module="./entry.tsx" height={1} props={{ id: 'steps-waiting', label: text.thinking, isOpen: false, bg: THEME.bg, isBusy: true, spinner: true, still }} />
           </Box>
         ) : null,
       ])
@@ -376,12 +376,15 @@ export const register: Register = (on, options) => {
 
     return above(below, [
         ...cards,
-        <Box key="nextsteps-rows" flexDirection="column" paddingX={1} borderStyle="round" borderColor={THEME.border} backgroundColor={cardFill(THEME.border)}>
-          <Box key="steps-first" flexDirection="row" justifyContent="space-between" columnGap={1}>
-            {row(shown[0]!, 0)}
-            {dismiss}
+        <Box key="nextsteps-block" flexDirection="column">
+          <Box key="nextsteps-rows" flexDirection="column" paddingX={1} borderStyle="round" borderColor={THEME.border} backgroundColor={cardFill(THEME.border)}>
+            <Box key="steps-first" flexDirection="row" justifyContent="space-between" columnGap={1}>
+              {row(shown[0]!, 0)}
+              {dismiss}
+            </Box>
+            {shown.slice(1).map((step, at) => row(step, at + 1))}
           </Box>
-          {shown.slice(1).map((step, at) => row(step, at + 1))}
+          {titleEdge({ Box, Text }, look, 'nextsteps', 'prompt', text.cardTitle, text.cardHint, 0)}
         </Box>,
     ])
   })
@@ -402,7 +405,7 @@ export const register: Register = (on, options) => {
     return (
       <Box flexDirection="column" backgroundColor={THEME.bg} paddingX={1} minHeight={e.props.scroll.bodyRows}>
         {tabRow({ Box, Client, Text }, look.nerd, [{ id: 'mod-next-steps-settings-tab', label: `${text.paneHeading} ${MARK.sep} ${text.paneHeadingSettings}`, icon: look.glyph.gear, isOpen: true, tip: { glyph: look.glyph.gear, label: text.paneHeadingSettings, text: text.tipTabSettings } }], still)}
-        <Text key="status" wrap="truncate-end" color={statusColor(note)}>{withMark(look, note) || `${text.statusHint} ${MARK.sep} ${text.statusReload}`}</Text>
+        {sepText({ Text }, withMark(look, note) || `${text.statusHint} ${MARK.sep} ${text.statusReload}`, statusColor(note), 'status', { wrap: 'truncate-end' })}
         {settingsBody({ Box, Button, Client, Text }, look, { rows, actions, working, run, previews, fields, still: still, tips: text.settingTips })}
         <Box key="footer-space" height={FOOTER_ROWS} flexShrink={0} />
         {paneFooter({ Box, Text }, hoveredTip(), e.props.bodyColumns, e.props.scroll)}

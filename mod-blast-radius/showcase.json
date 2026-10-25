@@ -24,7 +24,7 @@
   "previews": {
     "enabled": {
       "true": {
-        "frame": { "border": "border", "bg": "#1f1b2b" },
+        "frame": { "border": "#4b2935", "bg": "#1f1b2b" },
         "nerd": [
           { "spans": [{ "text": " " }, { "text": "\uea6c Delete cache.db", "color": "alert", "bold": true }] },
           { "spans": [{ "text": " " }, { "text": "Removes the file. No undo.", "color": "onSurface" }] },

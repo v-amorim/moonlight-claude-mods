@@ -3,9 +3,9 @@
 import type { ConfigRow, ConfigValue, RenderElement } from 'claude-code'
 
 import type { EntryProps, Tip } from './entry'
-import { cardGap, section, type Look, type Reveal } from './look'
+import { cardFill, cardGap, section, sepText, type Look, type Reveal } from './look'
 import style from './style'
-import { CAPS, fill, MARK, mix, THEME, WASH } from './theme'
+import { CAPS, fill, MARK, THEME } from './theme'
 
 // A button a mod offers beside its settings: runs `/<command> <args>`, declared in its showcase.json.
 // isLocal marks the drawing mod's own command, which it calls directly, so Claude working does not hold it.
@@ -67,7 +67,7 @@ export type PreviewSpan = { text: string; color?: string; bg?: string; bold?: bo
 export type PreviewLine = { spans: PreviewSpan[] }
 export type Preview = { frame?: { border: string; bg: string }; nerd: PreviewLine[]; safe: PreviewLine[] }
 
-// showcase.json's "previews", kept in step with tests/previews.snapshot.ts: per setting field, per value as text ("true", "false", an option), the card in each icon mode.
+// showcase.json's "previews", written by `just previews`: per setting field, per value as text ("true", "false", an option), the card in each icon mode.
 export type Previews = Record<string, Record<string, Preview>>
 
 const shade = (color: string | undefined) => (color === undefined ? undefined : color in THEME ? THEME[color as ThemeColor] : color)
@@ -77,12 +77,13 @@ function exampleOf({ Box, Text }: Elements, look: Look, previews: Previews | und
   const entry = previews?.[row.key.slice(row.key.indexOf('.') + 1)]?.[String(row.value)]
   const lines = look.nerd ? entry?.nerd : entry?.safe
   if (!entry || !lines?.length) return null
-  // The lines carry their own padding and strip, so the frame adds none.
+  // The lines carry their own padding and strip, so the frame adds none. The example sinks to bg, so it never matches the card it sits in.
+  const sunk = (color: string | undefined) => (color !== undefined && color === shade(entry.frame?.bg) ? THEME.bg : color)
   return (
-    <Box key={`setting-preview-${index}`} flexDirection="column" borderStyle="round" borderColor={shade(entry.frame?.border) ?? THEME.border} backgroundColor={shade(entry.frame?.bg) ?? THEME.bg} marginTop={1}>
+    <Box key={`setting-preview-${index}`} flexDirection="column" borderStyle="round" borderColor={shade(entry.frame?.border) ?? THEME.border} backgroundColor={THEME.bg} marginTop={1}>
       {lines.map((line, index) => (
         <Text key={`line-${index}`} wrap="truncate-end">
-          {line.spans.length === 0 ? ' ' : line.spans.map((span, at) => <Text key={`span-${at}`} color={shade(span.color) ?? THEME.onSurface} {...(span.bg ? { backgroundColor: shade(span.bg) } : {})} {...(span.bold ? { bold: true } : {})}>{span.text}</Text>)}
+          {line.spans.length === 0 ? ' ' : line.spans.map((span, at) => <Text key={`span-${at}`} color={shade(span.color) ?? THEME.onSurface} {...(span.bg ? { backgroundColor: sunk(shade(span.bg)) } : {})} {...(span.bold ? { bold: true } : {})}>{span.text}</Text>)}
         </Text>
       ))}
     </Box>
@@ -138,21 +139,26 @@ const pillOn = ({ Box, Text }: Elements, look: Look, key: string, bg: string, bo
 
 export type Choice = { key: string; isOn: boolean; props: Pick<EntryProps, 'id' | 'label' | 'still' | 'tip' | 'subLead' | 'subLeadColor'> }
 
-// A choice as one surface-3 pill: the pick a washed ok subpill, the rest muted, a rail between; `on` is what the bar sits on.
+// A control track: a surface3 pill on `on`, padded by a space each side in safe mode, where it has no caps.
+function track(elements: Elements, look: Look, key: string, on: string, parts: unknown[]) {
+  const { Box, Text } = elements
+  const space = (side: string) => (look.nerd ? null : <Text key={`${key}-space-${side}`} backgroundColor={THEME.surface3}> </Text>)
+  return pillOn(elements, look, `${key}-bar`, THEME.surface3, <Box key={`${key}-options`} flexDirection="row" backgroundColor={THEME.surface3}>{[space('left'), ...parts, space('right')]}</Box>, on)
+}
+
+// A choice in a track: the pick a lifted (surface-4) subpill in primary-70 (`ok`), the rest muted; `on` is what the track sits on.
 export function choiceBar(elements: Elements, look: Look, key: string, on: string, choices: Choice[]) {
-  const { Box, Client, Text } = elements
-  const wash = mix(THEME.ok, THEME.surface3, WASH)
+  const { Client } = elements
   const entry = (choice: Choice, shape: Partial<EntryProps>) => (
     <Client key={choice.key} module="./entry.tsx" height={1} props={{ ...choice.props, isOpen: choice.isOn, bg: THEME.surface3, ...shape } satisfies EntryProps} />
   )
-  const options = choices.flatMap((choice, at) => {
-    const rail = at === 0 ? [] : [<Client key={`${key}-rail-${at}`} module="./entry.tsx" height={1} props={{ id: `${key}-rail-${at}`, label: '', isOpen: false, bg: THEME.surface3, rail: true } satisfies EntryProps} />]
-    if (!choice.isOn) return [...rail, entry(choice, { idle: THEME.muted })]
-    // Tight, so the subpill is as wide as an idle option: the caps (Nerd) or a space (safe) stand where its padding was.
-    return [...rail, pillOn(elements, look, `${choice.key}-chosen`, wash, entry(choice, { bg: wash, color: THEME.ok, idle: THEME.muted, nerd: look.nerd, tight: true }), THEME.surface3)]
-  })
-  const space = (side: string) => (look.nerd ? null : <Text key={`${key}-space-${side}`} backgroundColor={THEME.surface3}> </Text>)
-  return pillOn(elements, look, `${key}-bar`, THEME.surface3, <Box key={`${key}-options`} flexDirection="row" backgroundColor={THEME.surface3}>{[space('left'), ...options, space('right')]}</Box>, on)
+  const options = choices.map(choice =>
+    choice.isOn
+      ? // Tight, so the subpill is as wide as an idle option: the caps (Nerd) or a space (safe) stand where its padding was.
+        pillOn(elements, look, `${choice.key}-chosen`, THEME.lifted, entry(choice, { bg: THEME.lifted, color: THEME.ok, idle: THEME.muted, nerd: look.nerd, tight: true }), THEME.surface3)
+      : entry(choice, { idle: THEME.muted }),
+  )
+  return track(elements, look, key, on, options)
 }
 
 const actionScope = (index: number) => `action-row-${index}`
@@ -165,7 +171,7 @@ export const actionReveals = (actions: Action[], look: Look, working: boolean): 
 
 // Edits the row in place: on/off flips, a choice is a bar, a number steps; text is edited in /config.
 function control(elements: Elements, look: Look, row: ConfigRow, index: number, still: boolean, tips?: Record<string, string>, fields?: Record<string, Range>) {
-  const { Box, Client, Text } = elements
+  const { Client, Text } = elements
   const key = `setting-${index}`
   const text = tips?.[row.key.slice(row.key.indexOf('.') + 1)] ?? (row.description ? descriptionTip(row.description) : '')
   // Client props refuse an undefined value, so no tip text means no key.
@@ -175,26 +181,42 @@ function control(elements: Elements, look: Look, row: ConfigRow, index: number, 
   )
   if (row.isLocked) return <Text color={THEME.muted}>{`${shown(row)} ${bare(look.glyph.locked)} ${style.text.locked}`}</Text>
   if (row.kind === 'boolean') {
-    const color = row.value === true ? THEME.ok : THEME.muted
-    const bg = row.value === true ? mix(THEME.ok, THEME.surface1, WASH) : THEME.surface3
-    return pillOn(elements, look, `${key}-flip`, bg, entry('flip', `${shown(row)} ${bare(look.glyph.cycle)}`, row.value !== true, bg, color, false))
+    // The switch: `━━●` on, `●━━` off, the knob a bare glyph joined to the line.
+    const isOn = row.value === true
+    const shape = isOn
+      ? { lead: MARK.track, leadColor: THEME.accent, label: MARK.knob, idle: THEME.ok }
+      : { lead: MARK.knob, leadColor: style.colors.pills.readout, label: MARK.track, idle: THEME.trackOff }
+    const flip = <Client key={`${key}-flip`} module="./entry.tsx" height={1} props={{ id: settingId(row, !isOn), isOpen: false, bg: THEME.surface3, tight: true, still, ...shape, ...tipFor(look.glyph.cycle) } satisfies EntryProps} />
+    return track(elements, look, key, cardFill(), [flip])
   }
   if (row.kind === 'choice' && row.options?.length) {
     const choices = row.options.map((option, at) => ({ key: `${key}-option-${at}`, isOn: option === String(row.value), props: { id: settingId(row, option), label: option, still, ...tipFor(look.glyph.cycle) } }))
-    return choiceBar(elements, look, key, THEME.surface1, choices)
+    return choiceBar(elements, look, key, cardFill(), choices)
   }
   if (row.kind === 'number' && typeof row.value === 'number') {
     const range = fields?.[row.key.slice(row.key.indexOf('.') + 1)]
-    return (
-      <Box key={key} flexDirection="row" columnGap={1}>
-        <Text color={THEME.secondary}>{showNumber(row.value, splitTitle(row.label).unit)}</Text>
-        {pillOn(elements, look, `${key}-down`, THEME.surface3, entry('down', bare(look.glyph.down), stepNumber(row.value, -1, range), THEME.surface3, THEME.onSurface, false, look.glyph.down))}
-        {pillOn(elements, look, `${key}-up`, THEME.surface3, entry('up', bare(look.glyph.up), stepNumber(row.value, 1, range), THEME.surface3, THEME.onSurface, false, look.glyph.up))}
-      </Box>
-    )
+    const value = <Text key={`${key}-value`} color={THEME.ok} backgroundColor={THEME.lifted} bold>{look.nerd ? showNumber(row.value, splitTitle(row.label).unit) : ` ${showNumber(row.value, splitTitle(row.label).unit)} `}</Text>
+    return track(elements, look, key, cardFill(), [
+      entry('down', bare(look.glyph.down), stepNumber(row.value, -1, range), THEME.surface3, THEME.muted, false, look.glyph.down),
+      pillOn(elements, look, `${key}-value-pill`, THEME.lifted, value, THEME.surface3),
+      entry('up', bare(look.glyph.up), stepNumber(row.value, 1, range), THEME.surface3, THEME.muted, false, look.glyph.up),
+    ])
   }
   return <Text color={THEME.secondary}>{shown(row)}</Text>
 }
+
+// A setting's first row: the label bold on the left, its control anchored right.
+export const settingHead = ({ Box, Text }: Pick<Elements, 'Box' | 'Text'>, key: string, label: string, control: unknown) => (
+  <Box key={key} flexDirection="row" columnGap={2} justifyContent="space-between">
+    <Text color={THEME.onSurface} bold>{label}</Text>
+    {control}
+  </Box>
+)
+
+// A hairline across its box, under a setting's head row; a Client, since only a Client learns the width it gets.
+export const hairline = ({ Client }: Pick<Elements, 'Client'>, key: string, bg: string) => (
+  <Client key={key} module="./entry.tsx" width="100%" height={1} props={{ id: key, label: '', isOpen: false, bg, rule: true } satisfies EntryProps} />
+)
 
 // The Settings and Actions sections of a mod's panel or page: one round-bordered card per setting.
 export function settingsBody(elements: Elements, look: Look, { rows, actions, working, run, previews, tips, fields, still = false }: SettingsProps) {
@@ -204,13 +226,11 @@ export function settingsBody(elements: Elements, look: Look, { rows, actions, wo
     ...rows.map((row, index) => {
       const example = exampleOf(elements, look, previews, row, index)
       return (
-        <Box key={`setting-row-${index}`} flexDirection="column" borderStyle="round" borderColor={THEME.border} backgroundColor={THEME.surface1} paddingX={1} marginTop={index === 0 ? 0 : 1}>
-          <Box key={`setting-head-${index}`} flexDirection="row" columnGap={2}>
-            <Text color={THEME.onSurface} bold>{splitTitle(row.label).name}</Text>
-            {control(elements, look, row, index, still, tips, fields)}
-          </Box>
+        <Box key={`setting-row-${index}`} flexDirection="column" borderStyle="round" borderColor={THEME.border} backgroundColor={cardFill()} paddingX={1} marginTop={index === 0 ? 0 : 1}>
+          {settingHead(elements, `setting-head-${index}`, splitTitle(row.label).name, control(elements, look, row, index, still, tips, fields))}
+          {row.description || example ? hairline(elements, `setting-rule-${index}`, cardFill()) : null}
           {row.description ? (
-            <Text color={THEME.muted}>{row.kind === 'text' ? `${row.description} ${MARK.sep} ${style.text.editInConfig}` : row.description}</Text>
+            sepText(elements, row.kind === 'text' ? `${row.description} ${MARK.sep} ${style.text.editInConfig}` : row.description, THEME.muted, `setting-text-${index}`)
           ) : null}
           {example}
         </Box>
@@ -219,7 +239,7 @@ export function settingsBody(elements: Elements, look: Look, { rows, actions, wo
   ]
   const buttons = actions.map((action, index) =>
     working && !action.isLocal ? (
-      <Text key={`action-${index}`} color={THEME.muted}>{`${look.glyph.go} ${action.label} ${MARK.sep} ${style.text.idleOnly}`}</Text>
+      sepText(elements, `${look.glyph.go} ${action.label} ${MARK.sep} ${style.text.idleOnly}`, THEME.muted, `action-${index}`)
     ) : (
       // A plain Button so the action needs a real press; the glyph sits in the label so the whole pill lights.
       pillOn(

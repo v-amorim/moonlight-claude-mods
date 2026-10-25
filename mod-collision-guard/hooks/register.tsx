@@ -4,7 +4,7 @@ import type { ConfigValue, EngineInterface, Register } from 'claude-code'
 
 import { agoText, clearOwn, clockText, EDIT_TOOLS, findConflict, normalize, pathOf, recordEdit, type Io } from './guard'
 import { isTipMessage, tipText, type EntryMessage, type Tip, type TipMessage } from './entry'
-import { detectNerd, FOOTER_ROWS, lookFor, paneFooter, type IconMode, withMark } from './look'
+import { detectNerd, FOOTER_ROWS, lookFor, paneFooter, sepText, type IconMode, withMark } from './look'
 import { pillRow, splitRow, tabRow, tipLine } from './pills'
 import { settingChoice, settingsBody, type Action, type Previews, type Range } from './settings'
 import text from './text'
@@ -351,7 +351,7 @@ export const register: Register = (on, options) => {
     return (
       <Box flexDirection="column" backgroundColor={THEME.bg} paddingX={1} minHeight={e.props.scroll.bodyRows}>
         {tabRow({ Box, Client, Text }, look.nerd, [{ id: 'mod-collision-guard-settings-tab', label: `${text.paneTitle} ${MARK.sep} ${text.paneTitleSettings}`, icon: look.glyph.gear, isOpen: true, tip: { glyph: look.glyph.gear, label: text.paneTitleSettings, text: text.tipTabSettings } }], still)}
-        <Text key="settings-note" wrap="truncate-end" color={statusColor(note)}>{withMark(look, note) || `${text.defaultNote} ${MARK.sep} ${text.defaultNoteTail}`}</Text>
+        {sepText({ Text }, withMark(look, note) || `${text.defaultNote} ${MARK.sep} ${text.defaultNoteTail}`, statusColor(note), 'settings-note', { wrap: 'truncate-end' })}
         {settingsBody({ Box, Button, Client, Text }, look, { rows, actions, working: false, run, previews, fields, still })}
         <Box key="footer-space" height={FOOTER_ROWS} flexShrink={0} />
         {paneFooter({ Box, Text }, hoveredTip(), e.props.bodyColumns, e.props.scroll)}

@@ -121,6 +121,8 @@ export default {
     "safeRest": "and {steps} ({list})"
   },
   "card": {
+    "title": "Held",
+    "titleHint": "blast radius",
     "inFolder": "{verb} in {subject}",
     "andMore": " and {n} more",
     "fromCommand": "From the command: {targets}",
@@ -132,7 +134,7 @@ export default {
     "details": "Details",
     "showAll": "Show all",
     "showLess": "Show less",
-    "explaining": "Explaining…"
+    "explaining": "Explaining"
   },
   "verdict": {
     "nothingMeasured": "nothing could be measured before it runs",

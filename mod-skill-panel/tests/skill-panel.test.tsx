@@ -148,7 +148,8 @@ test('panel lists skill groups and a press fills the prompt', async ($, on) => {
   expect(box).toBe('please ')
   expect(JSON.stringify(await ui.drawn({ in: 'skills-cloud' }))).toContain('─')
 
-  expect(await ui.find({ key: 'card-icon' })).toBeDefined()
+  expect(await ui.find({ key: 'card-edge' })).toBeDefined()
+  expect(await ui.find({ key: 'card-icon' })).toBeUndefined()
   // Pointing at a chip shows it in the card and adds nothing.
   await pointing(ui).pointer({ in: 'skills-cloud', type: 'move', x: 16, y: 2 })
   expect(await ui.find({ type: 'Text', text: '/plain' })).toBeDefined()
@@ -467,7 +468,8 @@ test('a pane that waits says why in a wrapped card above the row, not in Claude 
   })
 
   await pointing(band).pointer({ type: 'down', x: 1, y: 0, button: 'left', in: 'menu-entry-skills' })
-  expect(await band.find({ type: 'Text', text: 'Skills panel waiting: unasked below 144 columns (99 now)' })).toBeDefined()
+  expect(await band.find({ type: 'Text', text: 'Skills panel waiting' })).toBeDefined()
+  expect(await band.find({ type: 'Text', text: /unasked below 144 columns \(99 now\)/ })).toBeDefined()
   expect(engineToasts).toEqual([])
   // Hovering the × leaves the card; a click on it dismisses.
   await pointing(band).pointer({ type: 'move', x: 0, y: 0, in: 'toast-skills-1' })

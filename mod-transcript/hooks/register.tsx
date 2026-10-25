@@ -24,6 +24,7 @@ import { detectWedge, FILLED, OUTLINE, type Wedge } from './wedge'
 import { CAPS, fill, MARK, mix, statusColor, SYNTAX, THEME, WASH } from './theme'
 import { copyChoices, copyText, type CopyChoice } from './clip'
 import { markPieces, type Piece } from './mark'
+import { splitTables, tableBlock, tableWidth, type Block } from './table'
 import { callTime, commandOf, diffStat, elapsed, isPrompt, rowKey, timeOfDay, toolLabel, turnKinds, turnLine, turnThoughts, TurnLog, type Turn } from './turns'
 import { apiErrorAction, completeLines, hexColors, questionsOf, reportOf, senderTaskOf, statusesOf, withNotice, type Notice, type Report } from './rows'
 import { bridgeOn, endBridge, startBridge, type BridgeRecord } from './bridge'
@@ -506,8 +507,8 @@ const OPEN_CALL = mix(THEME.ok, THEME.surface1, WASH)
 function bashRow({ Box, Client, Text }: Rows, input: any, isRunning: boolean, isFailed: boolean) {
   const command = String(input?.command ?? '')
   const dot = isRunning
-    ? <Client key="bash-dot" module="./dot.tsx" width={1} height={1} props={{ color: THEME.accent, dim: THEME.border, still } satisfies DotProps} />
-    : <Text key="bash-dot" color={isFailed ? THEME.alert : THEME.ok}>{MARK.stopOpen}</Text>
+    ? <Client key="bash-dot" module="./dot.tsx" width={1} height={1} props={{ color: THEME.accent, still } satisfies DotProps} />
+    : <Text key="bash-dot" color={isFailed ? THEME.alert : THEME.good}>{MARK.stopOpen}</Text>
   return (
     <Box key="bash-row" flexDirection="column">
       <Text key="bash-blank"> </Text>
@@ -527,6 +528,27 @@ function bashRow({ Box, Client, Text }: Rows, input: any, isRunning: boolean, is
           </Box>
         </Box>
       ))}
+    </Box>
+  )
+}
+
+// The bubble's padding and the reply's gutter, so a table wider than what is left goes back to Claude Code's.
+const TABLE_INDENT = 6
+
+// A reply holding tables: its prose as Claude Code's markdown, each table in the standard's look; gutter and margin as markedReply.
+function tableReply({ Box, Markdown, Text }: Pick<Rows, 'Box' | 'Text'> & { Markdown: (props: any) => RenderElement }, blocks: Block[], isFirst: boolean) {
+  return (
+    <Box key="toggle-tables" flexDirection="row" marginTop={isFirst ? 1 : 0}>
+      <Box key="toggle-tables-gutter" width={2} flexShrink={0}>
+        <Text>{isFirst ? MARK.stopOpen : ' '}</Text>
+      </Box>
+      <Box key="toggle-tables-body" flexDirection="column" flexGrow={1} flexShrink={1}>
+        {blocks.map((block, n) => (
+          <Box key={`toggle-block-${n}`} marginTop={n ? 1 : 0}>
+            {block.kind === 'markdown' ? <Markdown text={block.text} /> : tableBlock({ Box, Text }, block.table, `toggle-table-${n}`)}
+          </Box>
+        ))}
+      </Box>
     </Box>
   )
 }
@@ -1314,7 +1336,11 @@ export const register: Register = (on, options) => {
     const hovered = turn && hover.startsWith(`${turn.prompt}\n`) ? hover.slice(turn.prompt.length + 1) : ''
     const marks = hovered ? markPieces(e.props.text.trim(), hovered as CopyChoice) : null
     const colors = failure ? [] : hexColors(e.props.text, THEME.surface2)
-    const reply = async () => (failure ? apiErrorRow({ Box, Text }, failure, widthOf(e)) : marks ? markedReply({ Box, Markdown, Text }, marks, e.props.isFirstOfReply) : next(e))
+    const tables = !failure && !marks && hasTable(e.props.text) ? splitTables(e.props.text.trim()) : null
+    // Claude Code's own table takes over when one is wider than the bubble's text column.
+    const ownTables = tables?.every(block => block.kind === 'markdown' || tableWidth(block.table) <= widthOf(e) - TABLE_INDENT) ? tables : null
+    const reply = async () =>
+      failure ? apiErrorRow({ Box, Text }, failure, widthOf(e)) : marks ? markedReply({ Box, Markdown, Text }, marks, e.props.isFirstOfReply) : ownTables ? tableReply({ Box, Markdown, Text }, ownTables, e.props.isFirstOfReply) : next(e)
     // Claude Code draws the reply's markdown, which cannot color a character, so the colors it names show in a strip under it.
     const drawn = async () =>
       colors.length === 0 ? reply() : (
@@ -1336,7 +1362,7 @@ export const register: Register = (on, options) => {
           </Box>
         </Box>
       )
-    if (place === 'plain') return turn ? bubble({ Box, Client }, 'toggle-bubble', turn, await drawn(), hasTable(e.props.text)) : drawn()
+    if (place === 'plain') return turn ? bubble({ Box, Client }, 'toggle-bubble', turn, await drawn(), hasTable(e.props.text) && !ownTables) : drawn()
 
     return place === 'hidden' ? <Box key="toggle-hidden" /> : cardRow({ Box, Client }, await drawn(), { kind: 'turns', id: turn!.prompt })
   })

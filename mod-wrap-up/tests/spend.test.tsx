@@ -48,7 +48,7 @@ function world(on: any, failWrite = false) {
 const handOff = async (band: any) => {
   const down = (x: number, key: string) => band.pointer({ type: 'down', x, y: 0, button: 'left', in: key } as never)
   await down(1, 'wrap-up-entry')
-  await down(10, 'wrap-up-entry')
+  await down(12, 'wrap-up-entry')
   await down(1, 'wrap-up-go')
 }
 

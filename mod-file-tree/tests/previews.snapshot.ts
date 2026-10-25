@@ -14,45 +14,8 @@ export const snapshot: Snapshot = {
               "text": " "
             },
             {
-              "text": "\ue0b6",
-              "color": "surface3"
-            },
-            {
-              "text": "\ue0b6",
-              "color": "#3b446a",
-              "bg": "surface3"
-            },
-            {
-              "text": "\ueaf7",
-              "color": "accent",
-              "bg": "#3b446a",
-              "bold": true
-            },
-            {
-              "text": "\ue0b4",
-              "color": "#3b446a",
-              "bg": "surface3"
-            },
-            {
-              "text": " hooks",
-              "color": "onSurface",
-              "bg": "surface3",
-              "bold": true
-            },
-            {
-              "text": "\ue0b4",
-              "color": "surface3"
-            }
-          ]
-        },
-        {
-          "spans": [
-            {
-              "text": " "
-            },
-            {
               "text": "\ue625 ",
-              "color": "muted"
+              "color": "accent"
             },
             {
               "text": "register.tsx",
@@ -104,7 +67,7 @@ export const snapshot: Snapshot = {
             },
             {
               "text": "\ue628 ",
-              "color": "muted"
+              "color": "accent"
             },
             {
               "text": "theme.ts",
@@ -130,18 +93,6 @@ export const snapshot: Snapshot = {
         }
       ],
       "safe": [
-        {
-          "spans": [
-            {
-              "text": " "
-            },
-            {
-              "text": "hooks",
-              "color": "accent",
-              "bold": true
-            }
-          ]
-        },
         {
           "spans": [
             {
@@ -205,45 +156,8 @@ export const snapshot: Snapshot = {
               "text": " "
             },
             {
-              "text": "\ue0b6",
-              "color": "surface3"
-            },
-            {
-              "text": "\ue0b6",
-              "color": "#3b446a",
-              "bg": "surface3"
-            },
-            {
-              "text": "\ueaf7",
-              "color": "accent",
-              "bg": "#3b446a",
-              "bold": true
-            },
-            {
-              "text": "\ue0b4",
-              "color": "#3b446a",
-              "bg": "surface3"
-            },
-            {
-              "text": " hooks",
-              "color": "onSurface",
-              "bg": "surface3",
-              "bold": true
-            },
-            {
-              "text": "\ue0b4",
-              "color": "surface3"
-            }
-          ]
-        },
-        {
-          "spans": [
-            {
-              "text": " "
-            },
-            {
               "text": "\ue625 ",
-              "color": "muted"
+              "color": "accent"
             },
             {
               "text": "register.tsx",
@@ -296,18 +210,6 @@ export const snapshot: Snapshot = {
               "text": " "
             },
             {
-              "text": "hooks",
-              "color": "accent",
-              "bold": true
-            }
-          ]
-        },
-        {
-          "spans": [
-            {
-              "text": " "
-            },
-            {
               "text": "register.tsx",
               "color": "warn"
             },
@@ -342,119 +244,6 @@ export const snapshot: Snapshot = {
         "bg": "#1a1e30"
       },
       "nerd": [
-        {
-          "spans": [
-            {
-              "text": " "
-            },
-            {
-              "text": "\ue0b6",
-              "color": "surface3"
-            },
-            {
-              "text": "\ue0b6",
-              "color": "#3b446a",
-              "bg": "surface3"
-            },
-            {
-              "text": "\uea82",
-              "color": "accent",
-              "bg": "#3b446a",
-              "bold": true
-            },
-            {
-              "text": "\ue0b4",
-              "color": "#3b446a",
-              "bg": "surface3"
-            },
-            {
-              "text": " Turn · 1 edit",
-              "color": "onSurface",
-              "bg": "surface3",
-              "bold": true
-            },
-            {
-              "text": "\ue0b4",
-              "color": "surface3"
-            },
-            {
-              "text": " "
-            },
-            {
-              "text": "\ue0b6",
-              "color": "surface3",
-              "bg": "surface1"
-            },
-            {
-              "text": "\ue0b6",
-              "color": "#464c66",
-              "bg": "surface3"
-            },
-            {
-              "text": "\uf053",
-              "color": "muted",
-              "bg": "#464c66",
-              "bold": true
-            },
-            {
-              "text": "\ue0b4",
-              "color": "#464c66",
-              "bg": "surface3"
-            },
-            {
-              "text": " Prev ",
-              "color": "muted",
-              "bg": "surface3"
-            },
-            {
-              "text": "\ue0b4",
-              "color": "surface3",
-              "bg": "surface1"
-            },
-            {
-              "text": " "
-            },
-            {
-              "text": "1 of 1",
-              "color": "onSurface",
-              "bold": true
-            },
-            {
-              "text": " "
-            },
-            {
-              "text": "\ue0b6",
-              "color": "surface3",
-              "bg": "surface1"
-            },
-            {
-              "text": " Next ",
-              "color": "muted",
-              "bg": "surface3"
-            },
-            {
-              "text": "\ue0b6",
-              "color": "#464c66",
-              "bg": "surface3"
-            },
-            {
-              "text": "\uf054",
-              "color": "muted",
-              "bg": "#464c66",
-              "bold": true
-            },
-            {
-              "text": "\ue0b4",
-              "color": "#464c66",
-              "bg": "surface3"
-            },
-            {
-              "text": "\ue0b4",
-              "color": "surface3",
-              "bg": "surface1"
-            }
-          ]
-        },
         {
           "spans": []
         },
@@ -563,54 +352,6 @@ export const snapshot: Snapshot = {
         }
       ],
       "safe": [
-        {
-          "spans": [
-            {
-              "text": " "
-            },
-            {
-              "text": "Turn · 1 edit",
-              "color": "accent",
-              "bold": true
-            },
-            {
-              "text": "           "
-            },
-            {
-              "text": " < ",
-              "color": "muted",
-              "bg": "#464c66",
-              "bold": true
-            },
-            {
-              "text": " Prev ",
-              "color": "muted",
-              "bg": "surface3"
-            },
-            {
-              "text": " "
-            },
-            {
-              "text": "1 of 1",
-              "color": "onSurface",
-              "bold": true
-            },
-            {
-              "text": " "
-            },
-            {
-              "text": " Next ",
-              "color": "muted",
-              "bg": "surface3"
-            },
-            {
-              "text": " ▸ ",
-              "color": "muted",
-              "bg": "#464c66",
-              "bold": true
-            }
-          ]
-        },
         {
           "spans": []
         },
@@ -726,119 +467,6 @@ export const snapshot: Snapshot = {
       },
       "nerd": [
         {
-          "spans": [
-            {
-              "text": " "
-            },
-            {
-              "text": "\ue0b6",
-              "color": "surface3"
-            },
-            {
-              "text": "\ue0b6",
-              "color": "#3b446a",
-              "bg": "surface3"
-            },
-            {
-              "text": "\uea82",
-              "color": "accent",
-              "bg": "#3b446a",
-              "bold": true
-            },
-            {
-              "text": "\ue0b4",
-              "color": "#3b446a",
-              "bg": "surface3"
-            },
-            {
-              "text": " Turn · 1 edit",
-              "color": "onSurface",
-              "bg": "surface3",
-              "bold": true
-            },
-            {
-              "text": "\ue0b4",
-              "color": "surface3"
-            },
-            {
-              "text": " "
-            },
-            {
-              "text": "\ue0b6",
-              "color": "surface3",
-              "bg": "surface1"
-            },
-            {
-              "text": "\ue0b6",
-              "color": "#464c66",
-              "bg": "surface3"
-            },
-            {
-              "text": "\uf053",
-              "color": "muted",
-              "bg": "#464c66",
-              "bold": true
-            },
-            {
-              "text": "\ue0b4",
-              "color": "#464c66",
-              "bg": "surface3"
-            },
-            {
-              "text": " Prev ",
-              "color": "muted",
-              "bg": "surface3"
-            },
-            {
-              "text": "\ue0b4",
-              "color": "surface3",
-              "bg": "surface1"
-            },
-            {
-              "text": " "
-            },
-            {
-              "text": "1 of 1",
-              "color": "onSurface",
-              "bold": true
-            },
-            {
-              "text": " "
-            },
-            {
-              "text": "\ue0b6",
-              "color": "surface3",
-              "bg": "surface1"
-            },
-            {
-              "text": " Next ",
-              "color": "muted",
-              "bg": "surface3"
-            },
-            {
-              "text": "\ue0b6",
-              "color": "#464c66",
-              "bg": "surface3"
-            },
-            {
-              "text": "\uf054",
-              "color": "muted",
-              "bg": "#464c66",
-              "bold": true
-            },
-            {
-              "text": "\ue0b4",
-              "color": "#464c66",
-              "bg": "surface3"
-            },
-            {
-              "text": "\ue0b4",
-              "color": "surface3",
-              "bg": "surface1"
-            }
-          ]
-        },
-        {
           "spans": []
         },
         {
@@ -923,54 +551,6 @@ export const snapshot: Snapshot = {
         }
       ],
       "safe": [
-        {
-          "spans": [
-            {
-              "text": " "
-            },
-            {
-              "text": "Turn · 1 edit",
-              "color": "accent",
-              "bold": true
-            },
-            {
-              "text": "           "
-            },
-            {
-              "text": " < ",
-              "color": "muted",
-              "bg": "#464c66",
-              "bold": true
-            },
-            {
-              "text": " Prev ",
-              "color": "muted",
-              "bg": "surface3"
-            },
-            {
-              "text": " "
-            },
-            {
-              "text": "1 of 1",
-              "color": "onSurface",
-              "bold": true
-            },
-            {
-              "text": " "
-            },
-            {
-              "text": " Next ",
-              "color": "muted",
-              "bg": "surface3"
-            },
-            {
-              "text": " ▸ ",
-              "color": "muted",
-              "bg": "#464c66",
-              "bold": true
-            }
-          ]
-        },
         {
           "spans": []
         },

@@ -307,8 +307,8 @@ async function withStrip($: any, on: any, icons: boolean, columns: number, check
 }
 
 const stripChecks = async (pane: any, cell: string, cross: string) => {
-  expect(wordsOf((await byKey(pane, 'checks-head-row'))[0])).toContain('This session')
-  expect(wordsOf((await byKey(pane, 'checks-head-row'))[0])).toContain(' · 8 permission checks')
+  expect(wordsOf((await byKey(pane, 'checks-edge'))[0])).toContain('This session')
+  expect(wordsOf((await byKey(pane, 'checks-edge'))[0])).toContain(' · 8 permission checks')
   const row = (await byKey(pane, 'checks-row-0'))[0] as { children: { props: { color: string }; children: string[] }[] }
   expect(row.children.map(each => each.children.join(''))).toEqual([cell, cell, cell, cross, cell, cell, cell, cell])
   expect(row.children.map(each => each.props.color)).toEqual([THEME.ok, THEME.ok, THEME.accent, THEME.alert, THEME.warn, THEME.lifted, THEME.ok, THEME.ok])

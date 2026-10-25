@@ -50,7 +50,7 @@ export default {
     "showLess": "Show less"
   },
   "link": "<-",
-  "writingStage": "Writing handoff…",
+  "writingStage": "Writing handoff",
   "choice": {
     "handoff": "Handoff",
     "compact": "Compact",
@@ -67,7 +67,7 @@ export default {
     "hint": "click a line to keep or drop it",
     "threads": "Threads",
     "also": "Also keep",
-    "reading": "Reading the session…",
+    "reading": "Reading the session",
     "noThreads": "No threads found, the whole session counts",
     "names": "Rename",
     "name": {

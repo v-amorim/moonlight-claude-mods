@@ -48,14 +48,13 @@ const bare = (glyph: string) => glyph.replace(/[[\]\s]/g, '')
 
 // Callers write `✓ Saved` or `! Failed`; the card draws the mark.
 function toneOf(text: string) {
-  for (const [mark, color, bold] of [[MARK.ok, THEME.ok, false], [MARK.warn, THEME.alert, true]] as const) {
+  for (const [mark, color, bold] of [[MARK.ok, THEME.good, false], [MARK.warn, THEME.alert, true]] as const) {
     if (text.startsWith(mark)) return { mark, color, bold, text: text.slice(mark.length).trimStart() }
   }
   return { mark: MARK.bullet, color: THEME.accent, bold: false, text }
 }
 
-// Each toast as a band-wide card: status mark, wrapped text, and a × pill to dismiss it.
-// closeTip: the × hover tip, the same on every card; the owning mod's ui.message answers the tip post.
+// The web toast as a band card: tinted icon square, "Title: detail" split bold and muted, an error edged in alert; closeTip is the × tip.
 export const toastCards = ({ Box, Client, Text }: Elements, list: ToastList, look?: ToastLook, closeTip: Pick<Tip, 'label' | 'text'> = DISMISS_TIP) =>
   list.items.map(toast => {
     const id = `toast-${list.prefix}-${toast.id}`
@@ -63,13 +62,19 @@ export const toastCards = ({ Box, Client, Text }: Elements, list: ToastList, loo
     const nerd = look?.nerd === true
     const close = bare(look?.glyph.close ?? style.glyphs.safe.close)
     const fill = mix(THEME.surface1, tone.color, 0.06)
+    const split = tone.text.indexOf(': ')
+    const [title, detail] = split > 0 ? [tone.text.slice(0, split), tone.text.slice(split + 2)] : [tone.text, '']
+    const edge = tone.color === THEME.alert ? mix(fill, THEME.alert, 0.33) : THEME.border
     return (
-      <Box key={id} flexDirection="row" columnGap={1} paddingX={1} borderStyle="round" borderColor={THEME.border} backgroundColor={fill}>
+      <Box key={id} flexDirection="row" columnGap={1} paddingX={1} borderStyle="round" borderColor={edge} backgroundColor={fill}>
         <Box key={`${id}-mark`} flexShrink={0}>
-          <Text color={tone.color} bold={tone.bold}>{tone.mark}</Text>
+          <Text color={tone.color} backgroundColor={mix(fill, tone.color, 0.15)} bold={tone.bold}>{` ${tone.mark} `}</Text>
         </Box>
         <Box key={`${id}-text`} flexGrow={1} flexShrink={1}>
-          <Text color={THEME.onSurface} wrap="wrap">{tone.text}</Text>
+          <Text wrap="wrap">
+            <Text color={THEME.onSurface} bold>{title}</Text>
+            {detail ? <Text color={THEME.muted}>{` ${detail}`}</Text> : null}
+          </Text>
         </Box>
         <Box key={`${id}-close`} flexDirection="row" flexShrink={0}>
           {nerd ? <Text key={`${id}-close-left`} color={THEME.surface3} backgroundColor={fill}>{CAPS.left}</Text> : null}

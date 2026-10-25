@@ -5,7 +5,7 @@ import type { ConfigValue, EngineInterface, Register } from 'claude-code'
 import { bridgeOn, endBridge, startBridge, type BridgeRecord } from './bridge'
 import { cardSpace, HEAD_ROWS, stickyCard } from './card'
 import { isTipMessage, type EntryMessage, type EntryProps, type Tip } from './entry'
-import { cardFill, detectNerd, FOOTER_ROWS, lookFor, paneFooter, section, subpill, withMark, type IconMode } from './look'
+import { cardFill, detectNerd, FOOTER_ROWS, lookFor, paneFooter, section, sepText, titleEdge, withMark, type IconMode } from './look'
 import { labelsOf, menuEntry, pill, pillRow, splitRow, tabRow, tipLine } from './pills'
 import { settingChoice, settingsBody } from './settings'
 import { TOAST_MS, ToastList, toastCards } from './toasts'
@@ -13,6 +13,7 @@ import { promptsOf, promptText, rowKey, targetOf, TranscriptRows, type Prompt } 
 import { bytesOf, CHUNK_BYTES, chunkArgv, utf8Length } from './tail'
 import { GUTTER, timelineRows, type TimelineMessage, type TimelineProps } from './timeline'
 import { fill, MARK, statusColor, THEME } from './theme'
+import style from './style'
 import text from './text'
 
 
@@ -87,7 +88,7 @@ const SETTINGS = 'prompts-settings'
 const PLACEHOLDER = 'placeholder'
 
 // Border, the number line and six lines of the prompt.
-const CARD_ROWS = 9
+const CARD_ROWS = 8
 
 // An entry click with this prefix flips the card of the prompt whose id follows.
 const MORE = 'prompts-more:'
@@ -611,7 +612,7 @@ export const register: Register = (on, options) => {
       return (
         <Box flexDirection="column" paddingX={1} minHeight={e.props.scroll.bodyRows} backgroundColor={THEME.bg}>
           {tabRow({ Box, Client, Text }, look.nerd, tabs(true), still)}
-          <Text wrap="truncate-end" color={statusColor(note)}>{withMark(look, note) || fill(text.settingsHint, { sep: MARK.sep })}</Text>
+          {sepText({ Text }, withMark(look, note) || fill(text.settingsHint, { sep: MARK.sep }), statusColor(note), 'status-line', { wrap: 'truncate-end' })}
           <Box marginTop={0}>{settingsBody({ Box, Button, Client, Text }, look, { rows, actions: [], working: false, run: async () => {}, still })}</Box>
           <Box key="footer-space" height={FOOTER_ROWS} flexShrink={0} />
           {paneFooter({ Box, Text }, hoveredTip, e.props.bodyColumns, e.props.scroll)}
@@ -627,7 +628,7 @@ export const register: Register = (on, options) => {
     const width = Math.max(10, e.props.bodyColumns - 2 - 4 - GUTTER - 2)
     const current = prompts[selected]
     const stops = prompts.map((prompt, index) => ({ index, time: clock(prompt.at), text: oneLine(prompt.text, width), label: fill(text.stopLabel, { n: index + 1 }), tip: text.stopTip }))
-    const marks = { dot: MARK.stop, openDot: MARK.stopOpen, rail: MARK.rail }
+    const marks = { dot: MARK.stop, openDot: MARK.stopOpen }
     pageCount = Math.max(1, Math.ceil(stops.length / PAGE_SIZE))
     const shownPage = Math.min(pageCount - 1, page < 0 ? Math.floor(Math.max(0, selected) / PAGE_SIZE) : page)
     const first = shownPage * PAGE_SIZE
@@ -640,16 +641,15 @@ export const register: Register = (on, options) => {
       <Client key={id} module="./entry.tsx" height={1} props={{ id, label, isOpen: false, bg: THEME.surface3, idle: isEdge ? THEME.muted : THEME.secondary, still, tip: { glyph: look.glyph.icon.prompt ?? look.glyph.title, label, text: tip } } satisfies EntryProps} />
     )
     // The engine caps how large one Client's tree may serialize, so a long session's stops spread over several Clients.
-    const timeline = (key: string, list: typeof stops, railFirst: boolean) =>
+    const timeline = (key: string, list: typeof stops) =>
       Array.from({ length: Math.ceil(list.length / STOPS_PER_CLIENT) }, (_, n) => {
         const chunk = list.slice(n * STOPS_PER_CLIENT, (n + 1) * STOPS_PER_CLIENT)
-        const first = railFirst || n > 0
-        return <Client key={n === 0 ? key : `${key}-${n}`} module="./timeline.tsx" height={timelineRows(chunk.length, first)} props={{ stops: chunk, selected, railFirst: first, glyph: look.glyph.icon.prompt ?? look.glyph.title, still, ...marks } satisfies TimelineProps} />
+        return <Client key={n === 0 ? key : `${key}-${n}`} module="./timeline.tsx" height={timelineRows(chunk.length)} props={{ stops: chunk, selected, glyph: look.glyph.icon.prompt ?? look.glyph.title, still, ...marks } satisfies TimelineProps} />
       })
     const stat = (key: string, body: unknown) => pill({ Box, Text }, look.nerd, THEME.surface3, body, key, THEME.surface1)
     const stats = current
       ? [
-          current.durationMs !== undefined ? stat('open-time', <Text color={THEME.muted}>{duration(current.durationMs)}</Text>) : null,
+          current.durationMs !== undefined ? stat('open-time', <Text color={THEME.secondary}>{duration(current.durationMs)}</Text>) : null,
           current.added || current.removed
             ? stat('open-counts', (
                 <Text>
@@ -658,13 +658,13 @@ export const register: Register = (on, options) => {
                 </Text>
               ))
             : null,
-          current.tools ? stat('open-tools', <Text color={THEME.muted}>{fill(text.tools, { count: current.tools })}</Text>) : null,
+          current.tools ? stat('open-tools', <Text color={THEME.secondary}>{fill(text.tools, { count: current.tools })}</Text>) : null,
         ].filter(Boolean)
       : []
 
     // The card's text is the pane's width less its border and padding; a prompt past its rows gives the last one to the count.
     const pagerRows = pageCount > 1 ? 1 : 0
-    const textRows = CARD_ROWS - 3 - pagerRows
+    const textRows = CARD_ROWS - 2 - pagerRows
     const wrapped = current ? wrapRows(current.text, Math.max(10, e.props.bodyColumns - 6)) : []
     const rowsNeeded = wrapped.length
     const isClipped = rowsNeeded > textRows
@@ -685,16 +685,16 @@ export const register: Register = (on, options) => {
     return (
       <Box flexDirection="column" paddingX={1} minHeight={e.props.scroll.bodyRows} backgroundColor={THEME.bg}>
         {tabRow({ Box, Client, Text }, look.nerd, tabs(false), still)}
-        <Text wrap="truncate-end" color={statusColor(note)}>{note || fill(text.hint, { sep: MARK.sep })}</Text>
+        {sepText({ Text }, note || fill(text.hint, { sep: MARK.sep }), statusColor(note), 'status-line', { wrap: 'truncate-end' })}
         {prompts.length === 0 ? <Text color={THEME.muted}>{failedSize > 0 ? (readError ? fill(text.unreadableWhy, { reason: readError }) : text.unreadable) : text.empty}</Text> : null}
         {current ? cardSpace({ Box }, cardRows) : null}
-        {section({ Box, Text }, look, 'timeline', '', '', [
+        {section({ Box, Text }, look, 'timeline', '', text.thisSession, [
           before.length > 0 ? (
-            timeline('timeline-before', before, false)
+            timeline('timeline-before', before)
           ) : null,
           current && hasOpen ? (
             <Box key="open" flexDirection="row" paddingLeft={GUTTER} columnGap={1}>
-              <Text color={THEME.accent}>{after.length > 0 ? MARK.rail : ' '}</Text>
+              <Text color={style.colors.pills.separator}>{after.length > 0 ? MARK.rail : ' '}</Text>
               <Box key="open-stats" flexDirection="row" columnGap={1} flexGrow={1}>
                 {stats}
               </Box>
@@ -708,15 +708,11 @@ export const register: Register = (on, options) => {
             </Box>
           ) : null,
           after.length > 0 ? (
-            timeline('timeline-after', after, true)
+            timeline('timeline-after', after)
           ) : null,
         ])}
         {current
-          ? stickyCard({ Box, Text }, e.props.scroll.offset, e.props.bodyColumns, cardRows, [
-              <Box key="card-title" flexDirection="row" columnGap={1} flexShrink={0}>
-                {subpill({ Box, Text }, look.nerd, cardFill(), fill(text.cardNumber, { n: selected + 1 }), 'card-number')}
-                {clock(current.at) ? <Text color={THEME.onSurface} bold>{clock(current.at)}</Text> : null}
-              </Box>,
+          ? [stickyCard({ Box, Text }, e.props.scroll.offset, e.props.bodyColumns, cardRows, [
               <Box key="card-text" height={shownRows.length} flexDirection="column" overflow="hidden" flexShrink={0}>
                 {shownRows.map((row, at) =>
                   isClipped && at === shownRows.length - 1 ? (
@@ -735,10 +731,13 @@ export const register: Register = (on, options) => {
                 <Box key="pager" flexDirection="row" columnGap={1} flexShrink={0}>
                   {pill({ Box, Text }, look.nerd, THEME.surface3, pager('prompts-page-prev', text.pagePrev, text.pagePrevTip, shownPage === 0), 'pager-prev', cardFill())}
                   {pill({ Box, Text }, look.nerd, THEME.surface3, pager('prompts-page-next', text.pageNext, text.pageNextTip, shownPage === pageCount - 1), 'pager-next', cardFill())}
-                  <Text color={THEME.muted}>{fill(text.page, { page: shownPage + 1, pages: pageCount, from: first + 1, to: first + onPage.length, sep: MARK.sep })}</Text>
+                  {sepText({ Text }, fill(text.page, { page: shownPage + 1, pages: pageCount, from: first + 1, to: first + onPage.length, sep: MARK.sep }), THEME.muted, 'page-count')}
                 </Box>
               ) : null,
-            ])
+            ]),
+              <Box key="card-edge-wrap" position="absolute" top={Math.max(HEAD_ROWS, e.props.scroll.offset)} left={1} width={Math.max(10, e.props.bodyColumns - 2)} height={1}>
+                {titleEdge({ Box, Text }, look, 'card', 'prompt', fill(text.cardNumber, { n: selected + 1 }), clock(current.at), 0)}
+              </Box>]
           : null}
         <Box key="footer-space" height={FOOTER_ROWS} flexShrink={0} />
         {paneFooter({ Box, Text }, hoveredTip, e.props.bodyColumns, e.props.scroll, current && hasOpen ? [{ scope: 'open-jump-box', tip: { glyph: MARK.open, label: text.jumpLabel, text: text.jumpTip } }] : [])}

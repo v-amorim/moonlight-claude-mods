@@ -4,7 +4,7 @@ import type { ConfigValue, EngineInterface, ModelCompleteRequest, ModelCompleteR
 
 import { AUTO_SYSTEM, autoPrompt, capWords, clampCompactAt, clampCompactTokens, clampEvery, emptyLedger, flip, isDue, mergeDelta, parseRelated, parseUpdate, projectSlug, readLedger, RELATED_SYSTEM, relatedPrompt, restoreContext, shortGoal, shouldCompact, yieldsToManual, type Carry, type CompactMarks, type Ledger } from './ledger'
 import { ALSO_KEEP, buildPrompt, clampWords, compactNote, FORK_FAILURES, isFresh, parseNames, parseThreads, scopeNote, threadsPrompt, THREADS_SYSTEM, transcriptText, type AlsoId, type Names, type Thread } from './handoff'
-import { cardFill, detectNerd, FOOTER_ROWS, heading, lookFor, paneFooter, subpill, type IconMode, withMark } from './look'
+import { cardFill, detectNerd, FOOTER_ROWS, lookFor, paneFooter, sepText, subpill, titleEdge, type IconMode, withMark } from './look'
 import { isTipMessage, tipText, type EntryMessage, type EntryProps, type Tip, type TipMessage } from './entry'
 import { choiceCells, type ChoiceProps } from './choice'
 import { labelsOf, PILL, pill, pillRow, splitRow, tabRow, tipLine } from './pills'
@@ -15,6 +15,7 @@ import { bridgeOn, endBridge, startBridge, type BridgeRecord } from './bridge'
 import { bytesOf, chunkArgv, scanTail } from './tail'
 import text from './text'
 import { lateNext, latestTitle, linked, planNames, remember, type NamePlan } from './titles'
+import style from './style'
 import { fill, MARK, statusColor, THEME } from './theme'
 
 const PANE = 'wrap-up'
@@ -718,69 +719,72 @@ function menuCard({ Box, Client, Text }: Elements, options: { id: string; label:
 }
 
 function cardBox({ Box, Client, Text }: Elements, picked: Card) {
-  const line = (id: string, label: string, isKept: boolean, tip: string) => {
+  const widest = (labels: string[]) => Math.max(0, ...labels.map(label => [...label].length))
+  const line = (id: string, label: string, isKept: boolean, tip: string, width = 0) => {
     const bg = isKept ? THEME.surface3 : THEME.surface2
     const mark = isKept ? MARK.stopOpen : MARK.stop
-    return pill({ Box, Text }, look.nerd, bg, <Client key={id} module="./entry.tsx" height={1} props={{ id, label, isOpen: isKept, bg, nerd: look.nerd, still, idle: THEME.muted, subLead: mark, subLeadColor: isKept ? THEME.accent : THEME.muted, tip: { glyph: mark, label, text: tip } } satisfies EntryProps} />, `${id}-pill`, cardFill())
+    return pill({ Box, Text }, look.nerd, bg, <Client key={id} module="./entry.tsx" height={1} props={{ id, label: label.padEnd(width), isOpen: isKept, bg, nerd: look.nerd, still, idle: THEME.muted, subLead: mark, subLeadColor: isKept ? THEME.accent : THEME.muted, tip: { glyph: mark, label, text: tip } } satisfies EntryProps} />, `${id}-pill`, cardFill())
   }
   const action = (id: string, label: string, lead: Pick<EntryProps, 'subLead'>, tip: string) => (
     pill({ Box, Text }, look.nerd, THEME.surface3, <Client key={id} module="./entry.tsx" height={1} props={{ id, label, isOpen: true, bg: THEME.surface3, nerd: look.nerd, still, tip: { glyph: lead.subLead ?? bare(look.glyph.close), label, text: tip }, ...lead } satisfies EntryProps} />, `${id}-pill`, cardFill())
   )
-  const block = (key: string, icon: string, title: string, body: unknown) => (
+  // A group inside the card: its name in dim caps over its lines, as in the web's section headers.
+  const block = (key: string, title: string, body: unknown) => (
     <Box key={key} flexDirection="column" marginTop={1}>
-      {heading({ Box, Text }, look, key, icon, title)}
+      <Box key={`${key}-head-pad`} paddingLeft={1}>
+        <Text key={`${key}-head`} color={style.colors.pills.readout}>{title.toUpperCase()}</Text>
+      </Box>
       {body}
     </Box>
   )
   const threads = picked.threads === null
-    ? <Text key="wrap-up-reading" color={THEME.muted}>{text.card.reading}</Text>
+    ? <Client key="wrap-up-reading" module="./entry.tsx" height={1} props={{ id: 'wrap-up-reading', label: text.card.reading, isOpen: false, bg: cardFill(), isBusy: true, spinner: true, still } satisfies EntryProps} />
     : picked.threads.length === 0
       ? <Text key="wrap-up-none" color={THEME.muted}>{text.card.noThreads}</Text>
-      : picked.threads.map((thread, at) => (
+      : picked.threads.map((thread, at, all) => (
           <Box key={`wrap-up-thread-row-${at}`} flexDirection="row">
-            <Box key={`wrap-up-thread-pad-${at}`} flexShrink={0}>{line(`wrap-up-thread-${at}`, thread.label, picked.kept[at] === true, text.tips.thread)}</Box>
-            <Text key={`wrap-up-thread-detail-${at}`} color={THEME.muted} wrap="truncate-end">{`${MARK.sep} ${thread.detail}`}</Text>
+            <Box key={`wrap-up-thread-pad-${at}`} flexShrink={0}>{line(`wrap-up-thread-${at}`, thread.label, picked.kept[at] === true, text.tips.thread, widest(all.map(each => each.label)))}</Box>
+            {sepText({ Text }, `${MARK.sep} ${thread.detail}`, THEME.muted, `wrap-up-thread-detail-${at}`, { wrap: "truncate-end" })}
           </Box>
         ))
   const shownNames = picked.names
   const names = shownNames === null
-    ? <Text key="wrap-up-names-reading" color={THEME.muted}>{text.card.reading}</Text>
+    ? <Client key="wrap-up-names-reading" module="./entry.tsx" height={1} props={{ id: 'wrap-up-names-reading', label: text.card.reading, isOpen: false, bg: cardFill(), isBusy: true, spinner: true, still } satisfies EntryProps} />
     : !shownNames.this && !shownNames.next
       ? <Text key="wrap-up-names-none" color={THEME.muted}>{text.card.noNames}</Text>
-      : NAME_IDS.filter(id => shownNames[id]).map(id => (
+      : NAME_IDS.filter(id => shownNames[id]).map((id, _at, ids) => (
           <Box key={`wrap-up-name-row-${id}`} flexDirection="row">
-            <Box key={`wrap-up-name-pad-${id}`} flexShrink={0}>{line(`wrap-up-name-${id}`, shownNames[id], picked.useNames[id], text.tips.name[id])}</Box>
-            <Text key={`wrap-up-name-detail-${id}`} color={THEME.muted} wrap="truncate-end">{`${MARK.sep} ${text.card.name[id]}`}</Text>
+            <Box key={`wrap-up-name-pad-${id}`} flexShrink={0}>{line(`wrap-up-name-${id}`, shownNames[id], picked.useNames[id], text.tips.name[id], widest(ids.map(each => shownNames[each])))}</Box>
+            {sepText({ Text }, `${MARK.sep} ${text.card.name[id]}`, THEME.muted, `wrap-up-name-detail-${id}`, { wrap: "truncate-end" })}
           </Box>
         ))
   const instructions = compactNote(picked.threads ?? [], keptThreads(picked), picked.also, autoOn ? ledgerPath : '')
   const foot = picked.mode === 'compact' ? (
     <Box key="wrap-up-foot" flexDirection="row">
       <Text key="wrap-up-foot-command" color={THEME.accent} bold>{'/compact '}</Text>
-      <Text key="wrap-up-foot-text" color={THEME.secondary}>{instructions}</Text>
+      <Text key="wrap-up-foot-text" color={THEME.accent}>{instructions}</Text>
     </Box>
   ) : (
     <Text key="wrap-up-foot" color={THEME.muted}>{text.card.handoffFoot}</Text>
   )
   return (
-    <Box key="wrap-up-card" flexDirection="column" paddingX={1} borderStyle="round" borderColor={THEME.border} backgroundColor={cardFill()}>
-      <Box key="wrap-up-card-title" flexDirection="row">
-        <Text key="wrap-up-card-mode" color={THEME.onSurface} bold>{text.choice[picked.mode]}</Text>
-        <Text key="wrap-up-card-hint" color={THEME.muted}>{`: ${text.card.title} ${MARK.sep} ${text.card.hint}`}</Text>
-      </Box>
-      {pickThreads ? block('wrap-up-threads', 'prompt', text.card.threads, threads) : null}
-      {block('wrap-up-also', 'features', text.card.also, (
-        <Box key="wrap-up-also-row" flexDirection="row" flexWrap="wrap" columnGap={1}>
-          {ALSO_KEEP.map(item => <Box key={`wrap-up-also-pad-${item.id}`} flexShrink={0}>{line(`wrap-up-also-${item.id}`, text.alsoKeep[item.id], picked.also[item.id], text.tips.also)}</Box>)}
+    <Box key="wrap-up-card-block" flexDirection="column">
+      <Box key="wrap-up-card" flexDirection="column" paddingX={1} borderStyle="round" borderColor={THEME.border} backgroundColor={cardFill()}>
+        {pickThreads ? block('wrap-up-threads', text.card.threads, threads) : null}
+        {block('wrap-up-also', text.card.also, (
+          <Box key="wrap-up-also-row" flexDirection="row" flexWrap="wrap" columnGap={1}>
+            {ALSO_KEEP.map(item => <Box key={`wrap-up-also-pad-${item.id}`} flexShrink={0}>{line(`wrap-up-also-${item.id}`, text.alsoKeep[item.id], picked.also[item.id], text.tips.also)}</Box>)}
+          </Box>
+        ))}
+        {picked.mode === 'handoff' ? block('wrap-up-names', text.card.names, names) : null}
+        <Box key="wrap-up-gap" height={1} />
+        {foot}
+        <Box key="wrap-up-actions" flexDirection="row" justifyContent="flex-end" columnGap={1}>
+          {action('wrap-up-go', text.card.go[picked.mode], { subLead: bare(look.glyph.go) }, text.tips.go[picked.mode])}
+          {action('wrap-up-cancel', text.card.cancel, { subLead: bare(look.glyph.close) }, text.tips.cancel)}
         </Box>
-      ))}
-      {picked.mode === 'handoff' ? block('wrap-up-names', 'Edit', text.card.names, names) : null}
-      <Box key="wrap-up-gap" height={1} />
-      {foot}
-      <Box key="wrap-up-actions" flexDirection="row" justifyContent="flex-end" columnGap={1}>
-        {action('wrap-up-go', text.card.go[picked.mode], { subLead: bare(look.glyph.go) }, text.tips.go[picked.mode])}
-        {action('wrap-up-cancel', text.card.cancel, { subLead: bare(look.glyph.close) }, text.tips.cancel)}
       </Box>
+      {titleEdge({ Box, Text }, look, 'wrap-up-card', '', text.choice[picked.mode], `${text.card.title} ${MARK.sep} ${text.card.hint}`, 0)}
     </Box>
   )
 }
@@ -1016,7 +1020,7 @@ export const register: Register = (on, options) => {
     const options = [
       { id: 'wrap-up-handoff', label: text.choice.handoff },
       { id: 'wrap-up-compact', label: text.choice.compact },
-      { id: 'wrap-up-auto', label: `${autoGlyph} ${text.choice.auto}` },
+      { id: 'wrap-up-auto', label: text.choice.auto, isOn: compactOn },
     ]
     // The pill row cuts the pill to its icon when the row overflows; labels never draws the icon alone.
     const labels = labelsOf((await $.state.get({ plugin: 'mod-menu', key: 'labels' })).value)
@@ -1024,7 +1028,7 @@ export const register: Register = (on, options) => {
     const fit = icon && labels !== 'always' ? { icon, cells: choiceCells(text.label, look.nerd), compact: labels === 'never' } : {}
     const body = isRunning ? (
       <Box key="wrap-up-running-pad">
-        <Client key="wrap-up-running" module="./entry.tsx" height={1} props={{ id: 'wrap-up-running', label: text.writingStage, isOpen: isIdle, bg: PILL.secondary, isBusy: true, still }} />
+        <Client key="wrap-up-running" module="./entry.tsx" height={1} props={{ id: 'wrap-up-running', label: text.writingStage, isOpen: isIdle, bg: PILL.secondary, isBusy: true, spinner: true, still }} />
       </Box>
     ) : (
       <Box key="wrap-up-choice-pad">
@@ -1106,7 +1110,7 @@ export const register: Register = (on, options) => {
     return (
       <Box flexDirection="column" backgroundColor={THEME.bg} paddingX={1} minHeight={e.props.scroll.bodyRows}>
         {tabRow({ Box, Client, Text }, look.nerd, [{ id: 'mod-wrap-up-settings-tab', label: `${text.label} ${MARK.sep} ${text.paneSettings}`, icon: look.glyph.gear, isOpen: true, tip: { glyph: look.glyph.gear, label: text.paneSettings, text: text.tips.tab } }], still)}
-        <Text wrap="truncate-end" color={statusColor(note)}>{withMark(look, note) || `${text.statusHint} ${MARK.sep} ${text.statusHintSaved}`}</Text>
+        {sepText({ Text }, withMark(look, note) || `${text.statusHint} ${MARK.sep} ${text.statusHintSaved}`, statusColor(note), 'wrap-up-status', { wrap: 'truncate-end' })}
         {settingsBody({ Box, Button, Client, Text }, look, { rows, actions, working, run, previews, fields, still: still })}
         <Box key="footer-space" height={FOOTER_ROWS} flexShrink={0} />
         {paneFooter({ Box, Text }, paneTip, e.props.bodyColumns, e.props.scroll, actionReveals(actions, look, working))}

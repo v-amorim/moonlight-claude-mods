@@ -10,7 +10,7 @@ import { tagName } from './tags'
 import { groupAgents, modelHue, readAgent, type Agent } from './agents'
 import { cardSpace, HEAD_ROWS, stickyCard } from './card'
 import { isTipMessage, type EntryMessage, type EntryProps, type Tip } from './entry'
-import { cardFill, detectNerd, FOOTER_ROWS, lookFor, paneFooter, section, subpill, withMark, type IconMode } from './look'
+import { cardFill, detectNerd, FOOTER_ROWS, lookFor, paneFooter, sepText, section, titleEdge, withMark, type IconMode } from './look'
 import { labelsOf, menuEntry, pillRow, splitRow, tabRow, tipLine } from './pills'
 import { settingChoice, settingsBody } from './settings'
 import { TOAST_MS, ToastList, toastCards } from './toasts'
@@ -179,8 +179,8 @@ async function showView($: EngineInterface, next: typeof view) {
 }
 
 // Border, title and six lines of description.
-const CARD_ROWS = 9
-const TEXT_ROWS = CARD_ROWS - 3
+const CARD_ROWS = 8
+const TEXT_ROWS = CARD_ROWS - 2
 const MORE = 'card-more'
 // The card whose description shows every line, as `view:index`; a click on its control flips it, and pointing at another chip clears it.
 let fullCard = ''
@@ -426,7 +426,7 @@ export const register: Register = (on, options) => {
       return (
         <Box flexDirection="column" backgroundColor={THEME.bg} paddingX={1} minHeight={e.props.scroll.bodyRows}>
           {tabRow({ Box, Client, Text }, look.nerd, tabs('settings'), still)}
-          <Text wrap="truncate-end" color={statusColor(note)}>{withMark(look, note) || fill(text.settingsHint, { sep: MARK.sep })}</Text>
+          {sepText({ Text }, withMark(look, note) || fill(text.settingsHint, { sep: MARK.sep }), statusColor(note), 'settings-status', { wrap: 'truncate-end' })}
           <Box marginTop={0}>{settingsBody({ Box, Button, Client, Text }, look, { rows, actions: [], working: false, run: async () => {}, still })}</Box>
           <Box key="footer-space" height={FOOTER_ROWS} flexShrink={0} />
           {paneFooter({ Box, Text }, hoveredTip, e.props.bodyColumns, e.props.scroll)}
@@ -489,7 +489,7 @@ export const register: Register = (on, options) => {
     return (
       <Box flexDirection="column" backgroundColor={THEME.bg} paddingX={1} minHeight={e.props.scroll.bodyRows}>
         {tabRow({ Box, Client, Text }, look.nerd, tabs(view), still)}
-        <Text wrap="truncate-end" color={statusColor(note)}>{withMark(look, note) || fill(view === 'agents' ? text.agentsHint : text.hint, { sep: MARK.sep })}</Text>
+        {sepText({ Text }, withMark(look, note) || fill(view === 'agents' ? text.agentsHint : text.hint, { sep: MARK.sep }), statusColor(note), 'status', { wrap: 'truncate-end' })}
         {empty ? <Text color={THEME.muted}>{fill(text.noAgents, { folders: agentFolders.join(' or ') })}</Text> : null}
         {noSkills ? <Text color={THEME.muted}>{text.noSkills}</Text> : null}
         {card ? cardSpace({ Box }, cardRows) : null}
@@ -497,14 +497,8 @@ export const register: Register = (on, options) => {
           <Client key={`${view}-cloud`} module="./cloud.tsx" height={layoutCloud(cloud, width).rows.length} props={{ groups: cloud, width, selected: view === 'agents' ? selectedAgent : selected, nerd: look.nerd, still } satisfies CloudProps} />
         ))}
         {card
-          ? stickyCard({ Box, Text }, e.props.scroll.offset, e.props.bodyColumns, cardRows, (
+          ? [stickyCard({ Box, Text }, e.props.scroll.offset, e.props.bodyColumns, cardRows, (
               <Box key="card-body" flexDirection="column">
-                <Box flexDirection="row" columnGap={1} flexShrink={0}>
-                  {subpill({ Box, Text }, look.nerd, cardFill(), card.icon, 'card-icon', card.hex)}
-                  <Text color={THEME.onSurface} bold>{card.title}</Text>
-                  <Text color={card.hex}>{card.tag}</Text>
-                  {card.extra ? <Text color={THEME.muted}>{`${MARK.sep} ${card.extra}`}</Text> : null}
-                </Box>
                 <Box key="card-text" height={shownRows.length} flexDirection="column" overflow="hidden" flexShrink={0}>
                   {shownRows.map((row, at) =>
                     isClipped && at === shownRows.length - 1 ? (
@@ -519,7 +513,10 @@ export const register: Register = (on, options) => {
                   )}
                 </Box>
               </Box>
-            ))
+            )),
+              <Box key="card-edge-wrap" position="absolute" top={Math.max(HEAD_ROWS, e.props.scroll.offset)} left={1} width={Math.max(10, e.props.bodyColumns - 2)} height={1}>
+                {titleEdge({ Box, Text }, look, 'card', view === 'agents' ? 'agent' : 'skill', card.title, [card.tag, card.extra].filter(Boolean).join(` ${MARK.sep} `), 0)}
+              </Box>]
           : null}
         <Box key="footer-space" height={FOOTER_ROWS} flexShrink={0} />
         {paneFooter({ Box, Text }, hoveredTip, e.props.bodyColumns, e.props.scroll)}

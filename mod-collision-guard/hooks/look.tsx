@@ -159,6 +159,18 @@ export const paneTitle = ({ Text }: Elements, look: Look, icon: string, text: st
   <Text key="pane-title" color={THEME.accent} bold>{`${look.glyph.icon[icon] ?? look.glyph.title} ${text}`}</Text>
 )
 
+// One line of text in `color` with every separator dot in the separator colour, since a dot in the text's colour reads as part of the words.
+export function sepText({ Text }: Pick<Elements, 'Text'>, text: string, color: string, key: string, props: Record<string, unknown> = {}) {
+  return (
+    <Text key={key} {...props}>
+      {text.split(MARK.sep).flatMap((part, at) => [
+        ...(at > 0 ? [<Text key={`${key}-sep-${at}`} color={style.colors.pills.separator}>{MARK.sep}</Text>] : []),
+        <Text key={`${key}-part-${at}`} color={color}>{part}</Text>,
+      ])}
+    </Text>
+  )
+}
+
 // The footer rows every pane reserves at its bottom: a rule, then the hovered control's glyph, label and what it does.
 export const FOOTER_ROWS = 2
 
@@ -169,7 +181,7 @@ const tipRow = ({ Box, Text }: Elements, key: string, tip: Tip | null, columns: 
   <Box key={key} flexDirection="row" paddingX={1} width={columns} height={1} backgroundColor={THEME.bg} {...extra}>
     {tip ? <Text color={THEME.accent} backgroundColor={THEME.bg}>{tip.glyph}</Text> : null}
     {tip ? <Box flexShrink={0}><Text color={THEME.onSurface} backgroundColor={THEME.bg}>{` ${tip.label}`}</Text></Box> : null}
-    {tip ? <Text color={THEME.muted} backgroundColor={THEME.bg} wrap="truncate-end">{` ${MARK.sep} ${tip.text}`}</Text> : <Text backgroundColor={THEME.bg}> </Text>}
+    {tip ? sepText({ Text }, ` ${MARK.sep} ${tip.text}`, THEME.muted, `${key}-text`, { backgroundColor: THEME.bg, wrap: 'truncate-end' }) : <Text backgroundColor={THEME.bg}> </Text>}
   </Box>
 )
 
@@ -230,16 +242,36 @@ export function cardGap({ Box }: Elements, key: string, bg: string = THEME.bg) {
   return <Box key={`${key}-gap`} height={1} flexShrink={0} backgroundColor={bg} />
 }
 
-// A round-bordered card with its heading on the first row, its fill tinted toward `hue`; an empty title draws the border alone.
-export function section(elements: Elements, look: Look, key: string, icon: string, title: string, body: unknown, hue: string = THEME.accent) {
+// A card's title laid over its top border after the corner (`top` is the border's row); Pane refuses borderTop, so the border stays whole underneath.
+export function titleEdge(elements: Elements, look: Look, key: string, icon: string, title: string, hint = '', top = 1, edge: string = THEME.border) {
+  const { Box, Text } = elements
+  const glyph = look.nerd ? look.glyph.icon[icon] : undefined
+  return (
+    <Box key={`${key}-edge`} position="absolute" top={top} left={1} flexDirection="row" height={1} backgroundColor={THEME.bg}>
+      <Text color={edge}>{`${MARK.rule} `}</Text>
+      {glyph ? <Text color={THEME.accent}>{`${glyph} `}</Text> : null}
+      {sepText(elements, title, THEME.onSurface, `${key}-title`, { bold: true })}
+      {hint ? sepText(elements, ` ${hint}`, THEME.muted, `${key}-hint`) : null}
+      <Text> </Text>
+    </Box>
+  )
+}
+
+// A round card tinted toward `hue`, its title (and muted `hint`) set into the top edge, `right` (such as Fold all) at that edge's end.
+export function section(elements: Elements, look: Look, key: string, icon: string, title: string, body: unknown, hue: string = THEME.accent, { hint = '', right }: { hint?: string; right?: unknown } = {}) {
   const { Box } = elements
   return (
     <Box key={`${key}-block`} flexDirection="column">
       {cardGap(elements, key)}
       <Box key={key} flexDirection="column" borderStyle="round" borderColor={THEME.border} backgroundColor={cardFill(hue)} paddingX={1}>
-        {title ? heading(elements, look, key, icon, title) : null}
         {body}
       </Box>
+      {title ? titleEdge(elements, look, key, icon, title, hint) : null}
+      {right ? (
+        <Box key={`${key}-edge-right`} position="absolute" top={1} right={1} flexDirection="row" height={1} backgroundColor={THEME.bg}>
+          {right}
+        </Box>
+      ) : null}
     </Box>
   )
 }

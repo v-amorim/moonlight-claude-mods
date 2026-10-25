@@ -309,7 +309,7 @@ const PILL_CAP = new RegExp(String.fromCodePoint(0xe0b6))
 
 test('its settings pane draws the heading, a setting and the action', async ($, on) => {
   const ui = await paneOf($, on)
-  expect(JSON.stringify(await ui.drawn({ in: 'mod-collision-guard-settings-tab' }))).toContain('Collision guard · Settings')
+  expect(JSON.stringify(await ui.drawn({ in: 'mod-collision-guard-settings-tab' }))).toMatch(/Collision guard [^]*"#3B446A"[^]*·[^]* Settings/)
   expect(await ui.find({ type: 'Text', text: /^Guard edits$/ })).toBeDefined()
   expect(await ui.find({ type: 'Button', text: /Forget this session's recorded edits/ })).toBeDefined()
   await ui.unmount()
@@ -317,16 +317,16 @@ test('its settings pane draws the heading, a setting and the action', async ($, 
 
 test('icons=nerd draws Nerd controls and pill headings', { options: { icons: 'nerd' } }, async ($, on) => {
   const ui = await paneOf($, on)
-  // On/off is one value pill, rounded where the font has the caps.
-  expect(JSON.stringify(await ui.drawn({ in: 'setting-0-flip' }))).toContain('On')
+  // On/off is a switch track with a knob, the same in both modes.
+  expect(JSON.stringify(await ui.drawn({ in: 'setting-0-flip' }))).toContain('━━')
   expect(await ui.find({ type: 'Text', text: PILL_CAP })).toBeDefined()
   await ui.unmount()
 })
 
 test('icons=safe keeps the common Unicode glyphs and plain headings', { options: { icons: 'safe' } }, async ($, on) => {
   const ui = await paneOf($, on)
-  // The safe cycle glyph drops its brackets inside the pill.
-  expect(JSON.stringify(await ui.drawn({ in: 'setting-0-flip' }))).toContain('On ↻')
+  // The switch is the same in safe mode; only the rounded caps drop.
+  expect(JSON.stringify(await ui.drawn({ in: 'setting-0-flip' }))).toContain('━━')
   expect(await ui.find({ type: 'Text', text: PILL_CAP })).toBeUndefined()
   await ui.unmount()
 })

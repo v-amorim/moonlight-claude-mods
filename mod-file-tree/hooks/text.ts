@@ -2,7 +2,7 @@
 // Every string this mod shows. Edit the values to reword or translate; keep the keys and the {slots}.
 export default {
   "pill": "Files",
-  "working": "· Working",
+  "working": "Working",
   "pillTip": "Files: what Claude read and changed, with a replay of each edit",
   "commandDescription": "Open the files sidebar: a tree of the files Claude touched and a replay of its last edits; `settings` opens its settings panel",
   "settingsFrame": "mod-file-tree",

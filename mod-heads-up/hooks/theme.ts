@@ -23,7 +23,7 @@ export function decodeAll<T>(value: T): T {
 export const CAPS = decodeAll(style.caps)
 
 export const statusColor = (note: string) =>
-  note.startsWith(MARK.ok) ? THEME.ok : note.startsWith(MARK.warn) ? THEME.alert : THEME.muted
+  note.startsWith(MARK.ok) ? THEME.good : note.startsWith(MARK.warn) ? THEME.alert : THEME.muted
 
 const channels = (hex: string) => [1, 3, 5].map(at => parseInt(hex.slice(at, at + 2), 16))
 const isHex = (color: string) => /^#[0-9a-f]{6}$/i.test(color)

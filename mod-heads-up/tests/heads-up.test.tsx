@@ -546,7 +546,7 @@ test('the X on the panel card hides it and keeps the timeline, and a click on a 
   await finding($, clock)
   const panel = await pane($)
   const id = String(JSON.stringify(await panel.drawn()).match(/"id":"headsup-note-([^"]+)"/)?.[1])
-  expect(JSON.stringify(await panel.find({ key: 'note-card' }))).toContain('"id":"headsup-close"')
+  expect(JSON.stringify(await panel.find({ key: 'note-card-block' }))).toContain('"id":"headsup-close"')
   await click(panel, 'headsup-close')
   await clock.settle()
   const closed = JSON.stringify(await panel.drawn())
@@ -679,7 +679,9 @@ test('a dropped Ask Claude toasts the reason and puts the note in the prompt box
   expect(fills[0]).toMatchObject({ mode: 'replace' })
   expect(fills[0]!.text).toMatch(/^A heads-up note/)
   const cards = await band($)
-  expect(JSON.stringify(await cards.drawn())).toContain('Ask Claude was not sent (a Stop stands), so the note is in the prompt box: press Enter to send it')
+  const drawn = JSON.stringify(await cards.drawn())
+  expect(drawn).toContain('Ask Claude was not sent (a Stop stands), so the note is in the prompt box')
+  expect(drawn).toContain(' press Enter to send it')
   await cards.unmount()
   setDraft('my reverted prompt')
   await click(panel, `headsup-chat-${id}`)
@@ -876,10 +878,9 @@ test('hovering a toast × shows its tip in the band tip row', async ($, on) => {
   await ui.unmount()
 })
 
-const LIFTED = '#3D4258'
-const SURFACE1 = '#141726'
+const LIFTED = '#2F3654'
+const CARD_FILL = '#1a1e30'
 const ACCENT = '#7386D0'
-const border = '#3A3F5C'
 
 const seedNotes = (store: Map<string, unknown>, count = 3) => {
   const note = (n: number, isRead: boolean) => ({ id: `n${n}-${n}`, turn: n, prompt: `prompt ${n}`, at: n, isRead, learn: `learn ${n}`, tag: 'Heads up', title: `title ${n}`, body: [`body ${n}`] })
@@ -907,7 +908,7 @@ function rowSurface() {
 
 test('the pointer lights a whole timeline row, lifted with accent text, and the light fades out in steps', () => {
   const { running, surface, props, send, bg } = rowSurface()
-  expect(bg(Row(props, surface))).toBe(SURFACE1)
+  expect(bg(Row(props, surface))).toBe(CARD_FILL)
   send({ type: 'enter', x: 3, y: 0 })
   const lit: any = Row(props, surface)
   expect(bg(lit)).toBe(LIFTED)
@@ -916,9 +917,9 @@ test('the pointer lights a whole timeline row, lifted with accent text, and the 
   expect(bg(Row(props, surface))).toBe(LIFTED)
   ;[...running].forEach(fn => fn())
   const mid = bg(Row(props, surface))
-  expect([LIFTED, SURFACE1]).not.toContain(mid)
+  expect([LIFTED, CARD_FILL]).not.toContain(mid)
   ;[...running].forEach(fn => fn())
-  expect(bg(Row(props, surface))).toBe(SURFACE1)
+  expect(bg(Row(props, surface))).toBe(CARD_FILL)
   expect(running.size).toBe(0)
 })
 
@@ -945,7 +946,7 @@ test('the selected timeline row is accent and bold, the others are not bold', as
   await panel.unmount()
 })
 
-test('the note card text has a minimum height that a long note can grow past, and the timeline rail is the border color', async ($, on) => {
+test('the note card text has a minimum height that a long note can grow past, and the timeline has no rail rows between notes', async ($, on) => {
   const { store } = setup(on)
   seedNotes(store)
   const panel = await pane($)
@@ -953,8 +954,7 @@ test('the note card text has a minimum height that a long note can grow past, an
   expect(text.props.minHeight).toBeGreaterThan(0)
   expect(text.props.height).toBeUndefined()
   expect(text.props.overflow).toBeUndefined()
-  const rail = (await panel.find({ type: 'Text', text: /^ +│$/ })) as { props: { color?: string } }
-  expect(rail.props.color).toBe(border)
+  expect(await panel.find({ type: 'Text', text: /^ +│$/ })).toBeUndefined()
   await panel.unmount()
 })
 

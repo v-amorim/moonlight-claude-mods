@@ -721,7 +721,7 @@ test('a manual handoff just filled makes the automatic restore step aside', asyn
   const w = world(on, autoFiles(), (system: string) => (system.includes('compare') ? RELATED(false) : UPDATE('X')))
   const band = await $.ui.mount(BAND as never)
   await band.pointer({ type: 'down', x: 1, y: 0, button: 'left', in: 'wrap-up-entry' } as never)
-  await band.pointer({ type: 'down', x: 10, y: 0, button: 'left', in: 'wrap-up-entry' } as never)
+  await band.pointer({ type: 'down', x: 12, y: 0, button: 'left', in: 'wrap-up-entry' } as never)
   await band.pointer({ type: 'down', x: 1, y: 0, button: 'left', in: 'wrap-up-go' } as never)
   expect(w.forks).toHaveLength(1)
   expect(w.forks[0]).toContain(`This session's ledger file is ${LEDGER_FILE}.`)

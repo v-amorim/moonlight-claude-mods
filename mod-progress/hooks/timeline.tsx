@@ -6,18 +6,21 @@ import { cardFill, lookFor } from './look'
 import type { LoopsMessage } from './loops'
 import marks from './marks'
 import { cutText, laneCells, laneLabels, timelineCols, type Row } from './progress'
+import { keepSpinning, spinFrame, type SpinState } from './spin'
 import text from './text'
 import { decodeAll, MARK, THEME } from './theme'
 
-export type TimelineProps = { rows: Row[]; width: number; expanded: string; nerd: boolean; viewing: string; now: number }
+export type TimelineProps = { rows: Row[]; width: number; expanded: string; nerd: boolean; viewing: string; now: number; still?: boolean }
 
 // @ts-expect-error Row holds undefined fields, which the host's JsonValue props type refuses.
-const Timeline: ClientModule<TimelineProps, number> = (props, surface) => {
+const Timeline: ClientModule<TimelineProps, SpinState> = (props, surface) => {
   const { Box, Text } = surface.elements
   const { rows, width, expanded, nerd, viewing, now } = props
   const look = lookFor(nerd)
   const own = decodeAll(marks.glyphs)[nerd ? 'nerd' : 'safe']
-  const hovered = surface.state ?? -1
+  const hovered = surface.state?.at ?? -1
+  const spin = props.still ? 0 : (surface.state?.spin ?? 0)
+  keepSpinning(surface, rows.some(row => row.status === 'running'), props.still)
   const durs = rows.map(row => row.elapsed || '0s')
   const cols = timelineCols(width, Math.max(3, ...durs.map(dur => dur.length)))
   const labels = laneLabels(rows)
@@ -26,7 +29,7 @@ const Timeline: ClientModule<TimelineProps, number> = (props, surface) => {
   surface.onPointer(event => {
     const at = event.type === 'leave' || event.y < 0 || event.y >= rows.length ? -1 : event.y
     if (at !== hovered) {
-      surface.setState(at)
+      surface.setState({ at, spin: surface.state?.spin ?? 0 })
       const row = rows[at]
       postTip(surface, 'loops', row ? { glyph: row.id === expanded ? look.glyph.expanded : look.glyph.collapsed, label: row.name, text: text.tipLane } : null)
     }
@@ -38,7 +41,7 @@ const Timeline: ClientModule<TimelineProps, number> = (props, surface) => {
       {rows.map((row, at) => {
         const key = `lane-${at}`
         const isHover = hovered === at
-        const mark = row.status === 'running' ? { glyph: own.running, color: THEME.accent } : row.status === 'done' ? { glyph: look.glyph.ok, color: THEME.ok } : { glyph: look.glyph.warn, color: THEME.alert }
+        const mark = row.status === 'running' ? { glyph: spinFrame(spin), color: THEME.accent } : row.status === 'done' ? { glyph: look.glyph.ok, color: THEME.good } : { glyph: look.glyph.warn, color: THEME.alert }
         const { from, to } = lanes[at]!
         const spanColor = row.status === 'running' ? THEME.accent : row.status === 'done' ? THEME.ok : THEME.alert
         return (

@@ -8,11 +8,11 @@ import { OPEN_SETUP_SCOPE, signatureOf, updatesCard, welcomeCard } from './cards
 import { checkedRows, planRows, type PickMessage, type PickProps } from './setup'
 import { fill, MARK, statusColor, THEME } from './theme'
 import text from './text'
-import { isTipMessage, mix, type EntryMessage, type EntryProps, type Tip } from './entry'
+import { isTipMessage, type EntryMessage, type EntryProps, type Tip } from './entry'
 import { labelsOf, menuEntry, pill, pillRow, splitRow, tabRow, tipLine } from './pills'
 import { TOAST_MS, ToastList, toastCards } from './toasts'
-import { cardFill, cardGap, detectNerd, FOOTER_ROWS, lookFor, paneFooter, section, type IconMode, type Reveal, withMark } from './look'
-import { actionReveals, choiceBar, settingChoice, settingsBody, type Action } from './settings'
+import { cardFill, cardGap, detectNerd, FOOTER_ROWS, lookFor, paneFooter, section, sepText, titleEdge, type IconMode, type Reveal, withMark } from './look'
+import { actionReveals, choiceBar, hairline, settingChoice, settingHead, settingsBody, type Action } from './settings'
 import { cardSpace, HEAD_ROWS, stickyCard } from './card'
 import { costPill } from './cost'
 import { readSpend, resetSpend, spendLine, type Spend } from './spend'
@@ -417,8 +417,8 @@ async function openingPane($: EngineInterface) {
 const ICON_MODES = ['auto', 'nerd', 'safe'] as const
 
 // The hover card's own rows, border included.
-const CARD_ROWS = 5
-const TEXT_ROWS = CARD_ROWS - 3
+const CARD_ROWS = 4
+const TEXT_ROWS = CARD_ROWS - 2
 const CARD_MORE = 'manager-card-more'
 
 // The rows a text takes at this width, wrapped at spaces, a word wider than the width breaking across rows.
@@ -443,9 +443,6 @@ const wrapRows = (value: string, width: number) =>
     }
     return rows
   })
-
-// The share of green left in the on count's pill, as the legend pills tint theirs.
-const COUNT_WASH = 0.72
 
 // A control glyph without the brackets and padding it carries as a Button label.
 const bare = (glyph: string) => glyph.replace(/[[\]\s]/g, '')
@@ -572,7 +569,7 @@ export const register: Register = (on, options) => {
     // A card that fails to draw must not take the pill row with it: one throw in this hook drops the whole band.
     const card = await bandCard($, { Box, Button, Client, Link, Text }, e.props.maxRows, e.props.isWorking).catch(() => null)
     // A Button cannot post a tip, so Open setup's tip lies hidden over the tip row and shows while its pill is lit; padded to cover what is under it.
-    const openTip = (card as { props?: { key?: unknown } } | null)?.props?.key === 'card-welcome' ? (
+    const openTip = (card as { props?: { key?: unknown } } | null)?.props?.key === 'card-welcome-block' ? (
       <Box key="card-open-tip" position="absolute" top={0} left={0} display="none" hover={{ scope: OPEN_SETUP_SCOPE, display: 'flex' }}>
         {tipLine({ Box, Text }, `${text.cardOpenSetup}: ${text.tipCardOpen}`.padEnd(Math.max(0, e.props.bodyColumns - 2)))}
       </Box>
@@ -708,6 +705,7 @@ export const register: Register = (on, options) => {
       const room = e.props.bodyColumns - 4
       const isCut = listed.some(item => item.title.length + 3 + item.detail.length > room)
       // Closed, one cut row each; open, the name on its own row with its text two cells in, so every wrapped line hangs at one indent.
+      const titleWidth = Math.max(0, ...listed.map(item => item.title.length))
       const features = listed.map((item, index) =>
         featuresOpen ? (
           <Box key={`feature-${index}`} flexDirection="column" marginTop={index === 0 ? 0 : 1}>
@@ -719,9 +717,9 @@ export const register: Register = (on, options) => {
         ) : (
           <Box key={`feature-${index}`} flexDirection="row" columnGap={1}>
             <Box flexShrink={0}>
-              <Text color={THEME.onSurface} bold>{item.title}</Text>
+              <Text color={THEME.onSurface} bold>{item.title.padEnd(titleWidth)}</Text>
             </Box>
-            <Text color={THEME.muted} wrap="truncate-end">{`${MARK.sep} ${item.detail}`}</Text>
+            {sepText({ Text }, `${MARK.sep} ${item.detail}`, THEME.muted, `feature-${index}-detail`, { wrap: 'truncate-end' })}
           </Box>
         ),
       )
@@ -744,47 +742,61 @@ export const register: Register = (on, options) => {
       const spend = spends[mod.name]
       const resetGlyph = look.glyph.cycle.replace(/[[\]\s]/g, '')
       // The Spend card leads the settings cards, in the same round border.
-      const spendCard = mod.showcase?.cost ? (
-        <Box key="page-spend" flexDirection="column" marginTop={1} borderStyle="round" borderColor={THEME.border} backgroundColor={THEME.surface1} paddingX={1}>
-          <Box key="page-spend-head" flexDirection="row" columnGap={2}>
-            <Text color={THEME.onSurface} bold>{text.spendTitle}</Text>
-            {spend
-              ? pill(
-                  { Box, Text },
-                  look.nerd,
-                  THEME.surface3,
-                  <Client key="page-spend-reset" module="./entry.tsx" height={1} props={{ id: `spend-reset-${mod.name}`, label: `${text.spendReset} ${resetGlyph}`, isOpen: false, bg: THEME.surface3, color: THEME.accent, idle: THEME.accent, still, tip: { glyph: resetGlyph, label: text.spendReset, text: text.tipSpendReset } } satisfies EntryProps} />,
-                  'page-spend-pill',
-                  THEME.surface1,
-                )
-              : null}
-          </Box>
-          <Text key="page-spend-text" color={THEME.muted} wrap="wrap">{spend ? spendLine(spend) : text.spendNone}</Text>
-        </Box>
-      ) : null
+      const spendCard = mod.showcase?.cost
+        ? section(
+            { Box, Text },
+            look,
+            'page-spend',
+            'cost',
+            text.spendTitle,
+            <Text key="page-spend-text" color={THEME.muted} wrap="wrap">{spend ? spendLine(spend) : text.spendNone}</Text>,
+            THEME.accent,
+            {
+              right: spend
+                ? pill(
+                    { Box, Text },
+                    look.nerd,
+                    THEME.surface3,
+                    <Client key="page-spend-reset" module="./entry.tsx" height={1} props={{ id: `spend-reset-${mod.name}`, label: `${text.spendReset} ${resetGlyph}`, isOpen: false, bg: THEME.surface3, color: THEME.onSurface, idle: THEME.onSurface, still, tip: { glyph: resetGlyph, label: text.spendReset, text: text.tipSpendReset } } satisfies EntryProps} />,
+                    'page-spend-pill',
+                    THEME.bg,
+                  )
+                : null,
+            },
+          )
+        : null
       return frame([
         <Box key="page-head" flexDirection="row" columnGap={1}>
           {tabRow({ Box, Client, Text }, look.nerd, [listTab(false), { id: 'manager-page', label: shownName(mod.name), icon: look.glyph.icon.mod ?? look.glyph.title, isOpen: true, tip: { glyph: look.glyph.title, label: shownName(mod.name), text: text.tipTabPage } }], still)}
-          <Text color={mod.enabled ? THEME.ok : THEME.muted}>{`${MARK.sep} ${mod.enabled ? text.stateOn : text.stateOff}`}</Text>
+          {sepText({ Text }, `${MARK.sep} ${mod.enabled ? text.stateOn : text.stateOff}`, mod.enabled ? THEME.ok : THEME.muted, 'page-state')}
         </Box>,
-        <Text key="page-note" wrap="truncate-end" color={statusColor(note)}>{withMark(look, note) || hint}</Text>,
-        <Box key="page-about" flexDirection="column" marginTop={1} paddingX={1} borderStyle="round" borderColor={THEME.border} backgroundColor={cardFill()}>
-          <Text color={THEME.onSurface} bold>{fill(text.pageTitle, { name: shownName(mod.name), sep: MARK.sep, version: mod.version })}</Text>
-          <Text color={THEME.muted}>{mod.description}</Text>
-          {mod.showcase?.tagline ? <Text color={THEME.secondary}>{mod.showcase.tagline}</Text> : null}
-        </Box>,
-        mod.showcase?.cost ? (
-          <Box key="page-cost" flexDirection="column" marginTop={1} borderStyle="round" borderColor={THEME.border} backgroundColor={THEME.surface1} paddingX={1}>
-            <Box key="page-cost-head" flexDirection="row" columnGap={1}>
-              {costPill({ Box, Text }, look.nerd, look.glyph.icon.cost!, THEME.surface1, 'page-cost-pill')}
-              <Text color={THEME.onSurface} bold>{text.costTitle}</Text>
-            </Box>
-            {/* A setting named in backticks stands out, so the reader knows what to look for. */}
-            <Text key="page-cost-text" color={THEME.muted} wrap="wrap">
-              {mod.showcase.cost.summary.split('`').map((part, n) => (n % 2 ? <Text key={`cost-part-${n}`} color={THEME.accent}>{part}</Text> : part))}
-            </Text>
-          </Box>
-        ) : null,
+        sepText({ Text }, withMark(look, note) || hint, statusColor(note), 'page-note', { wrap: 'truncate-end' }),
+        section(
+          { Box, Text },
+          look,
+          'page-about',
+          'mod',
+          fill(text.pageTitle, { name: shownName(mod.name), sep: MARK.sep, version: mod.version }),
+          <Box key="page-about-body" flexDirection="column">
+            <Text color={THEME.muted}>{mod.description}</Text>
+            {mod.showcase?.tagline ? <Text color={THEME.secondary}>{mod.showcase.tagline}</Text> : null}
+          </Box>,
+        ),
+        mod.showcase?.cost
+          ? section(
+              { Box, Text },
+              look,
+              'page-cost',
+              'cost',
+              text.costTitle,
+              // A setting named in backticks stands out, so the reader knows what to look for.
+              <Text key="page-cost-text" color={THEME.muted} wrap="wrap">
+                {mod.showcase.cost.summary.split('`').map((part, n) => (n % 2 ? <Text key={`cost-part-${n}`} color={THEME.accent}>{part}</Text> : part))}
+              </Text>,
+              THEME.accent,
+              { right: costPill({ Box, Text }, look.nerd, look.glyph.icon.cost!, THEME.bg, 'page-cost-pill') },
+            )
+          : null,
         spendCard,
         mod.enabled || mod.settings === 0 ? (
           settingsBody({ Box, Button, Client, Text }, look, { rows, actions, working, run, previews: mod.showcase?.previews, fields: mod.fields, still })
@@ -841,8 +853,6 @@ export const register: Register = (on, options) => {
             nameWidth: Math.max(...members.map(({ item }) => shownName(item.name).length)),
             icon: look.glyph.icon[icon] ?? '',
             nerd: look.nerd,
-            on: text.stateOn,
-            off: text.stateOff,
             switchTip: { glyph: bare(look.glyph.on), label: '', text: text.tipSwitch },
             openTip: text.tipOpen,
             costGlyph: look.glyph.icon.cost!,
@@ -881,12 +891,6 @@ export const register: Register = (on, options) => {
         cardRows,
         hovered ? (
           <Box key="hover-card" flexDirection="column">
-            <Box key="hover-card-title" flexDirection="row" flexShrink={0}>
-              <Box flexShrink={0}>
-                <Text color={THEME.onSurface} bold>{fill(text.pageTitle, { name: shownName(hovered.name), sep: MARK.sep, version: hovered.version })}</Text>
-              </Box>
-              <Text key="hover-card-folder" color={THEME.muted} wrap="truncate-end">{` ${MARK.sep} ${hovered.name}`}</Text>
-            </Box>
             <Box key="hover-card-text" height={shownRows.length} flexDirection="column" overflow="hidden" flexShrink={0}>
               {shownRows.map((row, at) =>
                 isClipped && at === shownRows.length - 1 ? (
@@ -904,6 +908,8 @@ export const register: Register = (on, options) => {
         ) : (
           <Text key="hover-card-empty" color={THEME.muted}>{text.cardEmpty}</Text>
         ),
+        THEME.accent,
+        hovered ? titleEdge({ Box, Text }, look, 'hover-card', '', fill(text.pageTitle, { name: shownName(hovered.name), sep: MARK.sep, version: hovered.version }), `${MARK.sep} ${hovered.name}`, 0) : null,
       )
     }
 
@@ -926,17 +932,15 @@ export const register: Register = (on, options) => {
             'icons',
             text.iconsLabel,
             <Box key="icons-body" flexDirection="column">
-              {iconRows.length ? (
-                <Box key="icons-switch-row" flexDirection="row" columnGap={1}>
-                  {choiceBar({ Box, Client, Text, Button }, look, 'icons', cardFill(), iconChoices)}
-                  {iconsNow ? null : <Text color={THEME.muted}>{`${MARK.sep} ${text.iconsMixed}`}</Text>}
-                </Box>
-              ) : null}
+              {iconRows.length
+                ? settingHead({ Box, Text }, 'icons-switch-row', iconsNow ? text.iconsAll : `${text.iconsAll} ${MARK.sep} ${text.iconsMixed}`, choiceBar({ Box, Client, Text, Button }, look, 'icons', cardFill(), iconChoices))
+                : null}
+              {iconRows.length ? hairline({ Client }, 'icons-rule', cardFill()) : null}
               {iconRows.length ? <Text color={THEME.muted}>{text.iconsDescription}</Text> : null}
               {fontFound === false ? (
                 <Text key="nerd-line" color={THEME.muted}>
                   <Text color={THEME.warn}>{look.glyph.warn}</Text>
-                  {` ${text.noNerdFont} ${MARK.sep} `}
+                  {sepText({ Text }, ` ${text.noNerdFont} ${MARK.sep} `, THEME.muted, 'nerd-line-text')}
                   <Link href={text.nerdFontsUrl} label={text.getOne} />
                 </Text>
               ) : null}
@@ -950,7 +954,7 @@ export const register: Register = (on, options) => {
         key={`list-${kind}`}
         module="./setup.tsx"
         height={rows.length}
-        props={{ kind, rows, nameWidth: Math.max(...rows.map(row => row.name.length)), on: tickedLabel, off: text.tickSkip, nerd: look.nerd, tipGlyph: bare(look.glyph.on), tip, still } satisfies PickProps}
+        props={{ kind, rows, nameWidth: Math.max(...rows.map(row => row.name.length)), on: tickedLabel, nerd: look.nerd, tipGlyph: bare(look.glyph.on), tip, still } satisfies PickProps}
       />
     )
     const notInstalledCard = notInstalled.length
@@ -1009,26 +1013,41 @@ export const register: Register = (on, options) => {
     // Only while something is pending: what was checked, every line Apply runs, and the Apply control.
     const checks = checkedOf({ version: ccVersion, market, hasCatalog: catalogEntries.length > 0, fontFound })
     const goLead = { subLead: bare(look.glyph.go), subLeadColor: THEME.accent }
+    const spinning = isApplying ? (
+      <Box key="apply-running" flexDirection="row">
+        <Client key="manager-applying" module="./entry.tsx" height={1} props={{ id: 'manager-applying', label: fill(text.applyRunning, { n: steps.length }), isOpen: false, bg: cardFill(), nerd: look.nerd, still, spinner: true, tight: true }} />
+        {sepText({ Text }, ` ${fill(text.applyRunningNote, { sep: MARK.sep })}`, THEME.muted, 'apply-running-note')}
+      </Box>
+    ) : null
     const applyCard =
       steps.length || isApplying
-        ? section(
-            { Box, Text },
-            look,
-            'sec-apply',
-            'apply',
-            text.sectionApply,
-            <Box key="apply-body" flexDirection="column">
-              <Text key="checked-title" color={THEME.onSurface} bold>{text.checkedTitle}</Text>
-              {checkedRows({ Box, Text }, look.glyph.ok, look.glyph.warn, checks)}
-              <Box key="apply-lines" flexDirection="column" marginTop={1}>
+        ? [
+            section(
+              { Box, Text },
+              look,
+              'sec-apply',
+              'apply',
+              text.checkedTitle,
+              <Box key="apply-body" flexDirection="column">
+                {checkedRows({ Box, Text }, { ok: text.tagOk, warn: text.tagWarn }, checks)}
+              </Box>,
+            ),
+            section(
+              { Box, Text },
+              look,
+              'sec-about',
+              'apply',
+              text.aboutTitle,
+              <Box key="about-body" flexDirection="column">
+              <Box key="apply-lines" flexDirection="column">
                 {planRows({ Box, Text }, steps)}
               </Box>
               <Box key="list-apply" flexDirection="row" marginTop={1}>
                 {/* A reload while Claude works would only queue as a prompt, and Apply twice would reload twice. */}
                 {isApplying ? (
-                  <Text color={THEME.muted}>{fill(text.applyRunning, { n: steps.length, sep: MARK.sep })}</Text>
+                  spinning
                 ) : working ? (
-                  <Text color={THEME.muted}>{fill(text.applyBusy, { label: applyLabel, sep: MARK.sep })}</Text>
+                  sepText({ Text }, fill(text.applyBusy, { label: applyLabel, sep: MARK.sep }), THEME.muted, 'apply-busy')
                 ) : (
                   [
                     <Box key="apply-gap" flexGrow={1} />,
@@ -1037,15 +1056,16 @@ export const register: Register = (on, options) => {
                 )}
               </Box>
             </Box>,
-          )
+            ),
+          ]
         : null
 
     return frame([
       <Box key="list-head" flexDirection="row" columnGap={1}>
         {tabRow({ Box, Client, Text }, look.nerd, [listTab(true)], still)}
-        {pill({ Box, Text }, look.nerd, mix(THEME.ok, THEME.bg, COUNT_WASH), <Text color={THEME.ok}>{look.nerd ? fill(text.onCount, { on: onCount }) : ` ${fill(text.onCount, { on: onCount })} `}</Text>, 'on-count', THEME.bg)}
+        <Text key="on-count" color={THEME.muted}>{fill(text.onCount, { on: onCount })}</Text>
       </Box>,
-      <Text key="list-note" wrap="truncate-end" color={statusColor(note)}>{withMark(look, note) || fill(text.listHint, { sep: MARK.sep })}</Text>,
+      sepText({ Text }, withMark(look, note) || fill(text.listHint, { sep: MARK.sep }), statusColor(note), 'list-note', { wrap: 'truncate-end' }),
       cardSpace({ Box }, cardRows),
       mods.length === 0 ? <Text key="list-empty" color={THEME.muted}>{text.noMods}</Text> : null,
       group('dir', text.sectionYours, 'mod'),
@@ -1053,7 +1073,7 @@ export const register: Register = (on, options) => {
       notInstalledCard,
       iconsCard,
       updatesCard,
-      applyCard,
+      applyCard ? <Box key="apply-cards" flexDirection="column">{applyCard}</Box> : null,
       hoverCard(),
     ], isBusy ? [] : [{ scope: 'open-plugin-pill', tip: { glyph: bare(look.glyph.go), label: text.openPlugin, text: text.tipOpenPlugin } }])
   })

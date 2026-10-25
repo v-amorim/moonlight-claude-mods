@@ -127,8 +127,8 @@ const cellOf = async (ui: any, at: number) => {
 for (const icons of ['safe', 'nerd']) {
   test(`hovering a choice marks its characters on the reply row, and leaving restores it (${icons} icons)`, { options: { icons } }, async ($, on) => {
     const { prompt, reply, next } = await mountReply($, on)
-    // At rest the row is what Claude Code draws, and no mark is in it.
-    expect(await drawnOf(reply)).toContain('base AssistantMessage')
+    // At rest the row is the mod's own table drawing, and no mark is in it.
+    expect(await drawnOf(reply)).toContain('"key":"toggle-tables"')
     expect(await drawnOf(reply)).not.toContain(`"backgroundColor":"${MARKED}"`)
     await point(reply, 'move', (await leadOf(reply)) + 1)
     await point(reply, 'move', await cellOf(reply, 1))
@@ -146,7 +146,7 @@ for (const icons of ['safe', 'nerd']) {
     // The first block keeps the blank line Claude Code draws above it, so the row keeps its height under the pointer.
     expect(await drawnOf(reply)).toMatch(/"key":"toggle-marked"[^{}]*"marginTop":1|"marginTop":1[^{}]*"key":"toggle-marked"/)
     await point(reply, 'leave', 0)
-    expect(await drawnOf(reply)).toContain('base AssistantMessage')
+    expect(await drawnOf(reply)).toContain('"key":"toggle-tables"')
     expect(await drawnOf(reply)).not.toContain(`"backgroundColor":"${MARKED}"`)
     for (const ui of [prompt, reply, next]) await ui.unmount()
   })

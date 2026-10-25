@@ -2,7 +2,7 @@
 // The cost pill that marks a mod with a cost, drawn the same in the list and on the mod's page.
 import type { RenderElement } from 'claude-code'
 
-import { CAPS, mix, THEME, WASH } from './theme'
+import { CAPS, THEME } from './theme'
 
 type Elements = { Box: (props: any) => RenderElement; Text: (props: any) => RenderElement }
 
@@ -20,8 +20,7 @@ function badge({ Box, Text }: Elements, nerd: boolean, glyph: string, color: str
   )
 }
 
-// The glyph in ok on a fill washed from ok into `on`.
-export const costPill = (elements: Elements, nerd: boolean, glyph: string, on: string, key: string) => badge(elements, nerd, glyph, THEME.ok, mix(THEME.ok, on, WASH), on, key)
+// The cost and settings marks share one neutral look: the glyph in secondary on surface3.
+export const costPill = (elements: Elements, nerd: boolean, glyph: string, on: string, key: string) => badge(elements, nerd, glyph, THEME.secondary, THEME.surface3, on, key)
 
-// The settings mark beside the cost pill, the same size but neutral.
 export const gearPill = (elements: Elements, nerd: boolean, glyph: string, on: string, key: string) => badge(elements, nerd, glyph, THEME.secondary, THEME.surface3, on, key)

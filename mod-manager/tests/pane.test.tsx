@@ -1,7 +1,8 @@
 // mod-manager / tests/pane.test.tsx, by v-amorim: the setup sections, the Apply card and its run
 import { expect, test } from 'claude-code/testing'
 
-import { THEME } from '../hooks/theme'
+import { cardFill } from '../hooks/look'
+import { mix, THEME } from '../hooks/theme'
 
 const neutral = (path: string) => path.replace(/\\/g, '/').replace(/^[A-Za-z]:/, '')
 const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms))
@@ -125,12 +126,13 @@ test('pane: not installed section lists only mods with no copy, and a tick plans
   expect(list).toContain('newmod listed')
   // Installed, switched off and folder copies never offer an install.
   for (const name of ['Onmod', 'Offmod', 'Upmod', 'Foldermod']) expect(list).not.toContain(name)
-  expect(list).toContain('○ Skip')
+  expect(list).toContain('"○"')
+  expect(list).toContain('" Add"')
   // The one update is ticked from the start, so it is the only pending line.
   expect(await drawn(ui, 'manager-apply')).toContain(' Apply 1 ')
 
   await click(ui, 'list-install', 0)
-  expect(await drawn(ui, 'list-install')).toContain('● Add')
+  expect(await drawn(ui, 'list-install')).toContain('"●"')
   expect(await ui.find({ type: 'Text', text: 'Install Newmod 2.0.0' })).toBeDefined()
   expect(await drawn(ui, 'manager-apply')).toContain(' Apply 2 ')
   await click(ui, 'list-install', 0)
@@ -172,13 +174,14 @@ test('pane: updates card lists each lagging mod ticked, with the auto-update lin
   const list = await drawn(ui, 'list-update')
   expect(list).toContain('Upmod')
   expect(list).toContain('1.9.9 → 2.0.0')
-  expect(list).toContain('● Update')
+  expect(list).toContain('"●"')
+  expect(list).toContain('" Update"')
   expect(await ui.find({ type: 'Text', text: 'Auto-update is off by default for this marketplace' })).toBeDefined()
   expect(await ui.find({ type: 'Text', text: 'Marketplaces tab, then claude-mods' })).toBeDefined()
   // Ticked by default, so the update is already a pending line.
   expect(await ui.find({ type: 'Text', text: 'Update Upmod 1.9.9 → 2.0.0' })).toBeDefined()
   await click(ui, 'list-update', 0)
-  expect(await drawn(ui, 'list-update')).toContain('○ Skip')
+  expect(await drawn(ui, 'list-update')).toContain('"○"')
   expect(await ui.find({ key: 'sec-apply' })).toBeUndefined()
   await stop()
 })
@@ -270,8 +273,12 @@ test('apply: checked list shows the version, the marketplace and the font, a mis
   // The font is not a Nerd Font here: a warn-colored miss, not an error.
   const miss = await eventually(ui, () => ui.find({ type: 'Text', text: 'No Nerd Font found, icons stay plain' }))
   expect(miss).toBeDefined()
-  expect((await ui.find({ type: 'Text', text: /^!$/ }))?.props.color).toBe(THEME.warn)
-  expect((await ui.find({ type: 'Text', text: /^✓$/ }))?.props.color).toBe(THEME.ok)
+  const warn = await ui.find({ type: 'Text', text: ' warn ' })
+  expect(warn?.props.color).toBe(THEME.warn)
+  expect(warn?.props.backgroundColor).toBe(mix(THEME.warn, cardFill(), 0.85))
+  expect((await ui.find({ type: 'Text', text: ' ok ' }))?.props.color).toBe(THEME.ok)
+  expect(await ui.find({ key: 'sec-about' })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /^About to$/ })).toBeDefined()
   // Read once per pane open, however often the pane redraws.
   await ui.redraw()
   await ui.redraw()
@@ -307,7 +314,9 @@ test('apply: a failed install is a toast and the rest still run', async ($, on) 
   await settled(events, 'command reload-plugins')
   expect(events).toContain('claude plugin install newicons@claude-mods --scope user')
   expect(events).toContain('claude plugin update upmod@claude-mods')
-  expect(await eventually(band, () => band.find({ type: 'Text', text: /Install of Newmod failed: boom/ }))).toBeDefined()
+  // The toast splits at its first ": ": a bold title and a muted detail.
+  expect(await eventually(band, () => band.find({ type: 'Text', text: 'Install of Newmod failed' }))).toBeDefined()
+  expect(await band.find({ type: 'Text', text: 'boom' })).toBeDefined()
   await band.unmount()
   await stop()
 })
@@ -340,7 +349,7 @@ test('pane: setup sections in nerd and safe, safe draws plain headings and commo
   const { ui, stop } = await mount($, on)
   await click(ui, 'list-install', 0)
   const pane = await drawn(ui)
-  for (const title of ['Not installed', 'Updates', 'Apply', 'Checked']) expect(await ui.find({ type: 'Text', text: new RegExp(`^${title}$`) })).toBeDefined()
+  for (const title of ['Not installed', 'Updates', 'About to', 'Checked']) expect(await ui.find({ type: 'Text', text: new RegExp(`^${title}$`) })).toBeDefined()
   expect(await drawn(ui, 'list-update')).toContain('1.9.9 → 2.0.0')
   // No private-use code point and no pill cap anywhere: safe mode draws on any font.
   expect([...pane].some(char => (char.codePointAt(0) ?? 0) >= 0xe000 && (char.codePointAt(0) ?? 0) <= 0xf8ff)).toBe(false)

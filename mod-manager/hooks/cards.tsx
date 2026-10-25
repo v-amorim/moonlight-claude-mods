@@ -2,7 +2,7 @@
 // Draws the two band cards above the prompt: the first-run welcome and the updates card.
 import type { RenderElement } from 'claude-code'
 
-import { cardFill, heading, type Look } from './look'
+import { cardFill, titleEdge, type Look } from './look'
 import type { CatalogMod } from './registry'
 import type { EntryProps, Tip } from './entry'
 import { pill } from './pills'
@@ -23,8 +23,8 @@ export const OPEN_SETUP_SCOPE = 'card-welcome-open-pill'
 // The tip row and the pill row sit under the card in the band.
 const BAND_ROWS = 2
 
-// The card's own rows besides its body: the two border rows, the heading and the buttons.
-const CHROME_ROWS = 4
+// The card's own rows besides its body: the two border rows (the title sits in the top one) and the buttons.
+const CHROME_ROWS = 3
 
 // The release the card is about: the sorted name@version list, so a new version changes it and the card returns once.
 export const signatureOf = (updates: CatalogMod[]) => updates.map(mod => `${mod.name}@${mod.version}`).sort().join(',')
@@ -32,7 +32,7 @@ export const signatureOf = (updates: CatalogMod[]) => updates.map(mod => `${mod.
 // A control glyph without the brackets and padding it carries as a Button label.
 const bare = (glyph: string) => glyph.replace(/[[\]\s]/g, '')
 
-type ButtonSpec = { id: string; label: string; tip: Tip; icon?: string; isOpen?: boolean; isBusy?: boolean }
+type ButtonSpec = { id: string; label: string; tip: Tip; icon?: string; isOpen?: boolean; isBusy?: boolean; spinner?: boolean }
 
 // A card button is a pill around an entry Client, so it fades under the pointer and posts its tip to the band's tip row.
 function button({ Box, Client, Text }: Elements, look: Look, still: boolean, spec: ButtonSpec) {
@@ -46,7 +46,8 @@ function button({ Box, Client, Text }: Elements, look: Look, still: boolean, spe
     still,
     isBusy: spec.isBusy ?? false,
     tip: spec.tip,
-    ...(look.nerd && spec.icon ? { subLead: spec.icon, subLeadColor: THEME.accent } : {}),
+    ...(spec.spinner ? { spinner: true, tight: true } : {}),
+    ...(look.nerd && spec.icon && !spec.spinner ? { subLead: spec.icon, subLeadColor: THEME.accent } : {}),
   } satisfies EntryProps
   return pill({ Box, Text }, look.nerd, THEME.surface3, <Client key={spec.id} module="./entry.tsx" height={1} props={props} />, `${spec.id}-pill`, cardFill())
 }
@@ -54,7 +55,7 @@ function button({ Box, Client, Text }: Elements, look: Look, still: boolean, spe
 const buttonRow = (elements: Elements, key: string, buttons: ButtonSpec[], look: Look, still: boolean) => {
   const { Box } = elements
   return (
-    <Box key={`${key}-buttons`} flexDirection="row" columnGap={1}>
+    <Box key={`${key}-buttons`} flexDirection="row" columnGap={1} justifyContent="flex-end">
       {buttons.map(spec => button(elements, look, still, spec))}
     </Box>
   )
@@ -83,19 +84,21 @@ export function welcomeCard(elements: Elements, look: Look, { showFontTip, still
   )
   const skip: ButtonSpec = { id: 'card-welcome-skip', label: text.cardNotNow, tip: { glyph: bare(look.glyph.close), label: text.cardNotNow, text: text.tipCardWelcomeSkip } }
   return (
-    <Box key="card-welcome" flexDirection="column" paddingX={1} borderStyle="round" borderColor={THEME.border} backgroundColor={cardFill()}>
-      {heading(elements, look, 'card-welcome', 'welcome', text.cardWelcomeTitle)}
-      {intro ? <Text key="card-welcome-intro" color={THEME.muted} wrap="wrap">{text.cardWelcomeBody}</Text> : null}
-      {tip ? (
-        <Text key="card-welcome-font" color={THEME.muted} wrap="wrap">
-          {`${text.cardNerdTip} `}
-          <Link href={text.nerdFontsUrl} label={text.cardNerdHow} />
-        </Text>
-      ) : null}
-      <Box key="card-welcome-buttons" flexDirection="row" columnGap={1}>
-        {open}
-        {button(elements, look, still, skip)}
+    <Box key="card-welcome-block" flexDirection="column">
+      <Box key="card-welcome" flexDirection="column" paddingX={1} borderStyle="round" borderColor={THEME.border} backgroundColor={cardFill()}>
+        {intro ? <Text key="card-welcome-intro" color={THEME.muted} wrap="wrap">{text.cardWelcomeBody}</Text> : null}
+        {tip ? (
+          <Text key="card-welcome-font" color={THEME.muted} wrap="wrap">
+            {`${text.cardNerdTip} `}
+            <Link href={text.nerdFontsUrl} label={text.cardNerdHow} />
+          </Text>
+        ) : null}
+        <Box key="card-welcome-buttons" flexDirection="row" columnGap={1}>
+          {open}
+          {button(elements, look, still, skip)}
+        </Box>
       </Box>
+      {titleEdge(elements, look, 'card-welcome', 'welcome', text.cardWelcomeTitle, '', 0)}
     </Box>
   )
 }
@@ -119,23 +122,29 @@ export function updatesCard(elements: Elements, look: Look, { updates, shown, is
       icon: bare(look.glyph.cycle),
       isOpen: !isWorking,
       isBusy: isUpdating,
+      spinner: isUpdating,
       tip: { glyph: bare(look.glyph.cycle), label, text: text.tipCardUpdate },
     },
     { id: 'card-update-skip', label: text.cardNotNow, tip: { glyph: bare(look.glyph.close), label: text.cardNotNow, text: text.tipCardUpdateSkip } },
   ]
   return (
-    <Box key="card-updates" flexDirection="column" paddingX={1} borderStyle="round" borderColor={THEME.border} backgroundColor={cardFill()}>
-      {heading(elements, look, 'card-updates', 'updates', title)}
-      {listed.map((mod, at) => (
-        <Box key={`card-updates-row-${at}`} flexDirection="row">
-          <Box key={`card-updates-row-${at}-name`} flexShrink={0}>
-            <Text color={THEME.onSurface}>{`${shown(mod.name).padEnd(width)}  `}</Text>
+    <Box key="card-updates-block" flexDirection="column">
+      <Box key="card-updates" flexDirection="column" paddingX={1} borderStyle="round" borderColor={THEME.border} backgroundColor={cardFill()}>
+        {listed.map((mod, at) => (
+          <Box key={`card-updates-row-${at}`} flexDirection="row">
+            <Box key={`card-updates-row-${at}-name`} flexShrink={0}>
+              <Text color={THEME.onSurface}>{`${shown(mod.name).padEnd(width)}  `}</Text>
+            </Box>
+            <Text color={THEME.muted} wrap="truncate-end">
+              {fill(text.pickUpdateDetail, { from: mod.installedVersion, to: '', arrow })}
+              <Text key={`card-updates-row-${at}-to`} color={THEME.accent}>{mod.version}</Text>
+            </Text>
           </Box>
-          <Text color={THEME.muted} wrap="truncate-end">{fill(text.pickUpdateDetail, { from: mod.installedVersion, to: mod.version, arrow })}</Text>
-        </Box>
-      ))}
-      {isCut ? <Text key="card-updates-more" color={THEME.muted}>{fill(text.cardMore, { n: updates.length - listed.length })}</Text> : null}
-      {buttonRow(elements, 'card-updates', buttons, look, still)}
+        ))}
+        {isCut ? <Text key="card-updates-more" color={THEME.muted}>{fill(text.cardMore, { n: updates.length - listed.length })}</Text> : null}
+        {buttonRow(elements, 'card-updates', buttons, look, still)}
+      </Box>
+      {titleEdge(elements, look, 'card-updates', 'updates', title, '', 0)}
     </Box>
   )
 }

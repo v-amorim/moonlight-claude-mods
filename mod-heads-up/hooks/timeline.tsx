@@ -3,6 +3,7 @@
 import type { ClientModule, ClientSurface } from 'claude-code'
 
 import { HOVER_STEPS, HOVER_TICK_MS, hoverMix, postTip, stepToward, type EntryMessage, type Tip } from './entry'
+import { cardFill } from './look'
 import { THEME } from './theme'
 
 // time, mark and summary are drawn as given (the caller pads them so the row has one fixed width); markColor and the summary tone follow the note's state.
@@ -44,7 +45,7 @@ const Row: ClientModule<RowProps, State> = (props, surface) => {
 
   // Selected is accent and bold, an unread note onSurface, a read one muted: the mark says the same, so no state rides on one cue.
   const rest = props.isSelected ? THEME.accent : props.isUnread ? THEME.onSurface : THEME.muted
-  const bg = hoverMix(THEME.surface1, THEME.lifted, level)
+  const bg = hoverMix(cardFill(), THEME.lifted, level)
   const tone = (from: string) => hoverMix(from, THEME.accent, level)
   const markRest = props.isSelected || props.isUnread ? THEME.accent : THEME.muted
 

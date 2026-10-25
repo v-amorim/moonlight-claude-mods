@@ -3,24 +3,22 @@
 export default {
   "glyphs": {
     "safe": {
-      "running": "↻",
       "gaugeIcon": "▦",
       "gaugeFull": "■",
-      "gaugeEmpty": "□",
+      "gaugeEmpty": "■",
       "gateMet": "■",
-      "gateOpen": "□",
+      "gateOpen": "■",
       "gateDropped": "×",
       "agentDot": "●",
       "laneSpan": "━",
       "laneIdle": "·"
     },
     "nerd": {
-      "running": "{U+F110}",
       "gaugeIcon": "{U+F035B}",
       "gaugeFull": "{U+F0C8}",
-      "gaugeEmpty": "{U+F096}",
+      "gaugeEmpty": "{U+F0C8}",
       "gateMet": "{U+F0C8}",
-      "gateOpen": "{U+F096}",
+      "gateOpen": "{U+F0C8}",
       "gateDropped": "{U+F00D}",
       "agentDot": "●",
       "laneSpan": "━",

@@ -3,6 +3,8 @@
 import { expect, mock, test } from 'claude-code/testing'
 import { actionLabels, canOpenDoes, cardRows } from '../hooks/explain'
 import { describePrompt, parseDescribed, verdictOf } from '../hooks/haiku'
+import text from '../hooks/text'
+import { MARK } from '../hooks/theme'
 
 const PLUGIN = 'mod-blast-radius'
 const PANE = (requestId: string) =>
@@ -711,8 +713,9 @@ for (const [name, command, setup] of FIT_CASES) {
       await withCard($, on, command, setup, async band => {
         const rows = ((await band.findAll({ type: 'Text' })) as { text: string }[]).filter(row => !row.text.startsWith('▎'))
         for (const row of rows) expect(row.text.length, row.text).toBeLessThanOrEqual(width)
-        // The sentence, the paths and the command go to Details; the figures stay in the heading and the Run label.
-        expect(rows.filter(row => !row.text.startsWith('!') && row.text.trim() !== '').map(row => row.text)).toEqual([])
+        // The sentence, the paths and the command go to Details; the figures stay in the heading and the Run label. The title sits on the border, not in a row.
+        const edge = new Set([`${MARK.rule} `, text.card.title, ` ${text.card.titleHint}`])
+        expect(rows.filter(row => !row.text.startsWith('!') && row.text.trim() !== '' && !edge.has(row.text)).map(row => row.text)).toEqual([])
         expect(await labelOf(band, 'blast-run')).toBeTruthy()
       }, bandOf(6, columns))
     })
@@ -1033,7 +1036,8 @@ test('a toast raised during a hold draws above the card', async ($, on) => {
   await holding(seen)
   const band = await $.ui.mount({ plugin: PLUGIN, surface: 'terminal', ...BAND })
   await click(band, 'blast-details')
-  expect(await textOf(band, /^List waiting: too narrow/)).toBeDefined()
+  expect(await textOf(band, /^List waiting$/)).toBeDefined()
+  expect(await textOf(band, /^ too narrow/)).toBeDefined()
   expect(await band.find({ type: 'Text', text: /^!/ })).toBeDefined()
   await click(band, 'toast-blast-1')
   expect(await textOf(band, /^List waiting/)).toBeUndefined()
