@@ -910,12 +910,14 @@ test('a broken rules.json never disables the built-in checks and shows one note 
 
 test('with no surface that draws, the call is not held: tool.check asks and the hold never opens', async ($, on) => {
   const { seen } = world(on, { surfaces: [] })
-  await $.tool.call({ tool: 'Bash', command: 'rm -rf build' })
+  // The kit runs tool.check before the call and treats an ask nobody answers as a denial, so the command never reaches the tool.
+  const result = await $.tool.call({ tool: 'Bash', command: 'rm -rf build' })
+  expect(JSON.stringify(result)).toContain('Permission to use Bash has been denied')
   expect(seen.argv).toEqual([])
-  expect(seen.ran).toBe(1)
+  expect(seen.ran).toBe(0)
 
   const risky = await $.tool.check({ tool: 'Bash', input: { command: 'rm -rf build' } })
-  expect(risky).toEqual({ decision: 'ask', reason: 'Blast radius: Recursive deletion (rm -r/rm -rf)' })
+  expect(risky).toMatchObject({ decision: 'ask', reason: 'Blast radius: Recursive deletion (rm -r/rm -rf)' })
   const safe = await $.tool.check({ tool: 'Bash', input: { command: 'ls' } })
   expect(safe.decision).toBe('allow')
 })
@@ -938,7 +940,7 @@ test('with no surface that draws, tool.check follows the pass entry and its safe
   world(on, { surfaces: [], rules: { text: PASS_PLAIN_RM, mtimeMs: 1 } })
   expect((await $.tool.check({ tool: 'Bash', input: { command: 'rm a.txt' } })).decision).toBe('allow')
   expect((await $.tool.check({ tool: 'Bash', input: { command: 'rm -r build' } })).decision).toBe('ask')
-  expect((await $.tool.check({ tool: 'Bash', input: { command: 'rm ~/a.txt' } })).decision).toBe('ask')
+  expect((await $.tool.check({ tool: 'Bash', input: { command: 'rm ~/*' } })).decision).toBe('ask')
   expect((await $.tool.check({ tool: 'Bash', input: { command: 'rm a.txt && rm -rf ~' } })).decision).toBe('ask')
 })
 
@@ -1119,6 +1121,29 @@ test('hovering a card button shows its tip in the band tip row, and the Details 
   await endHold(band)
   await call
   await band.unmount()
+})
+
+test('a band tip whose entry was redrawn while hovered clears after 5 s with no newer hover', async ($, on) => {
+  const { seen, clock } = world(on)
+  const call = $.tool.call({ tool: 'Bash', command: 'rm -rf build' })
+  await holding(seen)
+  // Live, a band redraw mid-turn replaced the hovered entry, so its own quiet timer, and the leave, never came.
+  const first = await $.ui.mount({ plugin: PLUGIN, surface: 'terminal', ...BAND })
+  await first.pointer({ type: 'enter', x: 1, y: 0, in: 'blast-cancel' })
+  await first.unmount()
+  const showsNow = async () => {
+    const ui = await $.ui.mount({ plugin: PLUGIN, surface: 'terminal', ...BAND })
+    const shown = (await textOf(ui, /stops the command from running/)) !== undefined
+    await ui.unmount()
+    return shown
+  }
+  expect(await showsNow()).toBe(true)
+  await clock.advance(4000)
+  expect(await showsNow()).toBe(true)
+  await clock.advance(1000)
+  expect(await showsNow()).toBe(false)
+  await cancel($)
+  await call
 })
 
 test('a held command raises one notification naming it, and a refused notification leaves the hold intact', async ($, on) => {

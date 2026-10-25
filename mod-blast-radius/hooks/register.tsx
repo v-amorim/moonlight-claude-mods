@@ -60,6 +60,21 @@ let working = false
 let hovered: TipMessage | null = null
 
 const hoveredTip = (): Tip | null => (hovered?.id && hovered.label ? { glyph: hovered.glyph ?? '', label: hovered.label, text: hovered.text ?? '' } : null)
+
+// A band redraw can replace a hovered entry, whose leave and quiet timer then never come, so a band tip ends on its own.
+const BAND_TIP_MS = 5000
+let bandTipAt = 0
+// The tip the band stopped showing; the Details footer keeps its own.
+let bandExpired: TipMessage | null = null
+
+function expireBandTip($: EngineInterface) {
+  const at = ++bandTipAt
+  $.clock.after(BAND_TIP_MS, () => {
+    if (at !== bandTipAt || !hovered?.id) return
+    bandExpired = hovered
+    $.ui.invalidate('ui.render')
+  })
+}
 let actions: Action[] = []
 let previews: Previews | undefined
 
@@ -965,6 +980,7 @@ export const register: Register = (on, options) => {
   on('ui.message', async ($, e, next) => {
     if (isTipMessage(e.data)) {
       hovered = e.data
+      if (hovered.id) expireBandTip($)
       $.ui.invalidate('ui.render')
       return next(e)
     }
@@ -1015,7 +1031,7 @@ export const register: Register = (on, options) => {
     }
     const { group, row, tip: menuTip } = splitRow(await next(e))
     const cards = toastCards({ Box, Client, Text }, toasts, look, text.tipToast)
-    const tip = hovered?.id ? tipLine({ Box, Text }, tipText(hovered)) : menuTip
+    const tip = hovered?.id && hovered !== bandExpired ? tipLine({ Box, Text }, tipText(hovered)) : menuTip
 
     // While a call is held only the card and the pill row draw, so other rows cannot fill the band and cut the card off.
     return pillRow({ Box, Client, Text }, look.nerd, group, row, [...cards, holdCard({ Box, Button, Client, Input, Text }, held, e.props.bodyColumns, e.props.maxRows, id => choose($, id), value => typeReason($, value), value => sendReason($, value), sessionCount(checks))], tip, e.props.bodyColumns)

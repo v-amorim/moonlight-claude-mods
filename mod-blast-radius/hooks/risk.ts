@@ -484,12 +484,16 @@ const CRITICAL_DIR_NAMES = [
 ]
 const CRITICAL_DIRS = CRITICAL_DIR_NAMES.join('|')
 
+// Top-level system folders whose wipe is critical; anything deeper is an ordinary recursive delete.
+const SYSTEM_DIRS = 'bin|boot|dev|etc|lib64|lib|opt|proc|root|sbin|srv|sys|usr|var|home|Users|System|Library|Applications'
+
 export const CHECKS: Check[] = [
   {
     label: 'rm',
     cmd: /^rm$/,
     unmasked: true,
-    pattern: /\brm\s+.*(-[a-zA-Z]*[rf][a-zA-Z]*\s+|(-[a-zA-Z]*\s+)*)(~|\$HOME|\.\.|\s+\/\s*$|\s+\/[^tv])/,
+    // ~, $HOME, "/", a top-level system folder and a drive root count only as the whole folder (or its contents), never as the start of a deeper path.
+    pattern: new RegExp(String.raw`\brm\s+.*(-[a-zA-Z]*[rf][a-zA-Z]*\s+|(-[a-zA-Z]*\s+)*)(~[\w.-]*\/*(?:\.?\*)?(?=[\s"';&|)]|$)|\$\{?HOME\}?\/*(?:\.?\*)?(?=[\s"';&|)]|$)|\.\.|\s+["']?(?:\/(?:${SYSTEM_DIRS}|[a-zA-Z](?:\/(?:Users|Windows|Program Files))?)?|[a-zA-Z]:[\\/]+(?:(?:Users|Windows|Program Files)[\\/]*)?)\/*\*?["']?(?=[\s;&|)]|$))`),
     reason: words.reasons.rootDelete,
     critical: true,
     source: 'temp',

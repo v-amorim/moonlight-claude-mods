@@ -21,13 +21,76 @@ const TMP_WIN = 'C:\\Users\\me\\AppData\\Local\\Temp'
 const TABLE: Row[] = [
   // root, home or parent directory
   ['rm -rf ~', 'rm', ROOT],
-  ['rm -rf ~/projects', 'rm', ROOT],
-  ['rm -rf $HOME/x', 'rm', ROOT],
+  ['rm -rf ~/', 'rm', ROOT],
+  ['rm -rf ~/*', 'rm', ROOT],
+  ['rm -rf "~"', 'rm', ROOT],
+  ['rm -rf $HOME', 'rm', ROOT],
+  ['rm -rf $HOME/', 'rm', ROOT],
+  ['rm -rf ${HOME}', 'rm', ROOT],
+  ['rm -rf "$HOME"', 'rm', ROOT],
+  ['rm -rf ~root', 'rm', ROOT],
+  ['rm -fr ~', 'rm', ROOT],
+  ['cd x && rm -rf ~', 'rm', ROOT],
+  // a path inside home is a folder like any other, not home itself
+  ['rm -rf ~/projects', 'rm', RECURSIVE],
+  ['rm -rf $HOME/x', 'rm', RECURSIVE],
+  ['rm -rf "$HOME/x"', 'rm', RECURSIVE],
+  ['rm -rf ~/.claude/scratch/session-1', 'rm', RECURSIVE],
+  ['rm -rf ~/a.b ~/c', 'rm', RECURSIVE],
   ['rm -rf ..', 'rm', ROOT],
   ['rm -rf ../sibling', 'rm', ROOT],
   ['rm -rf /', 'rm', ROOT],
   ['rm -rf /etc', 'rm', ROOT],
   ['rm -rf /var/log', 'rm', RECURSIVE],
+  // root and top-level system folders, with or without a trailing slash or star
+  ['rm -rf /*', 'rm', ROOT],
+  ['rm -rf /etc/', 'rm', ROOT],
+  ['rm -rf /etc/*', 'rm', ROOT],
+  ['rm -rf /usr', 'rm', ROOT],
+  ['rm -rf /var', 'rm', ROOT],
+  ['rm -rf /home', 'rm', ROOT],
+  ['rm -rf /home/', 'rm', ROOT],
+  ['rm -rf /home/*', 'rm', ROOT],
+  ['rm -rf /Users', 'rm', ROOT],
+  ['rm -rf /System', 'rm', ROOT],
+  ['rm -rf /Library', 'rm', ROOT],
+  ['rm -rf /Applications', 'rm', ROOT],
+  ['rm -rf /opt', 'rm', ROOT],
+  ['rm -rf /lib64', 'rm', ROOT],
+  ['rm -rf "/etc"', 'rm', ROOT],
+  ['rm -rf /tmp/x /etc', 'rm', ROOT],
+  ['cd x && rm -rf /usr/', 'rm', ROOT],
+  ['rm -r /root', 'rm', ROOT],
+  ['rm -f /boot', 'rm', ROOT],
+  // Windows drive roots and system folders, Git Bash and native forms
+  ['rm -rf /c', 'rm', ROOT],
+  ['rm -rf /c/', 'rm', ROOT],
+  ['rm -rf /c/*', 'rm', ROOT],
+  ['rm -rf /c/Users', 'rm', ROOT],
+  ['rm -rf /c/Users/', 'rm', ROOT],
+  ['rm -rf /c/Windows', 'rm', ROOT],
+  ['rm -rf "/c/Program Files"', 'rm', ROOT],
+  ['rm -rf C:\\', 'rm', ROOT],
+  ['rm -rf C:/', 'rm', ROOT],
+  ['rm -rf C:\\*', 'rm', ROOT],
+  ['rm -rf "C:\\"', 'rm', ROOT],
+  ['rm -rf C:\\Windows', 'rm', ROOT],
+  // deeper absolute paths are ordinary recursive deletes, not root or home
+  ['rm -rf /opt/x', 'rm', RECURSIVE],
+  ['rm -rf /opt/myapp/build', 'rm', RECURSIVE],
+  ['rm -rf /home/me/project', 'rm', RECURSIVE],
+  ['rm -rf /home/me/project/build', 'rm', RECURSIVE],
+  ['rm -rf /Users/me/project', 'rm', RECURSIVE],
+  ['rm -rf /usr/local/lib/x', 'rm', RECURSIVE],
+  ['rm -rf /c/Users/me/tmp/x', 'rm', RECURSIVE],
+  ['rm -rf /c/Users/me', 'rm', RECURSIVE],
+  ['rm -rf /d/work/build', 'rm', RECURSIVE],
+  ['rm -rf C:\\Users\\me\\tmp\\x', 'rm', RECURSIVE],
+  ['rm -rf C:/work/build', 'rm', RECURSIVE],
+  ['rm -rf /var/tmp/x', 'rm', RECURSIVE],
+  ['rm -rf /srv/app', 'rm', RECURSIVE],
+  ['rm -f /opt/x/file.txt', 'rm', FILE],
+  ['rm /home/me/a.txt', 'rm', FILE],
   // critical project directories, case by case
   ['rm -rf src', 'rm', CRITICAL],
   ['rm -r .git', 'rm', CRITICAL],
@@ -76,7 +139,7 @@ const TABLE: Row[] = [
   // temp-safe is narrow: ".." never counts, every target must be temp, and a cd out of temp resets
   ['rm -rf /tmp/../etc', 'rm', ROOT],
   ['rm -rf /tmp/x/../../y', 'rm', ROOT],
-  ['rm -rf /tmp/x ~/y', 'rm', ROOT],
+  ['rm -rf /tmp/x ~/y', 'rm', RECURSIVE],
   ['rm -rf /tmp/x build', 'rm', RECURSIVE],
   ['cd ~/repo && rm -rf out', 'rm', RECURSIVE],
   ['cd /tmp/work && cd ../repo && rm -rf out', 'rm', RECURSIVE],
@@ -325,7 +388,7 @@ test('every check is covered by a table row that names its reason', () => {
 })
 
 test('the order of the checks decides: the sharper reason wins', () => {
-  expect(classify('rm -rf ~/src')!.reason).toBe(ROOT)
+  expect(classify('rm -rf ~')!.reason).toBe(ROOT)
   expect(classify('rm -rf src')!.reason).toBe(CRITICAL)
   expect(classify('rm -rf build')!.reason).toBe(RECURSIVE)
   expect(classify('rm build')!.reason).toBe(FILE)
@@ -437,7 +500,7 @@ test('a pass entry lets a matching plain rm through, and an rm it does not match
 
 test('a pass never lets through a step the built-in checks mark critical', () => {
   const { rules } = passing({ pattern: '.', reason: 'anything', action: 'pass' })
-  for (const command of ['rm ~', 'rm ~/a.txt', 'rm $HOME/a.txt', 'rm ../a.txt', 'rm /', 'rm /c', 'rm -rf /c', 'rm -rf ~', 'rm -rf ..', 'rm -r src', 'rm -rf .git']) {
+  for (const command of ['rm ~', 'rm ~/', 'rm ~/*', 'rm $HOME/', 'rm $HOME', 'rm ../a.txt', 'rm /', 'rm /c', 'rm -rf /c', 'rm -rf /*', 'rm -rf /etc', 'rm -rf /home/', 'rm -rf /c/Users', 'rm -rf "/c/Program Files"', 'rm -rf C:\\', 'rm -rf C:/*', 'rm -rf ~', 'rm -rf ..', 'rm -r src', 'rm -rf .git']) {
     const risk = classify(command, rules)
     expect(risk, command).not.toBe(null)
     expect([ROOT, CRITICAL, FILE], command).toContain(risk!.reason)
