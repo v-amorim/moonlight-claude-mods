@@ -276,6 +276,33 @@ test('mod-menu labels never leaves the band entry as its icon alone', { options:
   await band.unmount()
 })
 
+test('a band tip whose entry was redrawn while hovered clears after 5 s with no newer hover', async ($, on) => {
+  on('ui.panes', () => ({ value: [] }))
+  on('ui.render', ($$, e) => {
+    const { Text } = $$.ui.resolve(e)
+    return <Text>other mod</Text>
+  })
+  mock.env(on, {})
+  const clock = mock.clock(on)
+  const band = { plugin: 'mod-prompts', surface: 'terminal', component: 'AbovePrompt', props: { hasSurvey: false, isWorking: false, maxRows: 6, bodyColumns: 100, scroll: { offset: 0, bodyRows: 6 }, view: {} } } as const
+  // Live, a band redraw mid-turn replaced the hovered entry, so its own quiet timer, and the leave, never came.
+  const first = await $.ui.mount(band as never)
+  await pointer(first, { type: 'move', x: 1, y: 0, in: 'menu-entry-prompts' })
+  await first.unmount()
+  // The pill's tip text also sits in the Client props, so only the tip row's Text says whether it shows.
+  const showsNow = async () => {
+    const ui = await $.ui.mount(band as never)
+    const shown = (await ui.find({ type: 'Text', text: /every prompt this session/ })) !== undefined
+    await ui.unmount()
+    return shown
+  }
+  expect(await showsNow()).toBe(true)
+  await clock.advance(4000)
+  expect(await showsNow()).toBe(true)
+  await clock.advance(1000)
+  expect(await showsNow()).toBe(false)
+})
+
 const parseAll = (lines: string[]) => lines.flatMap(line => parseRow(line) ?? [])
 const calls = (n: number, parent: number, count: number) =>
   JSON.stringify({ type: 'assistant', uuid: ID(n), parentUuid: ID(parent), message: { role: 'assistant', content: Array.from({ length: count }, (_, call) => ({ type: 'tool_use', id: `t${n}-${call}` })) } })
