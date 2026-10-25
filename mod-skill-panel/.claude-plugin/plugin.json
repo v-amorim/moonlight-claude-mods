@@ -1,6 +1,6 @@
 {
   "name": "mod-skill-panel",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "description": "Colors each skill in the slash list by the color-tag in its frontmatter, and /mod-skill-panel opens a sidebar of skills grouped by tag where pressing one adds it to the prompt",
   "license": "MIT",
   "author": {

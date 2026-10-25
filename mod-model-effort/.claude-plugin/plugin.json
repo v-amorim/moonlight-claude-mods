@@ -1,6 +1,6 @@
 {
   "name": "mod-model-effort",
-  "version": "1.2.0",
+  "version": "1.2.1",
   "description": "A clickable effort meter in the prompt footer, five squares from low to max. A click sets that level for the model, as Alt+P does",
   "license": "MIT",
   "author": { "name": "Vinicius Amorim", "url": "https://github.com/v-amorim" },
