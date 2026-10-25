@@ -389,6 +389,20 @@ let paneTip: Tip | null = null
 // The toast × under the pointer, shown in the band's tip row.
 let toastTip = ''
 
+// A band redraw can replace a hovered entry, whose leave and quiet timer then never come, so a band tip ends on its own.
+const BAND_TIP_MS = 5000
+let bandTipAt = 0
+
+function expireBandTip($: EngineInterface) {
+  const at = ++bandTipAt
+  $.clock.after(BAND_TIP_MS, () => {
+    if (at !== bandTipAt || (!tipShown && !toastTip)) return
+    tipShown = false
+    toastTip = ''
+    $.ui.invalidate('ui.render')
+  })
+}
+
 const toasts = new ToastList('manager')
 // The animations setting, fixed per activation: off, every entry draws still.
 let still = false
@@ -604,6 +618,7 @@ export const register: Register = (on, options) => {
       // A band card's buttons and the toast × show their tip in the band's tip row.
       const isToast = Boolean(tip.id?.startsWith('toast-manager-') || tip.id?.startsWith('card-'))
       toastTip = isToast ? `${tip.label}: ${tip.text}` : ''
+      if (toastTip) expireBandTip($)
       paneTip = tip.id && !isToast ? { glyph: tip.glyph ?? '', label: tip.label ?? '', text: tip.text ?? '' } : null
       // The list's tip carries the row under the pointer, whose card shows above the list.
       hovering = tip.id?.startsWith('manager-row-') ? Number(tip.id.slice('manager-row-'.length)) : -1
@@ -619,6 +634,7 @@ export const register: Register = (on, options) => {
     const hover = e.data as { type?: string; id?: string; isOver?: boolean }
     if (hover?.type === 'menu-hover' && hover.id === 'manager') {
       tipShown = hover.isOver === true
+      if (tipShown) expireBandTip($)
       $.ui.invalidate('ui.render')
     }
     const message = e.data as EntryMessage

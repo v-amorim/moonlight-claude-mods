@@ -1,6 +1,6 @@
 // mod-manager / tests/manager.test.tsx, by v-amorim
 // Tests mod discovery, feature listing and enabling or disabling mods in settings.
-import { expect, test } from 'claude-code/testing'
+import { expect, mock, test } from 'claude-code/testing'
 
 import { discover, featuresOf, setEnabled, type Io } from '../hooks/registry'
 import { cardFill } from '../hooks/look'
@@ -758,6 +758,42 @@ test('its footer entry opens the pane on a press and closes it on the next', asy
   await busy.pointer({ type: 'down', x: 1, y: 0, button: 'left', in: 'menu-entry-manager' })
   expect(opened).toEqual(['manager', 'close manager'])
   await busy.unmount()
+})
+
+test('a pill tip whose entry was redrawn while hovered clears after 5 s with no newer hover', async ($, on) => {
+  const clock = mock.clock(on)
+  on('fs.read', () => {
+    throw new Error('ENOENT')
+  })
+  on('fs.list', () => ({ value: [] }))
+  on('env.get', () => ({ value: '/h' }))
+  on('ui.panes', () => ({ value: [] }))
+  on('ui.render', ($$, e) => {
+    const { Text } = $$.ui.resolve(e)
+    return <Text>other mod</Text>
+  })
+  const band = {
+    plugin: 'mod-manager',
+    surface: 'terminal',
+    component: 'AbovePrompt',
+    props: { hasSurvey: false, isWorking: false, maxRows: 6, bodyColumns: 80, scroll: { offset: 0, bodyRows: 6 }, view: {} },
+  } as const
+  const shows = async (ui: { drawn(): Promise<unknown> }) => JSON.stringify(await ui.drawn()).includes('turn each mod on or off')
+  // Live, a band redraw mid-turn replaced the hovered entry, so its own quiet timer, and the leave, never came.
+  const first = withPointer(await $.ui.mount(band))
+  await first.pointer({ type: 'move', x: 1, y: 0, in: 'menu-entry-manager' })
+  await first.unmount()
+  const showsNow = async () => {
+    const ui = await $.ui.mount(band)
+    const shown = await shows(ui)
+    await ui.unmount()
+    return shown
+  }
+  expect(await showsNow()).toBe(true)
+  await clock.advance(4000)
+  expect(await showsNow()).toBe(true)
+  await clock.advance(1000)
+  expect(await showsNow()).toBe(false)
 })
 
 const iconsPane = async ($: any, on: any) => {
