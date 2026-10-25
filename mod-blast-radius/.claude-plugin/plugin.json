@@ -1,6 +1,6 @@
 {
   "name": "mod-blast-radius",
-  "version": "1.3.1",
+  "version": "1.4.0",
   "description": "Holds a risky Bash command (rm, git reset --hard, force push, SQL DROP and more) before it runs, shows what it would change, and lets you Run or Cancel",
   "license": "MIT",
   "author": {
@@ -26,6 +26,18 @@
       "title": "Explain with Haiku",
       "description": "Each held command is sent to Haiku for a plain-language explanation on the card. It spends tokens. Off (the default), no model is called and the card shows the rule's reason and the preview",
       "default": false
+    },
+    "idle": {
+      "type": "string",
+      "title": "Idle timeout",
+      "description": "A held command nobody answers for this long stops blocking Claude. The command does not run, Claude carries on and asks again after your next message, and a chip in the pill row keeps the command until you answer it. Off (the default), a card waits as long as it takes",
+      "options": [
+        "Off",
+        "5 min",
+        "10 min",
+        "30 min"
+      ],
+      "default": "Off"
     },
     "icons": {
       "type": "string",

@@ -4,7 +4,7 @@ import type { ConfigValue, EngineInterface, Register, RenderElement } from 'clau
 
 import { cardFill, cardGap, detectNerd, FOOTER_ROWS, lookFor, paneFooter, section, titleEdge, type IconMode, type Look } from './look'
 import { entryCells, isTipMessage, tipText, type EntryMessage, type EntryProps, type Tip, type TipMessage } from './entry'
-import { pill, pillRow, splitRow, tabRow, tipLine } from './pills'
+import { labelsOf, pill, pillRow, splitRow, tabRow, tipLine } from './pills'
 import { TOAST_MS, ToastList, toastCards } from './toasts'
 import { ACTION_EXTRA, ACTION_GAP, actionLabels, canOpenDoes, cardRows, HOTKEY, plainFor, segmentsOf, stepsView, whyOf, type Plain } from './explain'
 import { describePrompt, parseDescribed, SYSTEM, verdictOf, type Described } from './haiku'
@@ -29,10 +29,15 @@ const BUILT_IN = [...new Set(CHECKS.map(check => check.reason))]
 type Unit = { one: string; many: string }
 const plural = (count: number, unit: Unit) => fill(count === 1 ? unit.one : unit.many, { n: count })
 
-type Decision = 'run' | 'cancel' | 'interrupted' | 'error'
+type Decision = 'run' | 'cancel' | 'interrupted' | 'error' | 'idle'
 // isDescribing: Haiku is still writing the card's words.
 // isFull: the Details pane shows the whole command, not its first rows; isDoesOpen: the card shows its whole sentence, not two rows.
-type Held = { command: string; risk: Risk; report: Report | null; plain: Plain | null; decision: Decision | null; described?: Described; isDescribing?: boolean; isFull?: boolean; isDoesOpen?: boolean; isAsking?: boolean; draft?: string; reason?: string }
+type Held = { command: string; risk: Risk; report: Report | null; plain: Plain | null; decision: Decision | null; described?: Described; isDescribing?: boolean; isFull?: boolean; isDoesOpen?: boolean; isAsking?: boolean; isStored?: boolean; touchedAt?: number; draft?: string; reason?: string }
+
+// Commands whose card timed out, by exact text: the chip lists them and a stored answer waits for the next identical call.
+type Waiting = { held: Held; answer: { decision: 'run' | 'cancel'; reason?: string } | null }
+const waiting = new Map<string, Waiting>()
+const WAIT_CHIP = 'blast-wait'
 
 const MORE = 'blast-more'
 const DOES_MORE = 'blast-does-more'
@@ -49,6 +54,8 @@ const FULL_ROWS_OPEN = 400
 let isEnabled = true
 // Opt-in, off by default: no held command is sent to Haiku: the card keeps the rule's words and the preview.
 let isExplaining = false
+// Opt-in: ms a card waits with no answer before its call is refused; 0 never.
+let idleMs = 0
 let iconMode: IconMode = 'auto'
 let look: Look = lookFor(false)
 
@@ -600,11 +607,30 @@ function holdCard({ Box, Button, Client, Input, Text }: Elements & { Button: (pr
   )
 }
 
+// The chip at the right end of the pill row: an alert icon, the words in on-surface, on surface-3. `count` shows only the icon and the number.
+function waitChip({ Box, Client, Text }: Pick<Elements, 'Box' | 'Client' | 'Text'>, mode: 'full' | 'count', count: number, command: string) {
+  const label = fill(count === 1 ? text.waiting.approve.one : text.waiting.approve.many, { n: count })
+  const tip = { glyph: bare(look.glyph.warn), label, text: fill(text.waiting.tip, { command: oneLine(command) }) }
+  const props = { id: WAIT_CHIP, label: mode === 'full' ? label : String(count), isOpen: true, bg: THEME.surface3, color: THEME.onSurface, lead: look.glyph.warn, leadColor: THEME.alert, nerd: look.nerd, still, tip, ...(mode === 'full' ? { compact: false } : {}) } satisfies EntryProps
+  return pill({ Box, Text }, look.nerd, THEME.surface3, <Client key={WAIT_CHIP} module="./entry.tsx" height={1} props={props} />, `${WAIT_CHIP}-pill`)
+}
+
+// True when the pill row cut the chip to its icon because the row did not fit.
+const isChipCut = (node: unknown): boolean => {
+  if (Array.isArray(node)) return node.some(isChipCut)
+  if (!node || typeof node !== 'object') return false
+  const found = node as { type?: string; props?: { props?: { id?: string; compact?: boolean } }; children?: unknown[] }
+  if (found.type === 'Client' && found.props?.props?.id === WAIT_CHIP) return found.props.props.compact === true
+  return (found.children ?? []).some(isChipCut)
+}
+
 // A card action, from a click on its entry or its digit typed into the empty prompt.
 async function choose($: EngineInterface, id: string) {
+  const now = await $.clock.now()
   if (!held || held.decision !== null) return
+  held.touchedAt = now
   if (held.isAsking) {
-    if (id === REASON_SEND) sendReason($, held.draft ?? '')
+    if (id === REASON_SEND) await sendReason($, held.draft ?? '')
     if (id === REASON_BACK) {
       held.isAsking = false
       held.draft = undefined
@@ -616,18 +642,38 @@ async function choose($: EngineInterface, id: string) {
   // Cancel asks why first; Enter on the field, empty or not, ends the hold.
   if (id === 'blast-cancel') held.isAsking = true
   if (id === 'blast-details') await toggleList($)
+  await keepStored($)
   $.ui.invalidate('ui.render')
 }
 
-function sendReason($: EngineInterface, value: string) {
+// A card reopened from the chip has no call waiting on it: its answer goes to the stored entry, and the card closes.
+async function keepStored($: EngineInterface) {
+  const card = held
+  if (!card?.isStored || card.decision === null) return
+  const entry = waiting.get(card.command)
+  if (entry) entry.answer = { decision: card.decision === 'run' ? 'run' : 'cancel', ...(card.reason ? { reason: card.reason } : {}) }
+  held = null
+  hovered = null
+  if (await isPaneOpen($, LIST_PANE).catch(() => false)) {
+    await $.ui.close({ id: LIST_PANE }).catch(() => undefined)
+    await $.state.set({ plugin: 'mod-blast-radius', key: 'pane' }, false).catch(() => undefined)
+  }
+}
+
+async function sendReason($: EngineInterface, value: string) {
+  const now = await $.clock.now()
   if (!held || held.decision !== null || !held.isAsking) return
+  held.touchedAt = now
   held.reason = cleanReason(value)
   held.decision = 'cancel'
+  await keepStored($)
   $.ui.invalidate('ui.render')
 }
 
-function typeReason($: EngineInterface, value: string) {
+async function typeReason($: EngineInterface, value: string) {
+  const now = await $.clock.now()
   if (!held?.isAsking) return
+  held.touchedAt = now
   held.draft = value
   $.ui.invalidate('ui.render')
 }
@@ -649,6 +695,12 @@ async function saveSetting($: EngineInterface, key: string, value: ConfigValue) 
   const result = await $.config.set({ key: row.key, value })
   note = 'deny' in result && result.deny ? `${MARK.warn} ${result.deny}` : `${MARK.ok} ${fill(text.ui.settingSaved, { label: row.label })}`
   $.ui.invalidate('ui.render')
+}
+
+// The setting's choice as ms: "Off" or anything without a number is never.
+const idleOf = (value: unknown) => {
+  const minutes = Number(/^\d+/.exec(String(value ?? ''))?.[0])
+  return minutes > 0 ? minutes * 60000 : 0
 }
 
 // Judged risky: everything from here to the verdict fails closed. Returns 'run' or a deny.
@@ -682,9 +734,11 @@ async function holdRisky($: EngineInterface, next:{ signal: AbortSignal }, risk:
       // Fire and forget: a refused notification must never touch the hold.
       void Promise.resolve().then(() => $.ui.notify(fill(text.ui.notifyHeld, { command: oneLine(command) }), { title: text.ui.notifyTitle })).catch(() => undefined)
       $.ui.invalidate('ui.render')
-      // No timeout: the hold stays until the person answers, or the turn is interrupted.
+      // The hold stays until the person answers or the turn is interrupted; with an idle timeout set, it also ends once nobody used the card for that long.
+      const shownAt = await $.clock.now()
       while (mine.decision === null) {
         if (next.signal.aborted) mine.decision = 'interrupted'
+        else if (idleMs > 0 && (await $.clock.now()) - (mine.touchedAt ?? shownAt) >= idleMs) mine.decision = 'idle'
         else await pause($)
       }
     }
@@ -705,8 +759,49 @@ async function holdRisky($: EngineInterface, next:{ signal: AbortSignal }, risk:
     if (!isSilent) toast($, text.ui.running)
     return 'run'
   }
+  if (mine.decision === 'idle') {
+    waiting.set(command, { held: mine, answer: null })
+    return { deny: fill(text.deny.idle, { minutes: idleMs / 60000 }) }
+  }
   const why = mine.decision === 'cancel' && mine.reason ? fill(text.refusal.cancelWhy, { said: mine.reason }) : refusal(mine.decision)
   return { deny: fill(text.deny.heldWhy, { why, reason: mine.risk.reason, summary: mine.report?.summary ?? mine.risk.label }) }
+}
+
+// Claude asks again for a command whose card timed out: the answer stored for that exact text applies, once. No answer means a fresh card.
+async function useStored($: EngineInterface, next: { signal: AbortSignal }, command: string): Promise<'run' | { deny: string } | null> {
+  while (held?.isStored && held.command === command) {
+    if (next.signal.aborted) return { deny: fill(text.deny.held, { why: refusal('interrupted') }) }
+    try {
+      await pause($)
+    } catch {
+      return { deny: fill(text.deny.held, { why: refusal('error') }) }
+    }
+  }
+  const entry = waiting.get(command)
+  if (!entry) return null
+  waiting.delete(command)
+  $.ui.invalidate('ui.render')
+  if (!entry.answer) return null
+  if (entry.answer.decision === 'run') {
+    toast($, text.ui.running)
+    return 'run'
+  }
+  const why = entry.answer.reason ? fill(text.refusal.cancelWhy, { said: entry.answer.reason }) : refusal('cancel')
+  return { deny: fill(text.deny.heldWhy, { why, reason: entry.held.risk.reason, summary: entry.held.report?.summary ?? entry.held.risk.label }) }
+}
+
+// Reopens the oldest waiting command's card; its Cancel, Details and Run work as on a live hold, and the answer is kept for Claude's next identical call.
+async function reopenWaiting($: EngineInterface) {
+  const now = await $.clock.now()
+  if (held) {
+    toast($, text.waiting.busy)
+    return
+  }
+  const entry = [...waiting.values()].find(each => !each.answer) ?? [...waiting.values()][0]
+  if (!entry) return
+  const { isAsking, draft, reason, ...rest } = entry.held
+  held = { ...rest, decision: null, isStored: true, isDescribing: false, touchedAt: now }
+  $.ui.invalidate('ui.render')
 }
 
 // Checks that failed, by message: a burst of commands toasts each distinct failure once.
@@ -741,6 +836,8 @@ export const register: Register = (on, options) => {
   isChecksLoaded = false
   isEnabled = options.enabled !== false
   isExplaining = options.explain === true
+  idleMs = idleOf(options.idle)
+  waiting.clear()
   iconMode = (options.icons as IconMode | undefined) ?? 'auto'
   // A forced mode needs no detection; auto loads the saved answer, then checks the terminal font beside the hooks.
   look = lookFor(iconMode === 'nerd')
@@ -771,7 +868,7 @@ export const register: Register = (on, options) => {
     if (!judged.risk) return next(e)
     let outcome: 'run' | { deny: string }
     try {
-      outcome = await holdRisky($, next, judged.risk, judged.command)
+      outcome = (await useStored($, next, judged.command)) ?? (await holdRisky($, next, judged.risk, judged.command))
     } catch {
       outcome = { deny: 'Blast radius hit an error while checking this command and did not run it. Do not retry it unless the person asks you to.' }
     }
@@ -803,6 +900,9 @@ export const register: Register = (on, options) => {
   // /clear ends the session and starts no new one, so the count starts again here.
   on('session.end', async ($, e, next) => {
     if (e.reason === 'clear') keepChecks($, [])
+    waiting.clear()
+    if (held?.isStored) held = null
+    $.ui.invalidate('ui.render')
     return next(e)
   })
 
@@ -994,6 +1094,7 @@ export const register: Register = (on, options) => {
       return next(e)
     }
     const message = e.data as EntryMessage
+    if (message?.type === 'menu-entry' && message.id === WAIT_CHIP) await reopenWaiting($)
     if (message?.type === 'menu-entry') await choose($, message.id)
     // The Details pane's expand control only changes how much of the command it draws; the card's Run and Cancel never read it.
     if (message?.type === 'menu-entry' && message.id === DOES_MORE && held) {
@@ -1016,11 +1117,20 @@ export const register: Register = (on, options) => {
     await loadLook($)
     // @ts-expect-error The host's types omit Client from a Pane's elements, yet a Pane draws it.
     const { Box, Button, Client, Input, Text } = $.ui.resolve(e)
+    // The waiting chip ends the pill row; with labels off, or a row too narrow for the words, it shows the icon and the count only.
+    const chips = [...waiting.values()]
+    const drawRow = async (group: unknown[], row: unknown[], rest: unknown[], tip: unknown) => {
+      const labels = labelsOf(((await $.state.get({ plugin: 'mod-menu', key: 'labels' }).catch(() => undefined)) as { value?: unknown } | undefined)?.value)
+      const draw = (mode: 'full' | 'count') => pillRow({ Box, Client, Text }, look.nerd, group, [...row, waitChip({ Box, Client, Text }, mode, chips.length, (chips.find(each => !each.answer) ?? chips[0]!).held.command)], rest, tip, e.props.bodyColumns)
+      const full = draw(labels === 'never' ? 'count' : 'full')
+      return labels !== 'never' && isChipCut(full) ? draw('count') : full
+    }
     if (!held || !held.report || !held.plain || held.decision !== null) {
-      if (toasts.items.length === 0) return next(e)
+      if (toasts.items.length === 0 && chips.length === 0) return next(e)
       const others = await next(e)
       const { group, row, rest, tip } = splitRow(others)
       const cards = toastCards({ Box, Client, Text }, toasts, look, text.tipToast)
+      if (chips.length > 0) return drawRow(group, row, [...cards, ...rest], hovered?.id && hovered !== bandExpired ? tipLine({ Box, Text }, tipText(hovered)) : tip)
       if (group.length > 0 || row.length > 0) return pillRow({ Box, Client, Text }, look.nerd, group, row, [...cards, ...rest], tip, e.props.bodyColumns)
       return (
         <Box key="toasts-blast" flexDirection="column">
@@ -1034,6 +1144,8 @@ export const register: Register = (on, options) => {
     const tip = hovered?.id && hovered !== bandExpired ? tipLine({ Box, Text }, tipText(hovered)) : menuTip
 
     // While a call is held only the card and the pill row draw, so other rows cannot fill the band and cut the card off.
-    return pillRow({ Box, Client, Text }, look.nerd, group, row, [...cards, holdCard({ Box, Button, Client, Input, Text }, held, e.props.bodyColumns, e.props.maxRows, id => choose($, id), value => typeReason($, value), value => sendReason($, value), sessionCount(checks))], tip, e.props.bodyColumns)
+    const card = holdCard({ Box, Button, Client, Input, Text }, held, e.props.bodyColumns, e.props.maxRows, id => choose($, id), value => typeReason($, value), value => sendReason($, value), sessionCount(checks))
+    if (chips.length > 0) return drawRow(group, row, [...cards, card], tip)
+    return pillRow({ Box, Client, Text }, look.nerd, group, row, [...cards, card], tip, e.props.bodyColumns)
   })
 }

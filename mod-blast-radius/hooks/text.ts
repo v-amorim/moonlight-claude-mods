@@ -46,7 +46,13 @@ export default {
   },
   "deny": {
     "held": "Blast radius held this command and did not run it: {why}. Do not retry it unless the person asks you to.",
-    "heldWhy": "Blast radius held this command and did not run it: {why}. Reason: {reason}. It would have: {summary}. Do not retry it unless the person asks you to."
+    "heldWhy": "Blast radius held this command and did not run it: {why}. Reason: {reason}. It would have: {summary}. Do not retry it unless the person asks you to.",
+    "idle": "Blast radius held this command and the person did not answer for {minutes} minutes. The command did not run. Carry on with any work that does not need it, and ask to run it again after the person's next message."
+  },
+  "waiting": {
+    "approve": { "one": "Approve {n} command", "many": "Approve {n} commands" },
+    "tip": "opens the card for {command} again; your answer applies when Claude asks for it again",
+    "busy": "Answer the card on screen first"
   },
   "atLeast": "at least ",
   "orMore": " or more",
@@ -345,5 +351,5 @@ export default {
   "tipTabDetails": "shows the command held right now",
   "tipTabSettings": "shows this mod's settings",
   "tipToast": {"label":"Dismiss","text":"hides this message"},
-  "settingTips": {"enabled":"risky Bash waits for your choice","explain":"Haiku words the card; off, no call"}
+  "settingTips": {"enabled":"risky Bash waits for your choice","explain":"Haiku words the card; off, no call","idle":"a card nobody answers stops blocking Claude after this long"}
 }
