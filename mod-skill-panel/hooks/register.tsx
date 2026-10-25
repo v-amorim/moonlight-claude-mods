@@ -216,6 +216,20 @@ let hoveredTip: Tip | null = null
 // The toast × under the pointer, shown in the band's tip row.
 let toastTip = ''
 
+// A band redraw can replace a hovered entry, whose leave and quiet timer then never come, so a band tip ends on its own.
+const BAND_TIP_MS = 5000
+let bandTipAt = 0
+
+function expireBandTip($: EngineInterface) {
+  const at = ++bandTipAt
+  $.clock.after(BAND_TIP_MS, () => {
+    if (at !== bandTipAt || (!tipShown && !toastTip)) return
+    tipShown = false
+    toastTip = ''
+    $.ui.invalidate('ui.render')
+  })
+}
+
 const toasts = new ToastList('skills')
 // The animations setting, fixed per activation: off, every entry draws still.
 let still = false
@@ -373,6 +387,7 @@ export const register: Register = (on, options) => {
       const { id, glyph, label, text: tipText } = e.data
       const isToast = Boolean(id?.startsWith('toast-skills-'))
       toastTip = isToast ? `${label}: ${tipText}` : ''
+      if (toastTip) expireBandTip($)
       hoveredTip = !isToast && id && glyph !== undefined && label && tipText ? { glyph, label, text: tipText } : null
       const chip = id?.startsWith('chip:') ? Number(id.slice(5)) : -1
       if (chip >= 0) {
@@ -386,6 +401,7 @@ export const register: Register = (on, options) => {
     const hover = e.data as { type?: string; id?: string; isOver?: boolean }
     if (hover?.type === 'menu-hover' && hover.id === 'skills') {
       tipShown = hover.isOver === true
+      if (tipShown) expireBandTip($)
       $.ui.invalidate('ui.render')
     }
     const message = e.data as EntryMessage

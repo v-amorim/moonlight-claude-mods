@@ -634,6 +634,32 @@ test('the skills status line draws the Nerd mark after a click, like the setting
   await ui.unmount()
 })
 
+test('a band tip whose entry was redrawn while hovered clears after 5 s with no newer hover', async ($, on) => {
+  on('ui.panes', () => ({ value: [] }))
+  on('ui.render', ($$: any, e: any) => {
+    const { Text } = $$.ui.resolve(e)
+    return <Text>other mod</Text>
+  })
+  const clock = mock.clock(on)
+  const band = { plugin: 'mod-skill-panel', surface: 'terminal', component: 'AbovePrompt', props: { hasSurvey: false, isWorking: false, maxRows: 6, bodyColumns: 80, scroll: { offset: 0, bodyRows: 6 }, view: {} } } as const
+  // Live, a band redraw mid-turn replaced the hovered entry, so its own quiet timer, and the leave, never came.
+  const first = await $.ui.mount(band)
+  await pointing(first).pointer({ type: 'move', x: 1, y: 0, in: 'menu-entry-skills' })
+  await first.unmount()
+  // The pill's tip text also sits in the Client props, so only the tip row's Text says whether it shows.
+  const showsNow = async () => {
+    const ui = await $.ui.mount(band)
+    const shown = (await ui.find({ type: 'Text', text: /^ browse your skills/ })) !== undefined
+    await ui.unmount()
+    return shown
+  }
+  expect(await showsNow()).toBe(true)
+  await clock.advance(4000)
+  expect(await showsNow()).toBe(true)
+  await clock.advance(1000)
+  expect(await showsNow()).toBe(false)
+})
+
 test('both panes paint the root bg and keep the footer space from shrinking', async ($, on) => {
   on('config.list', () => ({ value: [] }))
   const ui = await skillsPane($, on)
