@@ -4,7 +4,7 @@ import { expect, mock, test as kitTest } from 'claude-code/testing'
 import { compactNote } from '../hooks/handoff'
 import { latestTitle, lateNext, planNames, remember } from '../hooks/titles'
 import { bytesOf, scanTail, textOf } from '../hooks/tail'
-import { autoPrompt, capWords, clampCompactAt, clampCompactTokens, clampEvery, digest, emptyLedger, flip, isDue, mergeDelta, parseRelated, parseUpdate, normalizeCwd, projectSlug, readLedger, restoreContext, shouldCompact, yieldsToManual } from '../hooks/ledger'
+import { autoPrompt, capWords, clampCompactAt, clampCompactTokens, clampEvery, digest, emptyLedger, flip, isDue, mergeDelta, parseRelated, parseUpdate, normalizeCwd, projectSlug, ledgerMarkdown, readLedger, restoreContext, shouldCompact, yieldsToManual } from '../hooks/ledger'
 
 // Automatic handoff is opt-in, so these tests turn it on unless a test sets its own value.
 const test = ((name: string, first: any, second?: any) => {
@@ -18,6 +18,7 @@ const NONE = { decisions: [], superseded: [], done: [], opened: [] }
 const DIR = `C:/home/.claude/mods-data/mod-wrap-up/${projectSlug('C:/work/proj')}`
 const fileOf = (chain: string) => `${DIR}/ledgers/${chain}.json`
 const LEDGER_FILE = fileOf('s1')
+const MD_FILE = LEDGER_FILE.replace(/.json$/, '.md')
 const BAND = {
   plugin: 'mod-wrap-up',
   surface: 'terminal',
@@ -76,7 +77,7 @@ test('the handoff prompt is built from the ledger plus the turns since the last 
 
 test('the reply parses into a delta and a handoff; a reply with no handoff is none', () => {
   const reply = '```json\n{ "delta": { "goal": " New goal ", "decisions": ["A", ""], "superseded": [{ "id": "d1", "by": "A" }, { "by": "x" }], "opened": ["T"], "done": ["t1"] }, "handoff": " Goal: x\\n\\nNext step: y " }\n```'
-  expect(parseUpdate(reply)).toEqual({ handoff: 'Goal: x\n\nNext step: y', names: { this: '', next: '' }, delta: { goal: 'New goal', runState: undefined, decisions: ['A'], superseded: [{ id: 'd1', by: 'A' }], opened: ['T'], done: ['t1'] } })
+  expect(parseUpdate(reply)).toEqual({ handoff: 'Goal: x\n\nNext step: y', names: { this: '', next: '' }, delta: { goal: 'New goal', runState: undefined, decisions: ['A'], superseded: [{ id: 'd1', by: 'A' }], opened: ['T'], done: ['t1'], problems: [], ideas: [], picks: [] } })
   expect(parseUpdate('{ "delta": {} }')).toBeNull()
   expect(parseUpdate('no json')).toBeNull()
   expect(parseUpdate('{ broken')).toBeNull()
@@ -105,9 +106,115 @@ test('the cap cuts a long handoff to its words, and the settings clamp holds', (
   expect(projectSlug('C:\\Work\\My Proj')).toMatch(/^work-my-proj-[0-9a-f]{8}$/)
 })
 
+const richDelta = {
+  ...NONE,
+  problems: [{ problem: 'Link colour was too dim on the dark theme', fix: 'Use the accent token' }, { problem: 'Retry loop hung', fix: '' }],
+  ideas: [{ text: 'Gradient pill row', status: 'rejected' as const, reason: 'Too busy' }, { text: 'Sound on finish', status: 'parked' as const, reason: '' }],
+  picks: [{ family: 'link-colour', pick: 'link-colour: C' }],
+}
+
+test('problems, ideas and picks merge append-only with ids, dedupe case-insensitively, and a late fix or verdict fills in', () => {
+  let ledger = mergeDelta(seeded(), richDelta, 10)
+  expect(ledger.problems.map(item => `${item.id}:${item.problem}:${item.fix}:${item.at}`)).toEqual(['p1:Link colour was too dim on the dark theme:Use the accent token:10', 'p2:Retry loop hung::10'])
+  expect(ledger.ideas.map(item => `${item.id}:${item.text}:${item.status}`)).toEqual(['i1:Gradient pill row:rejected', 'i2:Sound on finish:parked'])
+  expect(ledger.picks).toEqual([{ id: 'k1', family: 'link-colour', pick: 'link-colour: C', at: 10 }])
+  ledger = mergeDelta(ledger, { ...NONE, problems: [{ problem: 'retry loop HUNG', fix: 'Add a timeout' }, { problem: 'link colour was too dim on the dark theme', fix: 'other' }], ideas: [{ text: 'sound on finish', status: 'rejected', reason: 'Annoying' }], picks: [{ family: 'Link-Colour', pick: 'LINK-COLOUR: c' }, { family: 'pill', pick: 'pill: A' }] }, 11)
+  expect(ledger.problems).toHaveLength(2)
+  expect(ledger.problems[1].fix).toBe('Add a timeout')
+  expect(ledger.problems[0].fix).toBe('Use the accent token')
+  expect(ledger.ideas).toHaveLength(2)
+  expect(ledger.ideas[1]).toMatchObject({ status: 'rejected', reason: 'Annoying', text: 'Sound on finish' })
+  expect(ledger.picks.map(item => item.id)).toEqual(['k1', 'k2'])
+  expect(mergeDelta(ledger, NONE, 12).problems).toEqual(ledger.problems)
+})
+
+test('an old ledger without the new lists reads with empty ones, and a full one reads back unchanged', () => {
+  const old = { ...seeded() } as any
+  delete old.problems
+  delete old.ideas
+  delete old.picks
+  const read = readLedger(JSON.stringify(old))
+  expect(read).toMatchObject({ problems: [], ideas: [], picks: [], version: 1 })
+  const full = mergeDelta(seeded(), richDelta, 10)
+  expect(readLedger(JSON.stringify(full))).toEqual(full)
+  expect(readLedger(JSON.stringify({ ...full, ideas: [{ id: 'i1', text: 'x', status: 'weird' }, { text: 'no id' }, null] }))?.ideas).toEqual([{ id: 'i1', text: 'x', status: 'parked', reason: '', at: 0 }])
+})
+
+test('the reply parses problems, ideas and picks; an idea with an unknown status is parked', () => {
+  const reply = '{ "delta": { "problems": [{ "problem": "P", "fix": "F" }, { "fix": "orphan" }], "ideas": [{ "text": "I", "status": "rejected", "reason": "R" }, { "text": "J", "status": "later" }], "picks": [{ "family": "look", "pick": "look: B" }, { "pick": "x" }] }, "handoff": "h" }'
+  const delta = parseUpdate(reply)!.delta
+  expect(delta.problems).toEqual([{ problem: 'P', fix: 'F' }])
+  expect(delta.ideas).toEqual([{ text: 'I', status: 'rejected', reason: 'R' }, { text: 'J', status: 'parked', reason: '' }])
+  expect(delta.picks).toEqual([{ family: 'look', pick: 'look: B' }])
+})
+
+test('the prompt asks for problems, ideas and verbatim picks and drops decisions and open tasks from the handoff prose', () => {
+  const prompt = autoPrompt(SKILL, 250, mergeDelta(seeded(), richDelta, 10), 'USER: go')
+  expect(prompt).toContain('"problems"')
+  expect(prompt).toContain('"ideas"')
+  expect(prompt).toContain('"picks"')
+  expect(prompt).toMatch(/verbatim/)
+  expect(prompt).toMatch(/never invent/i)
+  expect(prompt).toContain('Gradient pill row')
+  expect(prompt).toMatch(/leave the Decisions and Open tasks sections out/)
+})
+
+test('the markdown twin has its sections in order, one id-prefixed line per item, live decisions first and superseded after', () => {
+  let ledger = mergeDelta(seeded(), { ...richDelta, runState: 'plan at /w/plan.md', decisions: ['Use UUID v7 ids'], opened: ['Port the schema'], superseded: [{ id: 'd1', by: 'Use CockroachDB' }] }, 10)
+  ledger = mergeDelta(ledger, { ...NONE, done: ['t1'] }, 11)
+  ledger = { ...ledger, goal: 'Ship the API', sessions: ['s1', 's2'] }
+  const md = ledgerMarkdown(ledger)
+  const heads = ['Goal', 'Run state', 'Open tasks', 'Decisions', 'Problems and fixes', 'Ideas parked or rejected', 'Picks', 'Done tasks', 'Sessions'].map(name => md.indexOf(`## ${name}`))
+  expect(heads.every(at => at >= 0)).toBe(true)
+  expect([...heads].sort((a, b) => a - b)).toEqual(heads)
+  expect(md).toContain('- t2 Port the schema')
+  expect(md).toContain('- t1 Write the schema')
+  expect(md).toContain('- d2 Use UUID v7 ids')
+  expect(md).toMatch(/d1 .*Use PostgreSQL, not MySQL.*Use CockroachDB/)
+  expect(md.indexOf('- d2 ')).toBeLessThan(md.indexOf('- d1 '))
+  expect(md).toContain('- p1 Link colour was too dim on the dark theme | fix: Use the accent token')
+  expect(md).toContain('- p2 Retry loop hung | fix: open')
+  expect(md).toContain('- i1 rejected: Gradient pill row | reason: Too busy')
+  expect(md).toContain('- k1 link-colour: C')
+  expect(md).toContain('s1, s2')
+  expect(ledgerMarkdown(emptyLedger(1, 's1'))).toContain('## Picks\nnone')
+})
+
+const wordsOf = (text: string) => text.split(/\s+/).filter(Boolean).length
+
+test('the restore inlines open tasks and live decisions, counts the rest, points at the md and says the ledger wins', () => {
+  let ledger = mergeDelta(seeded(), { ...richDelta, decisions: ['Use UUID v7 ids'], opened: ['Port the schema'], superseded: [{ id: 'd1', by: 'Use UUID v7 ids' }] }, 10)
+  ledger = mergeDelta(ledger, { ...NONE, done: ['t1'] }, 11)
+  const context = restoreContext(ledger, '/d/ledger.md')
+  expect(context).toContain('HANDOFF-ONE: orders API on PostgreSQL')
+  expect(context).toContain('- t2 Port the schema')
+  expect(context).not.toContain('t1 Write the schema')
+  expect(context).toContain('- d2 Use UUID v7 ids')
+  expect(context).not.toContain('Use PostgreSQL, not MySQL')
+  expect(context).not.toContain('Link colour was too dim')
+  expect(context).toContain('2 problems, 2 ideas, 1 pick')
+  expect(context).toContain('Read /d/ledger.md before proposing an option, changing a look, retrying a fix, or answering what is next.')
+  expect(context).toMatch(/ledger beats this handoff/)
+  expect(context).not.toMatch(/ignore|disregard|override/i)
+})
+
+test('the restore caps the inlined lists near 700 words and lists the rest by id', () => {
+  const filler = (n: number) => `item ${n} ${'word '.repeat(48)}`.trim()
+  const ledger = mergeDelta(emptyLedger(1, 's1'), { ...NONE, opened: Array.from({ length: 12 }, (_, n) => filler(n)), decisions: Array.from({ length: 12 }, (_, n) => filler(n + 100)) }, 2)
+  const context = restoreContext({ ...ledger, handoff: 'H' }, '/d/ledger.md')
+  const shown = context.split('\n').filter(line => /^- [td]\d+ /.test(line))
+  expect(shown.length).toBeLessThan(24)
+  expect(shown.length).toBeGreaterThan(8)
+  expect(wordsOf(shown.join(' '))).toBeLessThanOrEqual(700 + shown.length)
+  const rest = /By id only, text in \/d\/ledger\.md: ([^\n]+)/.exec(context)![1]
+  expect(rest.split(', ').length + shown.length).toBe(24)
+  expect(rest).toContain('d12')
+  expect(restoreContext({ ...emptyLedger(1, 's1'), handoff: 'H' }, '/d/ledger.md')).not.toContain('By id only')
+})
+
 test('the restore reads as facts with the ledger path', () => {
-  const context = restoreContext('HANDOFF', '/d/ledger.json')
-  expect(context).toContain('The full ledger is at /d/ledger.json; read it before acting on older decisions.')
+  const context = restoreContext(seeded(), '/d/ledger.md')
+  expect(context).toContain('/d/ledger.md')
   expect(context).not.toMatch(/ignore|disregard|override/i)
   expect(compactNote([], [], { files: true, decisions: true, tasks: true, errors: false }, '/d/ledger.json')).toContain('The full ledger is at /d/ledger.json.')
   expect(compactNote([], [], { files: false, decisions: false, tasks: false, errors: false })).toBe('')
@@ -337,7 +444,7 @@ test('the countdown ending updates a stale ledger first, then clears once and ke
   expect(w.prompts).toHaveLength(2)
   expect(w.prompts[1].prompt).toContain('one more thing')
   expect(w.clears).toEqual(['clear'])
-  expect([...w.files.keys()].filter(path => path.includes('/ledgers/'))).toEqual([LEDGER_FILE])
+  expect([...w.files.keys()].filter(path => path.includes('/ledgers/'))).toEqual([LEDGER_FILE, MD_FILE])
   expect(saved(w).sessions).toEqual(['s1', 's2'])
   await band.unmount()
 })
@@ -358,7 +465,7 @@ test('after the clear, an open task submits one continue prompt carrying the han
   expect(w.submittedText).toHaveLength(1)
   expect(w.submittedText[0]).toContain('Continue the open task')
   expect(w.submittedText[0]).toContain('HANDOFF-TWO')
-  expect(w.submittedText[0]).toContain(`The full ledger is at ${LEDGER_FILE}`)
+  expect(w.submittedText[0]).toContain(`Read ${MD_FILE} before proposing an option`)
   expect(w.filled).toEqual([])
   await $.prompt.submit({ text: 'and add a cache', wait: false, origin: COMPOSER } as never)
   expect(w.prompts.filter(item => item.system.includes('compare'))).toHaveLength(0)
@@ -587,7 +694,7 @@ test('a compaction hands the ledger\'s handoff to the next prompt, with no model
   await compacted($, w)
   await $.prompt.submit({ text: 'go on', wait: false, origin: COMPOSER } as never)
   expect(w.submitted[0]?.[0]).toContain('HANDOFF-ONE: orders API on PostgreSQL')
-  expect(w.submitted[0]?.[0]).toContain(LEDGER_FILE)
+  expect(w.submitted[0]?.[0]).toContain(MD_FILE)
   expect(w.prompts).toHaveLength(0)
 })
 
@@ -597,7 +704,9 @@ test('the next prompt after a compaction carries the handoff and the ledger path
   await $.prompt.submit({ text: 'go on', wait: false, origin: COMPOSER } as never)
   await $.prompt.submit({ text: 'and again', wait: false, origin: COMPOSER } as never)
   expect(w.submitted[0]?.[0]).toContain('HANDOFF-ONE')
-  expect(w.submitted[0]?.[0]).toContain(`The full ledger is at ${LEDGER_FILE}; read it before acting on older decisions.`)
+  expect(w.submitted[0]?.[0]).toContain(`Read ${MD_FILE} before proposing an option`)
+  expect(w.submitted[0]?.[0]).toContain('- t1 Write the schema')
+  expect(w.submitted[0]?.[0]).toContain('- d1 Use PostgreSQL, not MySQL')
   expect(w.submitted[1]).toBeUndefined()
 })
 
@@ -614,7 +723,7 @@ test('compactions in a row each carry every decision the ledger holds', async ($
   const texts = saved(w).decisions.map(item => item.text)
   expect(texts).toEqual(['Use PostgreSQL, not MySQL', 'Decision 1', 'Decision 2', 'Decision 3'])
   expect(w.submitted).toHaveLength(3)
-  expect(w.submitted.every(context => context?.[0]?.includes(LEDGER_FILE))).toBe(true)
+  expect(w.submitted.every(context => context?.[0]?.includes(MD_FILE))).toBe(true)
 })
 
 test('after a clear, a related first prompt carries the handoff and shows Carried over with a switch to start fresh', { options: { icons: 'safe' } }, async ($, on) => {
@@ -628,7 +737,7 @@ test('after a clear, a related first prompt carries the handoff and shows Carrie
   expect(w.submitted[1]?.[0]).toContain('HANDOFF-ONE')
   const band = await $.ui.mount(BAND as never)
   expect(await band.find({ type: 'Text', text: 'Carried over: Build the orders API' })).toBeDefined()
-  expect(w.files.size).toBe(1)
+  expect(w.files.size).toBe(2)
   expect(saved(w).sessions).toEqual(['s1', 's2'])
   await band.pointer({ type: 'down', x: 1, y: 0, button: 'left', in: 'wrap-up-switch' } as never)
   expect(await band.find({ type: 'Text', text: 'Fresh start' })).toBeDefined()
@@ -724,7 +833,7 @@ test('a manual handoff just filled makes the automatic restore step aside', asyn
   await band.pointer({ type: 'down', x: 12, y: 0, button: 'left', in: 'wrap-up-entry' } as never)
   await band.pointer({ type: 'down', x: 1, y: 0, button: 'left', in: 'wrap-up-go' } as never)
   expect(w.forks).toHaveLength(1)
-  expect(w.forks[0]).toContain(`This session's ledger file is ${LEDGER_FILE}.`)
+  expect(w.forks[0]).toContain(`This session's ledger file is ${MD_FILE}.`)
   await $.session.end({ reason: 'clear', sessionId: 's1', resume: {} } as never)
   w.flags.id = 's2'
   await w.clock.advance(400)
@@ -820,7 +929,7 @@ test('the restore waits for a person\'s prompt: a prompt inside a turn or from a
   expect(w.submitted[1]).toBeUndefined()
   await $.prompt.submit({ text: 'go on', wait: false, origin: COMPOSER } as never)
   expect(w.submitted[2]?.[0]).toContain('HANDOFF-ONE')
-  expect(w.submitted[2]?.[0]).toContain(`The full ledger is at ${LEDGER_FILE}`)
+  expect(w.submitted[2]?.[0]).toContain(`Read ${MD_FILE} before proposing an option`)
 })
 
 test('a second compaction restores again; two prompts between them carry once', async ($, on) => {

@@ -4,6 +4,9 @@ import { NAMES_RULE, parseNames, sessionName, skillBody, type Names } from './ha
 
 export type LedgerDecision = { id: string; text: string; at: number; supersededBy?: string }
 export type LedgerTask = { id: string; text: string; status: 'open' | 'done'; at: number }
+export type LedgerProblem = { id: string; problem: string; fix: string; at: number }
+export type LedgerIdea = { id: string; text: string; status: 'parked' | 'rejected'; reason: string; at: number }
+export type LedgerPick = { id: string; family: string; pick: string; at: number }
 
 export type Ledger = {
   version: 1
@@ -11,6 +14,9 @@ export type Ledger = {
   runState: string
   decisions: LedgerDecision[]
   tasks: LedgerTask[]
+  problems: LedgerProblem[]
+  ideas: LedgerIdea[]
+  picks: LedgerPick[]
   handoff: string
   handoffAt: number
   // The /rename names the automatic handoff gives the session it leaves and the fresh one.
@@ -20,16 +26,30 @@ export type Ledger = {
   updatedAt: number
 }
 
-// What one update adds. Decisions and tasks are only ever added; done and superseded are marks on what exists.
-export type Delta = { goal?: string; runState?: string; decisions: string[]; superseded: { id: string; by: string }[]; done: string[]; opened: string[] }
+// What one update adds. Everything is only ever added; done and superseded are marks on what exists.
+export type Delta = {
+  goal?: string
+  runState?: string
+  decisions: string[]
+  superseded: { id: string; by: string }[]
+  done: string[]
+  opened: string[]
+  problems?: { problem: string; fix: string }[]
+  ideas?: { text: string; status: 'parked' | 'rejected'; reason: string }[]
+  picks?: { family: string; pick: string }[]
+}
 
-export const emptyLedger = (now: number, sessionId: string): Ledger => ({ version: 1, goal: '', runState: '', decisions: [], tasks: [], handoff: '', handoffAt: 0, names: { this: '', next: '' }, sessions: sessionId ? [sessionId] : [], startedAt: now, updatedAt: now })
+export const emptyLedger = (now: number, sessionId: string): Ledger => ({ version: 1, goal: '', runState: '', decisions: [], tasks: [], problems: [], ideas: [], picks: [], handoff: '', handoffAt: 0, names: { this: '', next: '' }, sessions: sessionId ? [sessionId] : [], startedAt: now, updatedAt: now })
 
 const MAX_TEXT = 400
 
 const clean = (value: unknown) => (typeof value === 'string' ? value.replace(/\s+/g, ' ').trim().slice(0, MAX_TEXT) : '')
 
 const list = (value: unknown) => (Array.isArray(value) ? value.map(clean).filter(Boolean) : [])
+
+// Old ledgers lack these lists; an item with no id or no key text is dropped.
+const rows = (value: unknown, key: (item: any) => string, shape: (item: any) => object): any[] =>
+  Array.isArray(value) ? value.filter((item: any) => item && typeof item.id === 'string' && key(item)).map((item: any) => ({ id: item.id, ...shape(item), at: Number(item.at) || 0 })) : []
 
 export function readLedger(raw: unknown): Ledger | null {
   let data: any = raw
@@ -48,6 +68,9 @@ export function readLedger(raw: unknown): Ledger | null {
     runState: clean(data.runState),
     decisions: data.decisions.filter((item: any) => item && clean(item.text) && typeof item.id === 'string').map((item: any) => ({ id: item.id, text: clean(item.text), at: Number(item.at) || 0, ...(clean(item.supersededBy) ? { supersededBy: clean(item.supersededBy) } : {}) })),
     tasks: data.tasks.filter((item: any) => item && clean(item.text) && typeof item.id === 'string').map((item: any) => ({ id: item.id, text: clean(item.text), status: item.status === 'done' ? 'done' : 'open', at: Number(item.at) || 0 })),
+    problems: rows(data.problems, item => clean(item.problem), item => ({ problem: clean(item.problem), fix: clean(item.fix) })),
+    ideas: rows(data.ideas, item => clean(item.text), item => ({ text: clean(item.text), status: item.status === 'rejected' ? 'rejected' : 'parked', reason: clean(item.reason) })),
+    picks: rows(data.picks, item => clean(item.family) && clean(item.pick), item => ({ family: clean(item.family), pick: clean(item.pick) })),
     handoff: typeof data.handoff === 'string' ? data.handoff : '',
     handoffAt: Number(data.handoffAt) || 0,
     names: { this: sessionName(data.names?.this), next: sessionName(data.names?.next) },
@@ -76,12 +99,28 @@ export function mergeDelta(ledger: Ledger, delta: Delta, now: number): Ledger {
     const target = tasks.find(item => item.id === id)
     if (target) target.status = 'done'
   }
-  return { ...ledger, goal: delta.goal || ledger.goal, runState: delta.runState || ledger.runState, decisions, tasks, updatedAt: now }
+  const problems = ledger.problems.map(item => ({ ...item }))
+  for (const { problem, fix } of delta.problems ?? []) {
+    const found = problems.find(item => same(item.problem, problem))
+    if (!found) problems.push({ id: `p${problems.length + 1}`, problem, fix, at: now })
+    else if (!found.fix && fix) found.fix = fix
+  }
+  const ideas = ledger.ideas.map(item => ({ ...item }))
+  for (const { text, status, reason } of delta.ideas ?? []) {
+    const found = ideas.find(item => same(item.text, text))
+    if (!found) ideas.push({ id: `i${ideas.length + 1}`, text, status, reason, at: now })
+    else if (found.status !== status) Object.assign(found, { status, reason: reason || found.reason })
+  }
+  const picks = ledger.picks.map(item => ({ ...item }))
+  for (const { family, pick } of delta.picks ?? []) {
+    if (!picks.some(item => same(item.family, family) && same(item.pick, pick))) picks.push({ id: `k${picks.length + 1}`, family, pick, at: now })
+  }
+  return { ...ledger, goal: delta.goal || ledger.goal, runState: delta.runState || ledger.runState, decisions, tasks, problems, ideas, picks, updatedAt: now }
 }
 
 // The ledger as the model reads it: the record only, never the previous handoff text, so a handoff is never a rewrite of a handoff.
 export const digest = (ledger: Ledger) =>
-  JSON.stringify({ goal: ledger.goal, runState: ledger.runState, decisions: ledger.decisions.map(({ id, text, supersededBy }) => ({ id, text, ...(supersededBy ? { supersededBy } : {}) })), tasks: ledger.tasks.map(({ id, text, status }) => ({ id, text, status })) }, null, 1)
+  JSON.stringify({ goal: ledger.goal, runState: ledger.runState, decisions: ledger.decisions.map(({ id, text, supersededBy }) => ({ id, text, ...(supersededBy ? { supersededBy } : {}) })), tasks: ledger.tasks.map(({ id, text, status }) => ({ id, text, status })), problems: ledger.problems.map(({ id, problem, fix }) => ({ id, problem, fix })), ideas: ledger.ideas.map(({ id, text, status, reason }) => ({ id, text, status, reason })), picks: ledger.picks.map(({ id, family, pick }) => ({ id, family, pick })) }, null, 1)
 
 export const AUTO_SYSTEM = [
   'You keep the record of a coding session and write its handoff.',
@@ -90,7 +129,7 @@ export const AUTO_SYSTEM = [
 ].join(' ')
 
 const SCHEMA = [
-  '{ "delta": { "goal": "only if it changed, else leave out", "runState": "only if it changed, else leave out", "decisions": ["each new decision, with its reason"], "superseded": [ { "id": "an id from the ledger", "by": "the decision that replaces it" } ], "opened": ["each new task"], "done": ["ids of ledger tasks now finished"] }, "handoff": "the handoff text", "names": { "this": "name for this session", "next": "name for the next session" } }',
+  '{ "delta": { "goal": "only if it changed, else leave out", "runState": "only if it changed, else leave out", "decisions": ["each new decision, with its reason"], "superseded": [ { "id": "an id from the ledger", "by": "the decision that replaces it" } ], "opened": ["each new task"], "done": ["ids of ledger tasks now finished"], "problems": [ { "problem": "what broke or what the assistant got wrong", "fix": "the fix or lesson, empty while open" } ], "ideas": [ { "text": "an option weighed and not taken", "status": "parked or rejected", "reason": "why" } ], "picks": [ { "family": "the pick board family", "pick": "the pick line, verbatim" } ] }, "handoff": "the handoff text", "names": { "this": "name for this session", "next": "name for the next session" } }',
 ].join('\n')
 
 // Ledger plus the turns since the last handoff; the skill's template shapes the handoff field.
@@ -99,8 +138,9 @@ export const autoPrompt = (skillText: string, words: number, ledger: Ledger, tur
     `<ledger>\n${digest(ledger)}\n</ledger>`,
     `<turns>\n${turns}\n</turns>`,
     '',
-    'First list what the turns changed in the ledger: new decisions, decisions they replace, tasks opened or finished, and the goal or run state if either moved. Leave the ledger alone where the turns say nothing.',
-    `Then write the handoff for the whole session from the ledger and the turns, in the "handoff" field. Follow this template and these rules, except for the reply format, which is the JSON below. The cap is ${words} words, which replaces any other cap.`,
+    'First list what the turns changed in the ledger: new decisions, decisions they replace, tasks opened or finished, problems faced and their fix or lesson (what broke, what the assistant got wrong), ideas parked or rejected, pick-board results, and the goal or run state if either moved. Leave the ledger alone where the turns say nothing.',
+    'For a pick, copy the pick line verbatim from the turns (for example "link-colour: C") and never invent one; leave "picks" empty when the turns quote none. A problem or idea already in the ledger is not listed again, except a problem whose fix is now known.',
+    `Then write the handoff for the whole session from the ledger and the turns, in the "handoff" field. The restore message inlines the ledger's open tasks and live decisions, so leave the Decisions and Open tasks sections out of the handoff and spend its words on current state, run state and what is mid-flight. Follow this template and these rules otherwise, except for the reply format, which is the JSON below. The cap is ${words} words, which replaces any other cap.`,
     `Last, ${NAMES_RULE} Put them in the "names" field.`,
     '',
     skillBody(skillText),
@@ -125,7 +165,11 @@ export function parseUpdate(reply: string): Update | null {
   if (!handoff) return null
   const delta = raw?.delta ?? {}
   const superseded = (Array.isArray(delta.superseded) ? delta.superseded : []).map((item: any) => ({ id: clean(item?.id), by: clean(item?.by) })).filter((item: { id: string }) => item.id)
-  return { handoff, names: parseNames(reply), delta: { goal: clean(delta.goal) || undefined, runState: clean(delta.runState) || undefined, decisions: list(delta.decisions), superseded, done: list(delta.done), opened: list(delta.opened) } }
+  const each = (value: unknown): any[] => (Array.isArray(value) ? value.filter(item => item && typeof item === 'object') : [])
+  const problems = each(delta.problems).map(item => ({ problem: clean(item.problem), fix: clean(item.fix) })).filter(item => item.problem)
+  const ideas = each(delta.ideas).map(item => ({ text: clean(item.text), status: item.status === 'rejected' ? ('rejected' as const) : ('parked' as const), reason: clean(item.reason) })).filter(item => item.text)
+  const picks = each(delta.picks).map(item => ({ family: clean(item.family), pick: clean(item.pick) })).filter(item => item.family && item.pick)
+  return { handoff, names: parseNames(reply), delta: { goal: clean(delta.goal) || undefined, runState: clean(delta.runState) || undefined, decisions: list(delta.decisions), superseded, done: list(delta.done), opened: list(delta.opened), problems, ideas, picks } }
 }
 
 export function capWords(handoff: string, words: number) {
@@ -195,9 +239,62 @@ export const projectSlug = (cwd: string) => {
   return `${tail || 'project'}-${hashOf(path)}`
 }
 
-// What the next prompt carries after a compaction or a carried clear, stated as facts.
-export const restoreContext = (handoff: string, ledgerPath: string) =>
-  `Earlier in this work, a handoff was written:\n${handoff}\nThe full ledger is at ${ledgerPath}; read it before acting on older decisions.`
+const lines = (items: string[]) => (items.length ? items.map(line => `- ${line}`).join('\n') : 'none')
+
+const liveDecisions = (ledger: Ledger) => ledger.decisions.filter(item => !item.supersededBy)
+
+// The ledger as a file for the model to read: deterministic, one id-prefixed line per item, never the handoff prose.
+export function ledgerMarkdown(ledger: Ledger) {
+  const decisions = liveDecisions(ledger).map(item => `${item.id} ${item.text}`)
+  const replaced = ledger.decisions.filter(item => item.supersededBy).map(item => `${item.id} superseded: ${item.text} | replaced by: ${item.supersededBy}`)
+  return [
+    `## Goal\n${ledger.goal || 'none'}`,
+    `## Run state\n${ledger.runState || 'none'}`,
+    `## Open tasks\n${lines(ledger.tasks.filter(item => item.status === 'open').map(item => `${item.id} ${item.text}`))}`,
+    `## Decisions\n${lines([...decisions, ...replaced])}`,
+    `## Problems and fixes\n${lines(ledger.problems.map(item => `${item.id} ${item.problem} | fix: ${item.fix || 'open'}`))}`,
+    `## Ideas parked or rejected\n${lines(ledger.ideas.map(item => `${item.id} ${item.status}: ${item.text} | reason: ${item.reason || 'none'}`))}`,
+    `## Picks\n${lines(ledger.picks.map(item => `${item.id} ${item.pick}`))}`,
+    `## Done tasks\n${lines(ledger.tasks.filter(item => item.status === 'done').map(item => `${item.id} ${item.text}`))}`,
+    `## Sessions\n${ledger.sessions.join(', ') || 'none'}`,
+  ].join('\n\n') + '\n'
+}
+
+export const RESTORE_WORDS = 700
+
+const wordCount = (line: string) => line.split(/\s+/).filter(Boolean).length
+
+const plural = (count: number, noun: string) => `${count} ${noun}${count === 1 ? '' : 's'}`
+
+// What the next prompt carries after a compaction or a carried clear, stated as facts: the handoff, then open tasks and live decisions inlined up to a word cap.
+export function restoreContext(ledger: Ledger, mdPath: string, cap = RESTORE_WORDS) {
+  const skipped: string[] = []
+  let used = 0
+  // Once one item misses the cap every later one goes by id, so the shown lines are always a prefix.
+  const take = (items: { id: string; text: string }[]) => {
+    const shown: string[] = []
+    for (const item of items) {
+      const line = `- ${item.id} ${item.text}`
+      if (skipped.length || used + wordCount(line) > cap) skipped.push(item.id)
+      else {
+        used += wordCount(line)
+        shown.push(line)
+      }
+    }
+    return items.length ? shown.join('\n') || '(by id below)' : 'none'
+  }
+  const taskLines = take(ledger.tasks.filter(item => item.status === 'open'))
+  const decisionLines = take(liveDecisions(ledger))
+  return [
+    `Earlier in this work, a handoff was written:\n${ledger.handoff}`,
+    `Open tasks, from the ledger:\n${taskLines}`,
+    `Decisions in force, from the ledger:\n${decisionLines}`,
+    skipped.length ? `By id only, text in ${mdPath}: ${skipped.join(', ')}` : '',
+    `The ledger also holds ${plural(ledger.problems.length, 'problem')}, ${plural(ledger.ideas.length, 'idea')}, ${plural(ledger.picks.length, 'pick')}, not shown here. Read ${mdPath} before proposing an option, changing a look, retrying a fix, or answering what is next. The ledger beats this handoff when they disagree.`,
+  ]
+    .filter(Boolean)
+    .join('\n\n')
+}
 
 // The restore steps aside while a handoff the person just made is still filling the prompt.
 export const MANUAL_WINDOW_MS = 120_000

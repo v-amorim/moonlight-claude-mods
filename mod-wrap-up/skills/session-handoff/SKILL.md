@@ -27,7 +27,7 @@ Continuing from a previous session. Read this, then act on "Next step".
 
 **Goal:** one or two sentences on what the user is trying to achieve.
 
-**Decisions:** bullets of choices already made and why, so the next session does not reopen them.
+**Decisions:** bullets of choices already made and why, so the next session does not reopen them. Leave this section out when the run says the ledger carries decisions.
 
 **Current state:** what works, what is broken, what is half done.
 
@@ -35,6 +35,6 @@ Continuing from a previous session. Read this, then act on "Next step".
 
 **Run state:** absolute paths of any plan, progress, ledger or checklist file this session works from, plus any id needed to resume it. When the run names this session's ledger file, list it first. `none` when there is no such file.
 
-**Open tasks:** bullets, in priority order.
+**Open tasks:** bullets, in priority order. Leave this section out when the run says the ledger carries open tasks; spend those words on current state, run state and what is mid-flight.
 
 **Next step:** the single action to take first.

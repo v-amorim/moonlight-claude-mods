@@ -2,7 +2,7 @@
 // Registers the wrap-up pill, commands, settings pane and handoff or compact actions with the engine.
 import type { ConfigValue, EngineInterface, ModelCompleteRequest, ModelCompleteResult, ModelForkResult, Register, RenderElement } from 'claude-code'
 
-import { AUTO_SYSTEM, autoPrompt, capWords, clampCompactAt, clampCompactTokens, clampEvery, emptyLedger, flip, isDue, mergeDelta, parseRelated, parseUpdate, projectSlug, readLedger, RELATED_SYSTEM, relatedPrompt, restoreContext, shortGoal, shouldCompact, yieldsToManual, type Carry, type CompactMarks, type Ledger } from './ledger'
+import { AUTO_SYSTEM, autoPrompt, capWords, clampCompactAt, clampCompactTokens, clampEvery, emptyLedger, flip, isDue, ledgerMarkdown, mergeDelta, parseRelated, parseUpdate, projectSlug, readLedger, RELATED_SYSTEM, relatedPrompt, restoreContext, shortGoal, shouldCompact, yieldsToManual, type Carry, type CompactMarks, type Ledger } from './ledger'
 import { ALSO_KEEP, buildPrompt, clampWords, compactNote, FORK_FAILURES, isFresh, parseNames, parseThreads, scopeNote, threadsPrompt, THREADS_SYSTEM, transcriptText, type AlsoId, type Names, type Thread } from './handoff'
 import { cardFill, detectNerd, FOOTER_ROWS, lookFor, paneFooter, sepText, subpill, titleEdge, type IconMode, withMark } from './look'
 import { isTipMessage, tipText, type EntryMessage, type EntryProps, type Tip, type TipMessage } from './entry'
@@ -452,7 +452,7 @@ async function ledgerDir($: EngineInterface) {
 
 async function ledgerFile($: EngineInterface) {
   const dir = await ledgerDir($)
-  if (dir) ledgerPath = fileOf(dir)
+  if (dir) ledgerPath = mdOf(dir)
   return ledgerPath
 }
 
@@ -461,7 +461,13 @@ const fileOf = (dir: string, of = chain) => `${dir}/ledgers/${of}.json`
 
 const loadLedger = async ($: EngineInterface, dir: string, of = chain) => readLedger(await $.fs.read(fileOf(dir, of)).then(String).catch(() => ''))
 
-const saveLedger = ($: EngineInterface, dir: string, ledger: Ledger, of = chain) => $.fs.write(fileOf(dir, of), JSON.stringify(ledger, null, 1))
+// The markdown twin is what the model reads; the JSON stays the source of truth for merging.
+const mdOf = (dir: string, of = chain) => fileOf(dir, of).replace(/\.json$/, '.md')
+
+async function saveLedger($: EngineInterface, dir: string, ledger: Ledger, of = chain) {
+  await $.fs.write(fileOf(dir, of), JSON.stringify(ledger, null, 1))
+  await $.fs.write(mdOf(dir, of), ledgerMarkdown(ledger))
+}
 
 const withSession = (ledger: Ledger, id: string) => ({ ...ledger, sessions: ledger.sessions.includes(id) ? ledger.sessions : [...ledger.sessions, id] })
 
@@ -562,7 +568,7 @@ async function handOffAtMark($: EngineInterface, token: number) {
       $.ui.toast(text.auto.noHandoff)
       return
     }
-    const carried = restoreContext(ledger.handoff, fileOf(dir))
+    const carried = restoreContext(ledger, mdOf(dir))
     const hasOpenTask = ledger.tasks.some(task => task.status === 'open')
     stopCountdown($)
     carriedAt = await $.clock.now()
@@ -616,7 +622,7 @@ async function runAuto($: EngineInterface) {
 async function restoreFrom($: EngineInterface) {
   const dir = await ledgerDir($)
   const ledger = dir ? await loadLedger($, dir) : null
-  return ledger?.handoff ? restoreContext(ledger.handoff, fileOf(dir)) : ''
+  return ledger?.handoff ? restoreContext(ledger, mdOf(dir)) : ''
 }
 
 function showChoice($: EngineInterface, carry: Carry, goal: string, link: Link = NO_LINK) {
@@ -645,7 +651,7 @@ async function decideAfterClear($: EngineInterface, prompt: string) {
     await keepApplied($, [plan.next])
     if (plan.next) $.clock.after(0, () => void rename($, plan.next, text.renameFailed))
     showChoice($, 'carried', ledger.goal, { previous: plan.oldOwn, current: plan.nextOwn })
-    return ledger.handoff ? restoreContext(ledger.handoff, fileOf(dir)) : ''
+    return ledger.handoff ? restoreContext(ledger, mdOf(dir)) : ''
   }
   held = chain
   chain = id

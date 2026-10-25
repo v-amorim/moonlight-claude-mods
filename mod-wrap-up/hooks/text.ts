@@ -2,7 +2,7 @@
 // Every string this mod shows. Edit the values to reword or translate; keep the keys and the {slots}.
 export default {
   "label": "Wrap up",
-  "paneName": "mod-wrap-up",
+  "paneName": "Wrap up",
   "paneSettings": "Settings",
   "commandDescription": "Pick what carries over, then hand off to a fresh session; `compact` fills a /compact instead, `settings` opens its settings panel",
   "settingsWaiting": "Wrap up settings waiting: {reason}",
