@@ -6,7 +6,8 @@ import Chips from '../hooks/chips'
 import Copy from '../hooks/copy'
 import Dot from '../hooks/dot'
 import Fold from '../hooks/fold'
-import { mix, THEME } from '../hooks/theme'
+import { shownWidth } from '../hooks/prose'
+import { CAPS, mix, SYNTAX, THEME } from '../hooks/theme'
 import { feed, reading, sessionStarted } from './bridge-feed'
 
 const ID = (n: number) => `${String(n).padStart(8, '0')}-0000-4000-8000-000000000000`
@@ -40,24 +41,44 @@ const TWO_TURNS = [
 ].join('\n') + '\n'
 
 // Mounts rows the way the engine draws them, once the transcript `text` is read.
-async function open($: any, on: any, text = '', reads: () => string = () => text) {
+// `files` are the paths that exist under the session folder /w and home /home; any other path there is missing, as a reply's path usually is.
+async function open($: any, on: any, text = '', reads: () => string = () => text, editor: Record<string, string> = {}, files: string[] = []) {
   on('store.get', () => ({ value: undefined }))
   on('store.set', () => ({ value: undefined }))
   on('session.id', () => ({ value: 's1' }))
-  on('fs.stat', () => ({ value: { kind: 'file', size: text.length, mtimeMs: 0, isLink: false } }))
-  on('fs.read', reading(() => ({ value: reads() })))
+  on('fs.stat', (_$: unknown, e: { path: string }) => {
+    // Windows puts a drive in front of the path the mod asked for.
+    const path = String(e.path).replace(/\\/g, '/').replace(/^[A-Za-z]:/, '')
+    if (/^\/(w|home)\//.test(path) && !files.includes(path)) throw new Error('ENOENT')
+    return { value: { kind: 'file', size: text.length, mtimeMs: 0, isLink: false } }
+  })
+  // `editor` holds the files of a VS Code install, by path; any other path reads as the transcript.
+  const inEditor = (path: string) => Object.keys(editor).find(file => String(path).replace(/\\/g, '/').endsWith(file))
+  on('fs.read', reading((_$: unknown, e: { path: string }) => ({ value: inEditor(e.path) ? editor[inEditor(e.path)!]! : reads() })))
+  if (Object.keys(editor).length) {
+    on('fs.list', (_$: unknown, e: { path: string }) => {
+      const base = String(e.path).replace(/\\/g, '/').replace(/^[A-Za-z]:/, '')
+      const names = Object.keys(editor).filter(file => file.startsWith(`${base}/`)).map(file => file.slice(base.length + 1).split('/')[0]!)
+      if (!names.length) throw new Error('missing')
+      return { value: [...new Set(names)].map(name => ({ name, kind: 'dir', size: 0, mtimeMs: 0, isLink: false })) }
+    })
+  }
   const clock = mock.clock(on)
   on('session.start', () => ({ cwd: '/w' }))
-  mock.env(on, { USERPROFILE: '/home' })
+  on('session.cwd', () => ({ value: '/w' }))
+  // What each component's `ui.resolve` gave for Link when it drew.
+  const linked: Record<string, string> = {}
+  mock.env(on, { USERPROFILE: '/home', APPDATA: '/home/AppData/Roaming' })
   on('ui.render', ($$: any, e: any) => {
-    const { Text } = $$.ui.resolve(e)
+    const { Text, Link } = $$.ui.resolve(e)
+    linked[e.component] = typeof Link
     return <Text>{`base ${e.component}`}</Text>
   })
   await sessionStarted($, clock, 's1', '/t/s1.jsonl', 'startup')
   const mount = (component: string, requestId: string, props: object, columns = 120) =>
     $.ui.mount({ plugin: 'mod-transcript', surface: 'terminal', component, requestId, viewport: { columns, rows: 40 }, props } as never)
   // A hook event, as the command hook writes it into the bridge file.
-  return Object.assign(mount, { hook: (record: Record<string, unknown>) => feed($, clock, { session_id: 's1', ...record }) })
+  return Object.assign(mount, { linked, hook: (record: Record<string, unknown>) => feed($, clock, { session_id: 's1', ...record }) })
 }
 
 const prompt = (text: string, isExpanded = false) => ({ text, origin: { kind: 'composer' }, isExpanded })
@@ -175,15 +196,35 @@ test('an API error the engine retries ends the reply as one muted line, not a wa
   expect((await reply.find({ type: 'Text', text: /rate limit reached/ }))?.props.color).toBe(THEME.muted)
 })
 
-test('a reply naming hex colors gets a strip of colored squares under it, and one naming none stays as drawn', async ($, on) => {
+test('a hex color in a sentence shows as its pill where it is written, with no strip, and a reply naming none stays as drawn', async ($, on) => {
   const mount = await open($, on)
   const reply = await mount('AssistantMessage', ID(7), { text: 'Low is `#ACB9E6` and max is #FF6F7A.', isFirstOfReply: true })
-  expect(await reply.find({ type: 'Text', text: 'base AssistantMessage' })).toBeDefined()
+  expect(await reply.find({ type: 'Text', text: 'base AssistantMessage' })).toBeUndefined()
+  expect(await reply.find({ key: 'toggle-colors' })).toBeUndefined()
   const squares = await reply.findAll({ type: 'Text', text: '●' })
   expect(squares.map((square: any) => square.props.color).filter(Boolean)).toEqual(['#ACB9E6', '#FF6F7A'])
   expect(await reply.find({ type: 'Text', text: ' #FF6F7A' })).toBeDefined()
+  expect(JSON.stringify(await reply.drawn())).toMatch(/Low is [^]*#ACB9E6[^]* and max is [^]*#FF6F7A[^]*\./)
   const plain = await mount('AssistantMessage', ID(8), { text: 'See prompt #229.', isFirstOfReply: true })
+  expect(await plain.find({ type: 'Text', text: 'base AssistantMessage' })).toBeDefined()
   expect(await plain.find({ type: 'Text', text: '●' })).toBeUndefined()
+})
+
+test('a reply that puts one color per line keeps each on its own row', async ($, on) => {
+  const mount = await open($, on)
+  const reply = await mount('AssistantMessage', ID(7), { text: 'low #ACB9E6\nhigh #EA98EE\nmax #FF6F7A80', isFirstOfReply: true })
+  const rows = (await reply.find({ key: 'toggle-prose-0' })) as { children: unknown[] }
+  expect(rows.children.length).toBe(3)
+})
+
+test('a hex color in a block the mod leaves to Claude Code, such as a level-4 heading, stays in the strip; one in a table cell is a pill in the cell', async ($, on) => {
+  const mount = await open($, on)
+  const heading = await mount('AssistantMessage', ID(7), { text: '#### Accent #7386D0\n\nPlain words.', isFirstOfReply: true })
+  expect(await heading.find({ type: 'Text', text: 'base AssistantMessage' })).toBeDefined()
+  expect(await heading.find({ key: 'toggle-colors' })).toBeDefined()
+  const table = await mount('AssistantMessage', ID(8), { text: '| Role | Color |\n| --- | --- |\n| accent | #7386D0 |', isFirstOfReply: true })
+  expect(await table.find({ key: 'toggle-colors' })).toBeUndefined()
+  expect((await table.findAll({ type: 'Text', text: '●' })).some((square: any) => square.props.color === '#7386D0')).toBe(true)
 })
 
 const TABLE_REPLY = 'Here is where each mod draws:\n\n| Mod | Surface | Rows |\n| --- | --- | ---: |\n| `blast-radius` | band + pane | 42 |\n| file-tree | pane | 318 |\n\nThe transcript is the busiest.'
@@ -195,10 +236,11 @@ test('a reply table draws caps headers in the dim colour, hairlines between rows
   const drawn = JSON.stringify(await reply.drawn())
   expect(drawn).toContain('MOD')
   expect((await reply.find({ type: 'Text', text: /^SURFACE/ }))?.props.color).toBe('#7E86A4')
-  expect((await reply.findAll({ type: 'Text', text: /^blast-radius$/ })).some((cell: any) => cell.props.bold === true)).toBe(true)
-  expect((await reply.findAll({ type: 'Text', text: 'blast-radius' })).some((cell: any) => cell.props.color === THEME.accent)).toBe(true)
+  expect((await reply.findAll({ type: 'Text', text: /^\s*blast-radius\s*$/ })).some((cell: any) => cell.props.bold === true)).toBe(true)
+  expect((await reply.findAll({ type: 'Text', text: /^\s*blast-radius\s*$/ })).some((cell: any) => cell.props.color === THEME.ok && cell.props.backgroundColor === THEME.surface3)).toBe(true)
   expect(await reply.find({ type: 'Text', text: /^ {2}42$/ })).toBeDefined()
-  expect(await reply.find({ type: 'Text', text: /^─+$/ })).toBeDefined()
+  expect(await reply.find({ type: 'Text', text: /^─+┼─+┼─+$/ })).toBeDefined()
+  expect((await reply.findAll({ type: 'Text', text: ' │ ' })).filter((bar: any) => bar.props?.color).map((bar: any) => bar.props.color)).toEqual(Array(6).fill(THEME.border))
   expect(drawn).not.toContain('|')
   expect(await reply.find({ type: 'Markdown', props: { text: 'The transcript is the busiest.' } } as never)).toBeDefined()
 })
@@ -607,3 +649,469 @@ test('two turns opened at once both stay open', async ($, on) => {
   expect((await first.find({ type: 'Client', key: 'toggle-turn-chip' }))?.props.props.isOpen).toBe(true)
   expect((await second.find({ type: 'Client', key: 'toggle-turn-chip' }))?.props.props.isOpen).toBe(true)
 })
+
+// A reply drawn in the mod's own look, the engine's markdown standing in for what it leaves.
+const replyOf = async ($: any, on: any, body: string, columns = 120, files: string[] = []) => {
+  const mount = await open($, on, '', undefined, {}, files)
+  return mount('AssistantMessage', ID(7), { text: body, isFirstOfReply: true }, columns)
+}
+// The innermost Texts that match: a Text around them matches too, with none of their props.
+const textsOf = async (ui: any, text: string | RegExp) => ((await ui.findAll({ type: 'Text', text })) as any[]).filter(node => !JSON.stringify(node.children ?? []).includes('"type":"Text"'))
+
+for (const icons of ['safe', 'nerd'] as const) {
+  test(`icons=${icons}: inline code is a surface3 pill with primary-70 text, caps or one padding cell, and a hex code stays a hex pill`, { options: { icons } }, async ($, on) => {
+    const reply = await replyOf($, on, 'Run `just test` and see `#ACB9E6` or #FF6F7A.')
+    const code = (await textsOf(reply, /^\s*just test\s*$/))[0]
+    expect(code.props.color).toBe(THEME.ok)
+    expect(code.props.backgroundColor).toBe(THEME.surface3)
+    expect(textOf(code)).toBe(icons === 'safe' ? ' just test ' : 'just test')
+    expect((await textsOf(reply, CAPS.left)).some((cap: any) => cap.props.color === THEME.surface3)).toBe(icons === 'nerd')
+    expect((await textsOf(reply, /#ACB9E6/)).some((hex: any) => hex.props.backgroundColor === THEME.surface3 && hex.props.color === THEME.ok)).toBe(false)
+    expect((await reply.findAll({ type: 'Text', text: '●' })).map((square: any) => square.props.color)).toContain('#ACB9E6')
+  })
+}
+
+test('shownWidth counts the two cells a code pill adds, but not for a code span that holds a hex pill', () => {
+  expect(shownWidth('a `bc` d')).toBe('a bc d'.length + 2)
+  expect(shownWidth('see `#ACB9E6`')).toBe('see #ACB9E6'.length + 4)
+})
+
+const VSCODE_ICON = String.fromCodePoint(0xf0a1e)
+const GLOBE_ICON = String.fromCodePoint(0xf0ac)
+// A heading makes the reply the mod's own, so its paragraphs draw as pills.
+const LINKED = '## Where\n\nIt lives in `src/a.ts:12:3` and not in `src/gone.ts`, see [the post](https://example.com/p) or https://example.com/q.'
+
+for (const icons of ['safe', 'nerd'] as const) {
+  test(`icons=${icons}: a path that exists is one Link pill to VS Code with its icon leading in Nerd mode; a path that does not stays a code pill`, { options: { icons } }, async ($, on) => {
+    const reply = await replyOf($, on, LINKED, 120, ['/w/src/a.ts'])
+    await reply.redraw()
+    const links = (await reply.findAll({ type: 'Link' })) as any[]
+    const path = links.find(link => String(link.props.href).startsWith('vscode://'))
+    expect(path.props.href).toBe('vscode://file/w/src/a.ts:12:3')
+    expect(textOf(path)).toBe(icons === 'nerd' ? `${CAPS.left}${VSCODE_ICON} src/a.ts:12:3${CAPS.right}` : ' src/a.ts:12:3 ')
+    const name = (await textsOf(reply, 'src/a.ts:12:3'))[0]
+    expect(name.props).toMatchObject({ color: THEME.secondary, underline: true })
+    expect((await textsOf(reply, new RegExp(VSCODE_ICON))).map((icon: any) => icon.props.color)).toEqual(icons === 'nerd' ? [THEME.secondary] : [])
+    expect(JSON.stringify(path)).toContain(THEME.surface3)
+    const gone = (await textsOf(reply, /src\/gone\.ts/))[0]
+    expect(gone.props).toMatchObject({ color: THEME.ok, backgroundColor: THEME.surface3 })
+    expect(gone.props.underline).toBeUndefined()
+  })
+
+  test(`icons=${icons}: a web link, written as markdown or bare, is a Link pill with the globe leading in Nerd mode`, { options: { icons } }, async ($, on) => {
+    const reply = await replyOf($, on, LINKED)
+    const links = (await reply.findAll({ type: 'Link' })) as any[]
+    expect(links.map(link => link.props.href)).toEqual(['https://example.com/p', 'https://example.com/q'])
+    expect(textOf(links[0])).toBe(icons === 'nerd' ? `${CAPS.left}${GLOBE_ICON} the post${CAPS.right}` : ' the post ')
+    expect((await textsOf(reply, 'the post'))[0].props).toMatchObject({ color: THEME.secondary, underline: true })
+    expect((await textsOf(reply, new RegExp(GLOBE_ICON))).map((icon: any) => icon.props.color)).toEqual(icons === 'nerd' ? [THEME.secondary, THEME.secondary] : [])
+  })
+}
+
+test('a path becomes a link only once its stat answers, so the first draw never waits on the disk', async ($, on) => {
+  const reply = await replyOf($, on, '## Where\n\nIt lives in `src/a.ts`.', 120, ['/w/src/a.ts'])
+  expect(await textsOf(reply, /src\/a\.ts/)).toHaveLength(1)
+  await reply.redraw()
+  expect(await reply.findAll({ type: 'Link' })).toHaveLength(1)
+})
+
+test('a reply that only names a path draws it as a link once the path exists', async ($, on) => {
+  const reply = await replyOf($, on, 'Edited `src/a.ts`.', 120, ['/w/src/a.ts'])
+  await reply.redraw()
+  expect(((await reply.findAll({ type: 'Link' })) as any[]).map(link => link.props.href)).toEqual(['vscode://file/w/src/a.ts'])
+})
+
+test('a reply that names a path which does not exist stays Claude Code\'s', async ($, on) => {
+  const reply = await replyOf($, on, 'Edited `src/gone.ts`.')
+  await reply.redraw()
+  expect(await reply.find({ type: 'Text', text: 'base AssistantMessage' })).toBeDefined()
+})
+
+test('a relative path resolves against the session folder, ~ against home, and a bare path that exists links too', async ($, on) => {
+  const reply = await replyOf($, on, 'See ./b.ts, `~/notes.md` and src/missing.ts.', 120, ['/w/b.ts', '/home/notes.md'])
+  await reply.redraw()
+  expect(((await reply.findAll({ type: 'Link' })) as any[]).map(link => link.props.href)).toEqual(['vscode://file/w/b.ts', 'vscode://file/home/notes.md'])
+})
+
+test('a link inside a table body cell is drawn, and the column is as wide as the pill', async ($, on) => {
+  const reply = await replyOf($, on, '| File | Note |\n|---|---|\n| `src/a.ts` | see [docs](https://example.com) |', 120, ['/w/src/a.ts'])
+  await reply.redraw()
+  expect(((await reply.findAll({ type: 'Link' })) as any[]).map(link => link.props.href)).toEqual(['vscode://file/w/src/a.ts', 'https://example.com'])
+})
+
+test('Link is in the elements AssistantMessage and the tool rows draw with', async ($, on) => {
+  const mount = await open($, on)
+  await (await mount('AssistantMessage', ID(7), { text: 'Done.', isFirstOfReply: true })).unmount()
+  await mount('ToolUse', 'toolu_x', { tool_use_id: 'toolu_x', tool: 'Read', input: { file_path: '/repo/x.ts' }, isRunning: true, isErrored: false, isInterrupted: false, output: {} })
+  await mount('ToolResult', 'toolu_x', { tool_use_id: 'toolu_x', tool: 'Read', input: { file_path: '/repo/x.ts' }, output: {} })
+  await mount('ToolGroup', 'group', { calls: [{ tool_use_id: 'toolu_x', tool: 'Read', input: { file_path: '/repo/x.ts' }, isRunning: true, output: {} }] })
+  expect(mount.linked).toMatchObject({ AssistantMessage: 'function', ToolUse: 'function', ToolResult: 'function' })
+})
+
+test('shownWidth counts the cells a link pill adds, the code pill\'s two already counted, in each icon mode', () => {
+  const open = (token: string) => (token.startsWith('src/') ? `vscode://file/w/${token}` : undefined)
+  const fake = (nerd: boolean) => ({ colors: new Map(), nerd, links: { Link: (props: any) => props, open } })
+  expect(shownWidth('see `src/a.ts`', fake(true))).toBe('see src/a.ts'.length + 4)
+  expect(shownWidth('see `src/a.ts`', fake(false))).toBe('see src/a.ts'.length + 2)
+  expect(shownWidth('see `other`', fake(true))).toBe('see other'.length + 2)
+  expect(shownWidth('[post](https://e.com) and https://e.com/q and src/b.ts', fake(true))).toBe('post and https://e.com/q and src/b.ts'.length + 12)
+  expect(shownWidth('[post](https://e.com) and https://e.com/q and src/b.ts', fake(false))).toBe('post and https://e.com/q and src/b.ts'.length + 6)
+  expect(shownWidth('see `src/a.ts`')).toBe('see src/a.ts'.length + 2)
+})
+
+test('a reply with only inline code and links stays Claude Code\'s', async ($, on) => {
+  const reply = await replyOf($, on, 'Run `just test`, see [the post](https://example.com).')
+  expect(await reply.find({ type: 'Text', text: 'base AssistantMessage' })).toBeDefined()
+})
+
+test('a link is secondary text, underlined', async ($, on) => {
+  const reply = await replyOf($, on, 'See [the post](https://example.com) for #FF6F7A.')
+  const link = (await textsOf(reply, 'the post'))[0]
+  expect(link.props.color).toBe(THEME.secondary)
+  expect(link.props.underline).toBe(true)
+})
+
+const CODE_REPLY = 'Here is the helper:\n\n```ts\nexport function total(items) {\n  return items.length\n}\n```\n\nDone.'
+const CODE_ID = `${ID(7)}:1`
+
+for (const icons of ['safe', 'nerd'] as const) {
+  test(`icons=${icons}: a fenced block is a round card with the language on its edge, dim line numbers, a hairline and a copy pill that copies the block`, { options: { icons } }, async ($, on) => {
+    const copied: string[] = []
+    on('ui.copy', (_$: unknown, e: { text: string }) => {
+      copied.push(e.text)
+      return { value: { isCopied: true } }
+    })
+    const reply = await replyOf($, on, CODE_REPLY)
+    expect(await reply.find({ type: 'Text', text: 'base AssistantMessage' })).toBeUndefined()
+    expect((await textsOf(reply, / TS /))[0].props.color).toBe('#7E86A4')
+    expect(textOf(await reply.find({ key: 'toggle-code-1-top' }))).toMatch(/^╭─ TS ─+.*─╮$/)
+    // The run is drawn longer than the card, so the tag must not shrink: live it lost its last letter to an ellipsis ("T…").
+    expect((await reply.find({ key: 'toggle-code-1-tag' }))?.props.flexShrink).toBe(0)
+    expect((await reply.find({ key: 'toggle-code-1-run' }))?.props).toMatchObject({ height: 1, overflow: 'hidden' })
+    expect((await textsOf(reply, '3'))[0].props.color).toBe('#7E86A4')
+    expect((await textsOf(reply, ' │ ')).every((bar: any) => bar.props.color === THEME.border)).toBe(true)
+    const line = await reply.find({ key: 'toggle-code-1-row-1-0-in' })
+    expect(textOf(line)).toMatch(/2 │   return items\.length$/)
+    // The palette colors a ts block until a VS Code theme resolves: the keyword in the command color, the rest in the property and surface colors.
+    expect((await textsOf(reply, 'return'))[0].props.color).toBe(SYNTAX.command)
+    expect((await textsOf(reply, 'length'))[0].props.color).toBe(SYNTAX.variable)
+    expect((await reply.find({ key: 'toggle-code-1-row-0-0-in' }))?.props.backgroundColor).toBe(THEME.surface1)
+    expect(JSON.stringify(await reply.drawn())).toMatch(/╰─{112}╯/)
+    expect((await textsOf(reply, CAPS.left)).some((cap: any) => cap.props.color === THEME.surface3)).toBe(icons === 'nerd')
+    const pill = await reply.find({ type: 'Client', key: `toggle-copy-code-pill-${CODE_ID}` })
+    expect(pill.props.props).toMatchObject({ label: 'copy', bg: THEME.surface3, lead: icons === 'safe' ? '⧉' : String.fromCodePoint(0xf018f), tip: { label: 'Copy code' } })
+    await clickLabel(reply, `toggle-copy-code-pill-${CODE_ID}`)
+    expect(copied).toEqual(['export function total(items) {\n  return items.length\n}'])
+  })
+}
+
+test('a code line wider than the card wraps under the code column, not under the gutter', async ($, on) => {
+  const reply = await replyOf($, on, `\`\`\`\n${'x'.repeat(130)}\n\`\`\``)
+  const rows = (await textsOf(reply, /^x+$/)).map((row: any) => textOf(row).length)
+  expect(rows).toEqual([106, 24])
+  expect(await textsOf(reply, '1')).toHaveLength(1)
+})
+
+test('what a fence holds is never read as a table, heading or callout', async ($, on) => {
+  const reply = await replyOf($, on, '```md\n# Not a heading\n> **Note:** not a callout\n| a | b |\n| --- | --- |\n| 1 | 2 |\n```')
+  expect(await reply.find({ key: 'toggle-code-0' })).toBeDefined()
+  expect(await reply.find({ key: 'toggle-heading-0' })).toBeUndefined()
+  expect(await reply.find({ key: 'toggle-callout-0' })).toBeUndefined()
+  expect(await reply.find({ key: 'toggle-table-0' })).toBeUndefined()
+  expect(textOf(await reply.find({ key: 'toggle-code-0-row-0-0-in' }))).toMatch(/1 │ # Not a heading$/)
+  expect(textOf(await reply.find({ key: 'toggle-code-0-row-2-0-in' }))).toMatch(/3 │ \| a \| b \|$/)
+})
+
+test('a diff fence draws the code card tagged DIFF, + and − in the gutter, add and delete rows washed', async ($, on) => {
+  const reply = await replyOf($, on, '```diff\n function total(items) {\n-  return items.length\n+  return items.reduce((sum, item) => sum + item.price, 0)\n }\n```')
+  expect(await textsOf(reply, / DIFF /)).toHaveLength(1)
+  expect((await textsOf(reply, '− '))[0].props.color).toBe(THEME.alert)
+  expect((await textsOf(reply, '+ '))[0].props.color).toBe(THEME.good)
+  expect((await reply.find({ key: 'toggle-code-0-row-1-0-in' }))?.props.backgroundColor).toBe(mix(THEME.surface1, THEME.alert, 0.22))
+  expect((await reply.find({ key: 'toggle-code-0-row-2-0-in' }))?.props.backgroundColor).toBe(mix(THEME.surface1, THEME.good, 0.16))
+  expect((await reply.find({ key: 'toggle-code-0-row-0-0-in' }))?.props.backgroundColor).toBe(THEME.surface1)
+  expect(await textsOf(reply, '  return items.length')).toHaveLength(1)
+})
+
+// A VS Code install whose settings name the theme "Night"; its keywords are bold red and its strings green.
+const EXTENSION = '/home/.vscode/extensions/acme.night-1.0.0'
+const NIGHT: Record<string, string> = {
+  '/home/AppData/Roaming/Code/User/settings.json': '{\n  // "workbench.colorTheme": "Day",\n  "workbench.colorTheme": "Night",\n}',
+  [`${EXTENSION}/package.json`]: JSON.stringify({ contributes: { themes: [{ label: 'Night', path: './themes/night.json' }, { label: 'Day', path: './themes/day.json' }] } }),
+  [`${EXTENSION}/themes/night.json`]: JSON.stringify({
+    colors: { 'editor.foreground': '#101010' },
+    tokenColors: [
+      { scope: 'keyword', settings: { foreground: '#AA0000', fontStyle: 'bold' } },
+      { scope: 'storage', settings: { foreground: '#AA0001' } },
+      { scope: 'string', settings: { foreground: '#00AA00' } },
+      { scope: 'entity.name.function', settings: { foreground: '#0000AA' } },
+    ],
+  }),
+  [`${EXTENSION}/themes/day.json`]: JSON.stringify({ colors: { 'editor.foreground': '#FFFFFF' }, tokenColors: [{ scope: 'keyword', settings: { foreground: '#777777' } }] }),
+}
+
+// The first mount draws the palette and starts the theme search; the second finds the theme in.
+const secondReply = async (mount: any, ids: string[]) => {
+  await mount('AssistantMessage', ids[0], { text: CODE_REPLY, isFirstOfReply: true })
+  const reply = await mount('AssistantMessage', ids[1], { text: CODE_REPLY, isFirstOfReply: true })
+  return reply
+}
+
+test('a ts fence takes its colors from the VS Code theme named in the editor settings', async ($, on) => {
+  const reply = await secondReply(await open($, on, '', () => '', NIGHT), [ID(7), ID(8)])
+  const word = (await textsOf(reply, 'return'))[0]
+  expect(word.props).toMatchObject({ color: '#AA0000', bold: true })
+  expect((await textsOf(reply, 'function'))[0].props.color).toBe('#AA0001')
+  expect((await textsOf(reply, 'total'))[0].props.color).toBe('#0000AA')
+  expect((await textsOf(reply, '('))[0].props.color).toBe('#101010')
+})
+
+test('the code_theme setting names a theme of its own, and an empty one follows the editor', { options: { code_theme: 'Day' } }, async ($, on) => {
+  const reply = await secondReply(await open($, on, '', () => '', NIGHT), [ID(7), ID(8)])
+  expect((await textsOf(reply, 'return'))[0].props.color).toBe('#777777')
+})
+
+test('a code_theme no extension contributes leaves the mod\'s own colors', { options: { code_theme: 'Nope' } }, async ($, on) => {
+  const reply = await secondReply(await open($, on, '', () => '', NIGHT), [ID(7), ID(8)])
+  expect((await textsOf(reply, 'return'))[0].props.color).toBe(SYNTAX.command)
+})
+
+test('an editor with no theme on disk leaves the mod\'s own colors', async ($, on) => {
+  const reply = await secondReply(await open($, on), [ID(7), ID(8)])
+  expect((await textsOf(reply, 'return'))[0].props.color).toBe(SYNTAX.command)
+})
+
+test('a fence in a language the mod has no grammar for stays the surface color', async ($, on) => {
+  const reply = await replyOf($, on, '```cobol\nMOVE 1 TO X\n```')
+  expect((await textsOf(reply, 'MOVE 1 TO X'))[0].props.color).toBe(THEME.onSurface)
+})
+
+// A finished turn that reads a file: the result is cat -n numbered.
+const READ_TURN = [
+  row(1, 'user', { message: { role: 'user', content: 'read it' } }),
+  said(2, [{ type: 'tool_use', id: 'toolu_r', name: 'Read', input: { file_path: '/repo/a.ts' } }]),
+  row(3, 'user', { message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: 'toolu_r', content: '     1→export function total() {\n     2→  return "x"\n     3→}' }] }, toolUseResult: { file: { content: 'export function total() {\n  return "x"\n}' } } }),
+  said(4, [{ type: 'text', text: 'Done.' }]),
+  row(5, 'system', { subtype: 'turn_duration', durationMs: 1000 }),
+  row(6, 'user', { message: { role: 'user', content: 'next' } }),
+].join('\n') + '\n'
+
+test('a Read preview colors the file by its extension from the VS Code theme and keeps the line numbers muted', async ($, on) => {
+  const mount = await open($, on, READ_TURN, () => READ_TURN, NIGHT)
+  const head = await mount('UserMessage', ID(1), prompt('read it'))
+  await clickLabel(head, 'toggle-turn-colored')
+  await head.pointer({ in: 'toggle-chips-line', type: 'down', button: 'left', x: 1, y: 0 })
+  await clickLabel(head, 'toggle-call-0-colored')
+  expect((await textsOf(head, 'return'))[0].props).toMatchObject({ color: '#AA0000', bold: true })
+  expect((await textsOf(head, '"x"'))[0].props.color).toBe('#00AA00')
+  expect((await textsOf(head, /^\s+1→$/))[0].props.color).toBe(THEME.muted)
+})
+
+test('a Read preview of a file type with no grammar stays muted', async ($, on) => {
+  const turn = READ_TURN.replace('/repo/a.ts', '/repo/a.txt')
+  const mount = await open($, on, turn, () => turn, NIGHT)
+  const head = await mount('UserMessage', ID(1), prompt('read it'))
+  await clickLabel(head, 'toggle-turn-colored')
+  await head.pointer({ in: 'toggle-chips-line', type: 'down', button: 'left', x: 1, y: 0 })
+  await clickLabel(head, 'toggle-call-0-colored')
+  expect((await textsOf(head, /return "x"/))[0].props.color).toBe(THEME.muted)
+})
+
+test('a heading is dim caps on a hairline to the reply width, and a code span in it keeps its case', async ($, on) => {
+  const reply = await replyOf($, on, '## What changed with `Code` now\nTwo mods.')
+  expect((await reply.findAll({ type: 'Text', text: /WHAT CHANGED WITH/ })).some((title: any) => title.props.color === '#7E86A4')).toBe(true)
+  expect(await textsOf(reply, /^\s*Code\s*$/)).toHaveLength(1)
+  expect(await textsOf(reply, /CODE/)).toHaveLength(0)
+  const rule = (await textsOf(reply, /^ ─+$/))[0]
+  expect(rule.props.color).toBe(THEME.border)
+  // The rule is drawn long and clipped by its box, so it fills the row and never ends in an ellipsis; the title never shrinks.
+  expect((await reply.find({ key: 'toggle-heading-0-rule' }))?.props).toMatchObject({ flexGrow: 1, height: 1, overflow: 'hidden' })
+  expect((await reply.find({ key: 'toggle-heading-0-title' }))?.props.flexShrink).toBe(0)
+  expect(textOf(rule).length).toBeGreaterThan(114 - shownWidth('WHAT CHANGED WITH `Code` NOW'))
+  expect(await reply.find({ type: 'Markdown', props: { text: 'Two mods.' } } as never)).toBeDefined()
+})
+
+test('callouts draw a surface1 card with a tinted square tag, the bold title and the muted detail; a warning edges in alert; a plain quote stays Claude Code\'s', async ($, on) => {
+  const reply = await replyOf($, on, 'Before you push:\n\n> **Note:** the release posts are in ~/release-posts.md\n\n> [!WARNING]\n> a force push is blocked\n\n> [!TIP]\n> try `just test`\n\n> just a quote')
+  const note = await reply.find({ key: 'toggle-callout-1' })
+  expect(note.props).toMatchObject({ borderStyle: 'round', borderColor: THEME.border, backgroundColor: THEME.surface1 })
+  expect((await textsOf(reply, ' i '))[0].props).toMatchObject({ color: THEME.accent, backgroundColor: mix(THEME.surface1, THEME.accent, 0.15) })
+  expect((await textsOf(reply, 'Note'))[0].props.bold).toBe(true)
+  expect(await textsOf(reply, /the release posts are in/)).toHaveLength(1)
+  const warning = await reply.find({ key: 'toggle-callout-2' })
+  expect(warning.props.borderColor).toBe(mix(THEME.bg, THEME.alert, 0.33))
+  expect((await textsOf(reply, ' ! '))[0].props).toMatchObject({ color: THEME.alert, backgroundColor: mix(THEME.surface1, THEME.alert, 0.15) })
+  expect(await textsOf(reply, 'Warning')).toHaveLength(1)
+  expect(await textsOf(reply, /a force push is blocked/)).toHaveLength(1)
+  expect(await textsOf(reply, 'Tip')).toHaveLength(1)
+  expect((await reply.find({ key: 'toggle-callout-3' }))?.props.borderColor).toBe(THEME.border)
+  expect(await reply.find({ type: 'Markdown', props: { text: '> just a quote' } } as never)).toBeDefined()
+})
+
+for (const icons of ['safe', 'nerd'] as const) {
+  test(`icons=${icons}: task items draw a checkbox in accent and mute the done ones`, { options: { icons } }, async ($, on) => {
+    const reply = await replyOf($, on, 'Where we are:\n- [x] Restyle the mods\n- [ ] Phase 4')
+    const done = icons === 'safe' ? '[x] ' : `${String.fromCodePoint(0xf14a)} `
+    const open = icons === 'safe' ? '[ ] ' : `${String.fromCodePoint(0xf096)} `
+    expect((await textsOf(reply, done))[0].props.color).toBe(THEME.accent)
+    expect((await textsOf(reply, open))[0].props.color).toBe(THEME.accent)
+    expect((await reply.findAll({ type: 'Text', text: 'Restyle the mods' })).some((item: any) => item.props.color === THEME.muted)).toBe(true)
+    expect((await reply.findAll({ type: 'Text', text: 'Phase 4' })).some((item: any) => item.props.color === THEME.muted)).toBe(false)
+    expect(JSON.stringify(await reply.drawn())).not.toContain('- [')
+  })
+}
+
+test('a table cell that is only a status word becomes a square tag tinted at 15% over the cell; elsewhere the word stays plain', async ($, on) => {
+  const reply = await replyOf($, on, '| Check | Status |\n| --- | --- |\n| tests | PASS |\n| lint | fail |\n| types | Skipped |\n| docs | blocked |')
+  const tint = (hue: string) => mix(THEME.bg, hue, 0.15)
+  expect((await textsOf(reply, ' PASS '))[0].props).toMatchObject({ color: THEME.good, backgroundColor: tint(THEME.good) })
+  expect((await textsOf(reply, ' fail '))[0].props).toMatchObject({ color: THEME.alert, backgroundColor: tint(THEME.alert) })
+  expect((await textsOf(reply, ' Skipped '))[0].props).toMatchObject({ color: THEME.warn, backgroundColor: tint(THEME.warn) })
+  expect(await textsOf(reply, / blocked /)).toHaveLength(0)
+})
+
+test('a status word outside a table is not tagged', async ($, on) => {
+  const reply = await replyOf($, on, 'It will pass #FF6F7A.')
+  expect(await textsOf(reply, / pass /)).toHaveLength(0)
+})
+
+test('a code block past the cap shows its last rows and a control that shows all and back', { options: { icons: 'safe' } }, async ($, on) => {
+  const lines = Array.from({ length: 15 }, (_, n) => `line ${n + 1}`).join('\n')
+  const reply = await replyOf($, on, `\`\`\`log\n${lines}\n\`\`\``)
+  const control = `toggle-more-code:${ID(7)}:0`
+  expect(await textsOf(reply, /^line 3$/)).toHaveLength(0)
+  expect(await textsOf(reply, /^line 4$/)).toHaveLength(1)
+  expect(await textsOf(reply, /^line 15$/)).toHaveLength(1)
+  expect(await labelText(reply, control)).toBe(' ▾ 3 more lines ')
+  expect((await reply.find({ type: 'Client', key: control })).props.props.leadColor).toBe(THEME.accent)
+  await clickLabel(reply, control)
+  expect(await textsOf(reply, /^line 1$/)).toHaveLength(1)
+  expect(await labelText(reply, control)).toBe(' ▴ Show less ')
+  await clickLabel(reply, control)
+  expect(await textsOf(reply, /^line 1$/)).toHaveLength(0)
+  expect(await labelText(reply, control)).toBe(' ▾ 3 more lines ')
+})
+
+test('a short code block shows no expand control', async ($, on) => {
+  const reply = await replyOf($, on, '```log\nline 1\nline 2\n```')
+  expect(await reply.find({ key: `toggle-more-code:${ID(7)}:0` })).toBeUndefined()
+})
+
+// The open result of a file tool, mounted with no turn behind it so it draws live.
+const resultOf = async ($: any, on: any, tool: string, output: unknown, extra: object = {}) => {
+  const mount = await open($, on)
+  return mount('ToolResult', 'toolu_f', { tool_use_id: 'toolu_f', tool, output, isErrored: false, ...extra })
+}
+const VS_ICON = String.fromCodePoint(0xf0a1e)
+const CARD = 'toggle-result-card'
+const EDIT_OUTPUT = { filePath: '/w/src/a.ts', structuredPatch: [{ oldStart: 10, oldLines: 4, newStart: 10, newLines: 5, lines: [' const keep = 1', '-const a = "x"', '+const a = "y"', '+const b = 2', ' tail()'] }] }
+
+for (const icons of ['safe', 'nerd'] as const) {
+  test(`icons=${icons}: an Edit result is a card with the language, a VS Code link pill to the first changed line, a copy pill, marks, washes and theme colors`, { options: { icons } }, async ($, on) => {
+    const copied: string[] = []
+    on('ui.copy', (_$: unknown, e: { text: string }) => {
+      copied.push(e.text)
+      return { value: { isCopied: true } }
+    })
+    const result = await resultOf($, on, 'Edit', EDIT_OUTPUT)
+    expect(await result.find({ type: 'Text', text: 'base ToolResult' })).toBeUndefined()
+    expect(textOf(await result.find({ key: `${CARD}-top` }))).toMatch(/^╭─ TS · /)
+    expect((await textsOf(result, / TS /))[0].props.color).toBe('#7E86A4')
+    expect((await textsOf(result, /^· $/))[0].props.color).toBe('#3B446A')
+    const link = (await result.findAll({ type: 'Link' })) as any[]
+    expect(link.map(each => each.props.href)).toEqual(['vscode://file/w/src/a.ts:11'])
+    expect(textOf(link[0])).toBe(icons === 'nerd' ? `${CAPS.left}${VS_ICON} src/a.ts:11${CAPS.right}` : ' src/a.ts:11 ')
+    expect((await textsOf(result, 'src/a.ts:11'))[0].props).toMatchObject({ color: THEME.secondary, underline: true })
+    expect((await textsOf(result, new RegExp(VS_ICON))).map((icon: any) => icon.props.color)).toEqual(icons === 'nerd' ? [THEME.secondary] : [])
+    expect((await result.find({ key: `${CARD}-row-0-0-in` }))?.props.backgroundColor).toBe(THEME.surface1)
+    expect((await result.find({ key: `${CARD}-row-1-0-in` }))?.props.backgroundColor).toBe(mix(THEME.surface1, THEME.alert, 0.22))
+    expect((await result.find({ key: `${CARD}-row-2-0-in` }))?.props.backgroundColor).toBe(mix(THEME.surface1, THEME.good, 0.16))
+    expect((await result.find({ key: `${CARD}-row-3-0-in` }))?.props.backgroundColor).toBe(mix(THEME.surface1, THEME.good, 0.16))
+    expect((await textsOf(result, ' − '))[0].props.color).toBe(THEME.alert)
+    expect((await textsOf(result, ' + ')).map((mark: any) => mark.props.color)).toEqual([THEME.good, THEME.good])
+    expect(textOf(await result.find({ key: `${CARD}-row-1-0-in` }))).toBe('11 − │ const a = "x"')
+    expect(textOf(await result.find({ key: `${CARD}-row-2-0-in` }))).toBe('11 + │ const a = "y"')
+    expect(textOf(await result.find({ key: `${CARD}-row-4-0-in` }))).toBe('13   │ tail()')
+    expect((await textsOf(result, /^│ $/)).every((bar: any) => bar.props.color === THEME.border)).toBe(true)
+    expect((await textsOf(result, 'const'))[0].props.color).toBe(SYNTAX.command)
+    const pill = await result.find({ type: 'Client', key: 'toggle-copy-code-pill-result:toolu_f' })
+    expect(pill.props.props).toMatchObject({ label: 'copy', lead: icons === 'safe' ? '⧉' : String.fromCodePoint(0xf018f) })
+    await clickLabel(result, 'toggle-copy-code-pill-result:toolu_f')
+    expect(copied).toEqual(['const keep = 1\nconst a = "y"\nconst b = 2\ntail()'])
+  })
+}
+
+test('a removed quote colors no other line: the old and new sides are tokenized apart', async ($, on) => {
+  const result = await resultOf($, on, 'Edit', { filePath: '/w/a.ts', structuredPatch: [{ oldStart: 1, oldLines: 2, newStart: 1, newLines: 2, lines: ['-const s = "open', '+const s = 1', ' const t = 2'] }] })
+  expect((await textsOf(result, 'const')).map((word: any) => word.props.color)).toEqual([SYNTAX.command, SYNTAX.command, SYNTAX.command])
+  const added = (await result.find({ key: `${CARD}-row-1-0-in` })) as any
+  expect(added.children[0].children.at(-1).props.color).toBe(SYNTAX.number)
+  expect((await textsOf(result, /^ s $/)).map((name: any) => name.props.color)).toEqual([THEME.onSurface, THEME.onSurface])
+})
+
+test('a MultiEdit result with two hunks draws a dim gap row between them', async ($, on) => {
+  const result = await resultOf($, on, 'MultiEdit', {
+    filePath: '/w/src/a.ts',
+    structuredPatch: [
+      { oldStart: 1, oldLines: 1, newStart: 1, newLines: 1, lines: ['-const a = 1', '+const a = 2'] },
+      { oldStart: 40, oldLines: 1, newStart: 40, newLines: 1, lines: ['-const b = 1', '+const b = 2'] },
+    ],
+  })
+  const gap = await textsOf(result, /⋯/)
+  expect(gap).toHaveLength(1)
+  expect(gap[0].props.color).toBe('#7E86A4')
+  expect(textOf(await result.find({ key: `${CARD}-row-2-in` }))).toBe(' ⋯')
+  expect(textOf(await result.find({ key: `${CARD}-row-3-0-in` }))).toBe('40 − │ const b = 1')
+  expect(((await result.findAll({ type: 'Link' })) as any[]).map(link => link.props.href)).toEqual(['vscode://file/w/src/a.ts:1'])
+})
+
+test('a Write of a new file is every line added, numbered from 1', async ($, on) => {
+  const result = await resultOf($, on, 'Write', { type: 'create', filePath: '/w/notes.md', content: 'one\ntwo\n', structuredPatch: [], originalFile: null })
+  expect(await textsOf(result, ' + ')).toHaveLength(2)
+  expect(await textsOf(result, ' − ')).toHaveLength(0)
+  expect((await result.find({ key: `${CARD}-row-1-0-in` }))?.props.backgroundColor).toBe(mix(THEME.surface1, THEME.good, 0.16))
+  expect(textOf(await result.find({ key: `${CARD}-row-1-0-in` }))).toBe('2 + │ two')
+  expect(((await result.findAll({ type: 'Link' })) as any[]).map(link => link.props.href)).toEqual(['vscode://file/w/notes.md:1'])
+  expect(await textsOf(result, / MD /)).toHaveLength(1)
+})
+
+test('a Read result is a code card from its first line: numbers, no marks, a link to that line', async ($, on) => {
+  const result = await resultOf($, on, 'Read', { type: 'text', file: { filePath: '/w/src/a.ts', content: 'export const a = 1\nexport const b = 2', numLines: 2, startLine: 5, totalLines: 9 } })
+  expect(textOf(await result.find({ key: `${CARD}-row-0-0-in` }))).toBe('5   │ export const a = 1')
+  expect(textOf(await result.find({ key: `${CARD}-row-1-0-in` }))).toBe('6   │ export const b = 2')
+  expect((await result.find({ key: `${CARD}-row-0-0-in` }))?.props.backgroundColor).toBe(THEME.surface1)
+  expect(await textsOf(result, / [+−] /)).toHaveLength(0)
+  expect(((await result.findAll({ type: 'Link' })) as any[]).map(link => link.props.href)).toEqual(['vscode://file/w/src/a.ts:5'])
+})
+
+test('a result past the cap shows its first rows and an expand control', { options: { icons: 'safe' } }, async ($, on) => {
+  const content = Array.from({ length: 15 }, (_, n) => `line ${n + 1}`).join('\n')
+  const result = await resultOf($, on, 'Read', { type: 'text', file: { filePath: '/w/a.log', content, numLines: 15, startLine: 1, totalLines: 15 } })
+  const control = 'toggle-more-code:result:toolu_f'
+  expect(await textsOf(result, /^line 12$/)).toHaveLength(1)
+  expect(await textsOf(result, /^line 13$/)).toHaveLength(0)
+  expect(await labelText(result, control)).toBe(' ▾ 3 more lines ')
+  await clickLabel(result, control)
+  expect(await textsOf(result, /^line 15$/)).toHaveLength(1)
+  expect(await labelText(result, control)).toBe(' ▴ Show less ')
+})
+
+const FALLBACKS: [string, string, unknown, object][] = [
+  ['an errored result', 'Edit', EDIT_OUTPUT, { isErrored: true }],
+  ['a result with no structuredPatch', 'Edit', { filePath: '/w/src/a.ts' }, {}],
+  ['a shapeless output', 'Edit', 'Updated', {}],
+  ['a malformed hunk', 'Edit', { filePath: '/w/src/a.ts', structuredPatch: [{ oldStart: 1, lines: 'x' }] }, {}],
+  ['an update with an empty patch', 'Write', { type: 'update', filePath: '/w/src/a.ts', content: 'x', structuredPatch: [], originalFile: null }, {}],
+  ['an edit held for review', 'Edit', { ...EDIT_OUTPUT, staged: true }, {}],
+  ['a Read of an image', 'Read', { type: 'image', file: { base64: '' } }, {}],
+  ['a Read with no content', 'Read', { type: 'text', file: { filePath: '/w/a.ts', content: '' } }, {}],
+  ['another tool', 'Grep', EDIT_OUTPUT, {}],
+]
+
+for (const [name, tool, output, extra] of FALLBACKS) {
+  test(`${name} falls back to Claude Code's drawing`, async ($, on) => {
+    const result = await resultOf($, on, tool, output, extra)
+    expect(await result.find({ type: 'Text', text: 'base ToolResult' })).toBeDefined()
+    expect(await result.find({ key: CARD })).toBeUndefined()
+  })
+}

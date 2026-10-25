@@ -1,6 +1,8 @@
 // mod-transcript / hooks/mark.ts, by v-amorim
 // Cuts a reply into the parts a copy choice copies and the parts it leaves, so the copied characters can be marked.
 import { linkSpans, pieces, plainLine, tableRanges, textOf, type CopyChoice } from './clip'
+import style from './style'
+import { mix, THEME } from './theme'
 
 // A leaf Claude Code draws as markdown, marked whole or not, or text the mod draws itself with some characters marked.
 export type Piece = { kind: 'markdown'; text: string; isMarked?: boolean } | { kind: 'marked'; parts: { text: string; isMarked: boolean }[] }
@@ -137,4 +139,30 @@ export function markPieces(reply: string, what: CopyChoice): Piece[] | null {
   flush()
   const isMarking = out.some(piece => piece.kind === 'marked' || piece.isMarked)
   return isMarking && out.every(piece => piece.kind !== 'markdown' || piece.text.length <= LEAF_LIMIT) ? out : null
+}
+
+// The parts of a drawn reply a copy choice can mark.
+export type Part = 'text' | 'code' | 'table' | 'link'
+
+// How a hovered choice paints the reply the mod draws itself: what it copies keeps its colours on an accent wash, every other part dims.
+export type Paint = {
+  on: (part: Part) => boolean
+  color: (color: string | undefined, part: Part) => string | undefined
+  wash: (part: Part) => string | undefined
+  fill: (base: string, part: Part) => string
+  rule: (part: Part) => string
+}
+
+const WASH = mix(THEME.bg, THEME.accent, 0.15)
+
+export function paintOf(what: CopyChoice): Paint {
+  const on = (part: Part) => what === 'reply' || what === 'text' || what === part || (what === 'links' && part === 'link')
+  return {
+    on,
+    // A part with no colour of its own draws in the text colour once it dims.
+    color: (color, part) => (on(part) ? color : mix(color ?? THEME.onSurface, THEME.bg, 0.55)),
+    wash: part => (on(part) ? WASH : undefined),
+    fill: (base, part) => (on(part) ? mix(base, THEME.accent, 0.15) : mix(base, THEME.bg, 0.4)),
+    rule: part => (on(part) ? style.colors.pills.separator : mix(THEME.border, THEME.bg, 0.55)),
+  }
 }

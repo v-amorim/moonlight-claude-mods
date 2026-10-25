@@ -4,10 +4,12 @@
     { "title": "Turn line", "detail": "Under each prompt, a line names what the turn did: tool count, file changes with lines added and removed, skills, agents and time." },
     { "title": "Tool lines", "detail": "Inside an open turn, each finished tool call is one line; a click shows its full row and diff." },
     { "title": "Call previews", "detail": "A tool call's preview shows its first lines. Show all opens the rest, and a line that was cut wraps in full. Show less folds it back." },
+    { "title": "Code colors", "detail": "Code fences in replies and the lines of a Read, Write or Edit preview are colored from your VS Code color theme: the one VS Code is set to, or the one the Code theme setting names. Without a match, the mod's own colors draw." },
     { "title": "Card", "detail": "An open turn draws as one tinted card with a bar down its left edge; the final reply stays outside it." },
     { "title": "Copy button", "detail": "A button under each finished reply copies it as markdown, its code, plain text, its tables rebuilt as clean markdown, or its links. Pointing at a choice marks the characters it takes." },
     { "title": "Command hooks", "detail": "On SessionStart, PermissionDenied and StopFailure, a small shell hook appends the event's JSON as one line to `~/.claude/mods-data/mod-transcript/bridge/<session id>.jsonl` (under `$CLAUDE_CONFIG_DIR` when that is set), and the mod reads the file every 250 ms. A record can hold the session id, the working folder and the transcript path, and for Stop-type events the last assistant message. SessionEnd deletes the session's file, and SessionStart deletes files older than 7 days. The hooks need a POSIX shell (Git Bash on Windows). Without one they write nothing, and the mod falls back to what it can find on its own. Some plans block plugin hooks on these events; the mod then falls back the same way." }
   ],
+  "editors": ["code_theme"],
   "actions": [
     { "label": "Fold or unfold every turn", "command": "mod-transcript" },
     { "label": "Write the drawn row ids to %TEMP%", "command": "mod-transcript", "args": "debug" }

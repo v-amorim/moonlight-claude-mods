@@ -11,8 +11,14 @@ import type { DotProps } from './dot'
 import type { FoldProps } from './fold'
 import type { LabelPart, LabelProps } from './label'
 import { pillWidth, type NumberProps } from './number'
-import { isTipMessage, tipText, type EntryMessage, type EntryProps, type Tip, type TipMessage } from './entry'
-import { cardFill, detectNerd, FOOTER_ROWS, lookFor, paneFooter, type IconMode, withMark } from './look'
+import { codeCard, calloutCard, headingRow } from './blocks'
+import { cutPieces, languageForPath, previewPieces, useTheme, type Piece } from './hilite'
+import { PathLinks, pathTokens } from './links'
+import { fileResult, resultCard } from './results'
+import { activeLabel, listThemes, loadTheme, type ThemeHost } from './vstheme'
+import { themeRows, type ThemesMessage, type ThemesProps } from './themes'
+import { entryCells, isTipMessage, tipText, type EntryMessage, type EntryProps, type Tip, type TipMessage } from './entry'
+import { cardFill, detectNerd, FOOTER_ROWS, lookFor, paneFooter, section, type IconMode, withMark } from './look'
 import { pillRow, splitRow, tabRow, tipLine } from './pills'
 import { actionReveals, settingChoice, settingsBody, type Action, type Previews } from './settings'
 import style from './style'
@@ -23,8 +29,9 @@ import { tokenizeLine, type Role } from './shell'
 import { detectWedge, FILLED, OUTLINE, type Wedge } from './wedge'
 import { CAPS, fill, MARK, mix, statusColor, SYNTAX, THEME, WASH } from './theme'
 import { copyChoices, copyText, type CopyChoice } from './clip'
-import { markPieces, type Piece } from './mark'
-import { splitTables, tableBlock, tableWidth, type Block } from './table'
+import { markPieces, paintOf, type Piece } from './mark'
+import { proseBlock, type Inline } from './prose'
+import { richBlocks, tableBlock, tableWidth, unsupported, type Block } from './table'
 import { callTime, commandOf, diffStat, elapsed, isPrompt, rowKey, timeOfDay, toolLabel, turnKinds, turnLine, turnThoughts, TurnLog, type Turn } from './turns'
 import { apiErrorAction, completeLines, hexColors, questionsOf, reportOf, senderTaskOf, statusesOf, withNotice, type Notice, type Report } from './rows'
 import { bridgeOn, endBridge, startBridge, type BridgeRecord } from './bridge'
@@ -66,6 +73,13 @@ let showNumbers = true
 // The animations setting, off: chips switch hover colors at once and the running dot stays lit.
 let still = false
 let iconMode: IconMode = 'auto'
+// The code_theme setting: a VS Code theme label, or empty to follow the editor's own.
+let codeTheme = ''
+// What the session's disk said about the paths replies name; a reply draws a path's link once the path is known to exist.
+const paths = new PathLinks()
+// The installed theme labels and the one VS Code uses, scanned each time the Settings pane opens.
+let themeList: Promise<{ labels: string[]; active: string | undefined }> | null = null
+let isThemesOpen = false
 let look = lookFor(false)
 let wedge: Wedge = FILLED
 type Kind = 'turns' | 'tools'
@@ -95,6 +109,7 @@ async function toggleSettings($: EngineInterface) {
     return
   }
   note = ''
+  themeList = null
   const showcase = await $.fs.read(`${$.plugin.root}/showcase.json`).then(text => JSON.parse(String(text))).catch(() => null)
   previews = showcase?.previews
   actions = (Array.isArray(showcase?.actions) ? showcase.actions : []).map((action: Action) => ({ ...action, isLocal: action.command === 'mod-transcript' }))
@@ -471,6 +486,8 @@ const toggleLine = ({ Box, Client }: Elements & { Client: (props: any) => Render
   )
 }
 
+const FILE_TOOLS = new Set(['Read', 'Write', 'Edit', 'MultiEdit'])
+
 // Blast-radius's Moonlight roles for a shell command: the command word bold, then options, quoted text, variables, numbers and operators.
 const ROLE_LOOK: Partial<Record<Role, Omit<LabelPart, 'text'>>> = {
   command: { color: SYNTAX.command, bold: true },
@@ -535,28 +552,62 @@ function bashRow({ Box, Client, Text }: Rows, input: any, isRunning: boolean, is
 // The bubble's padding and the reply's gutter, so a table wider than what is left goes back to Claude Code's.
 const TABLE_INDENT = 6
 
-// A reply holding tables: its prose as Claude Code's markdown, each table in the standard's look; gutter and margin as markedReply.
-function tableReply({ Box, Markdown, Text }: Pick<Rows, 'Box' | 'Text'> & { Markdown: (props: any) => RenderElement }, blocks: Block[], isFirst: boolean) {
+// The code each code block's copy pill copies, by block id; set as the block draws.
+const codes = new Map<string, string>()
+const COPY_CODE = 'copy-code:'
+
+// The pill pinned on a code card's top edge, rounded where the font has caps.
+function copyBlock({ Box, Client, Text }: Rows, id: string, code: string) {
+  codes.set(id, code)
+  const props: EntryProps = { id: `${COPY_CODE}${id}`, label: text.codeCopy, lead: look.glyph.copy, leadColor: THEME.secondary, isOpen: false, bg: THEME.surface3, idle: THEME.secondary, nerd: look.nerd, still, tip: { glyph: look.glyph.copy, label: text.tipCodeCopyLabel, text: text.tipCodeCopy } }
+  return (
+    <Box key={`toggle-copy-code-${id}`} flexDirection="row" flexShrink={0}>
+      {look.nerd ? <Text color={THEME.surface3}>{CAPS.left}</Text> : null}
+      <Client key={`toggle-copy-code-pill-${id}`} module="./entry.tsx" width={entryCells(props)} height={1} props={props} />
+      {look.nerd ? <Text color={THEME.surface3}>{CAPS.right}</Text> : null}
+    </Box>
+  )
+}
+
+// A reply the mod draws in part: tables, code, headings and callouts in the standard's look, paragraphs with hex pills, the rest as Claude Code's markdown; gutter and margin as markedReply.
+function richReply(parts: Rows & { Markdown: (props: any) => RenderElement }, blocks: Block[], inlineLook: Inline, isFirst: boolean, requestId: string, width: number) {
+  const { Box, Markdown, Text } = parts
   return (
     <Box key="toggle-tables" flexDirection="row" marginTop={isFirst ? 1 : 0}>
       <Box key="toggle-tables-gutter" width={2} flexShrink={0}>
         <Text>{isFirst ? MARK.stopOpen : ' '}</Text>
       </Box>
       <Box key="toggle-tables-body" flexDirection="column" flexGrow={1} flexShrink={1}>
-        {blocks.map((block, n) => (
-          <Box key={`toggle-block-${n}`} marginTop={n ? 1 : 0}>
-            {block.kind === 'markdown' ? <Markdown text={block.text} /> : tableBlock({ Box, Text }, block.table, `toggle-table-${n}`)}
-          </Box>
-        ))}
+        {blocks.map((block, n) => {
+          const id = `${requestId}:${n}`
+          const isOpen = flips.tools.includes(`code:${id}`)
+          return (
+            <Box key={`toggle-block-${n}`} marginTop={n ? 1 : 0} backgroundColor={block.kind === 'markdown' ? inlineLook.paint?.wash('text') : undefined}>
+              {block.kind === 'markdown' ? (
+                <Markdown text={block.text} dimColor={inlineLook.paint ? !inlineLook.paint.on('text') : undefined} />
+              ) : block.kind === 'prose' ? (
+                proseBlock({ Box, Text }, block.text, inlineLook, `toggle-prose-${n}`)
+              ) : block.kind === 'code' ? (
+                codeCard({ Box, Text }, block, { isOpen, paint: inlineLook.paint, copy: code => copyBlock(parts, id, code), more: (open, hidden, bg) => moreToggle(parts, `code:${id}`, open, hidden, bg) }, width, `toggle-code-${n}`)
+              ) : block.kind === 'heading' ? (
+                headingRow({ Box, Text }, block.text, inlineLook, width, `toggle-heading-${n}`)
+              ) : block.kind === 'callout' ? (
+                calloutCard({ Box, Text }, block, inlineLook, width, `toggle-callout-${n}`)
+              ) : (
+                tableBlock({ Box, Text }, block.table, inlineLook, `toggle-table-${n}`)
+              )}
+            </Box>
+          )
+        })}
       </Box>
     </Box>
   )
 }
 
-// What a hovered copy choice takes, like an editor selection; the rest of the reply dims.
-const MARKED = mix(THEME.accent, THEME.bg, 0.5)
+// What a hovered copy choice takes, on the same wash as the mod's own drawing; the rest of the reply dims.
+const MARKED = mix(THEME.bg, THEME.accent, 0.15)
 
-// The reply in pieces while a copy choice is hovered; gutter and top margin match Claude Code's row, since a row that shrinks moves the pill from under the pointer.
+// A reply that is Claude Code's own, in pieces while a copy choice is hovered; gutter and top margin match Claude Code's row, since a row that shrinks moves the pill from under the pointer.
 function markedReply({ Box, Markdown, Text }: Pick<Rows, 'Box' | 'Text'> & { Markdown: (props: any) => RenderElement }, pieces: Piece[], isFirst: boolean) {
   return (
     <Box key="toggle-marked" flexDirection="row" marginTop={isFirst ? 1 : 0}>
@@ -795,6 +846,8 @@ function chipSection({ Box, Client, Text }: Rows, turn: Turn, openTools: string[
     const isCut = more > 0 || (call.preview?.lines ?? []).some(previewLine => cells(lineOf(previewLine)) > width - 10)
     const isAll = isCut && flips.tools.includes(moreId)
     const shown = [...(call.preview?.lines ?? []), ...(isAll ? (call.preview?.rest ?? []) : [])]
+    const language = FILE_TOOLS.has(call.name) ? languageForPath(String(call.input?.file_path ?? '')) : undefined
+    const colored = previewPieces(language, shown, call.name === 'Read')
     // The call line cuts a long command, so the open call shows it whole first.
     const command = call.name === 'Bash' ? String(call.input?.command ?? '').split('\n').flatMap(commandLine => wrapWords(commandLine, width - 14)) : []
     // A SendMessage's result only says it was sent, so the open call shows the message itself first.
@@ -813,9 +866,15 @@ function chipSection({ Box, Client, Text }: Rows, turn: Turn, openTools: string[
         {shown.length === 0 ?<Text key="none" color={THEME.muted}>{text.previewEmpty}</Text> : null}
         {shown.map((previewLine, at) => {
           const background = previewLine.kind === 'add' ? { backgroundColor: THEME.addBg } : previewLine.kind === 'del' ? { backgroundColor: THEME.delBg } : {}
+          const parts = colored?.[at]
+          const row: Piece[] = parts ? [{ text: parts.lead, color: previewLine.kind === 'out' ? THEME.muted : THEME.onSurface }, ...parts.code] : []
           const body = (
             <Text key={`line-${at}`} color={previewLine.kind === 'out' ? THEME.muted : THEME.onSurface} wrap={isAll ? 'wrap' : 'truncate-end'} {...background}>
-              {(isAll ? lineOf(previewLine) : cut(lineOf(previewLine), width - 10)) || ' '}
+              {parts
+                ? (isAll ? row : cutPieces(row, width - 10)).map((piece, index) => (
+                    <Text key={`piece-${index}`} color={piece.color} bold={piece.bold} italic={piece.italic} underline={piece.underline}>{piece.text}</Text>
+                  ))
+                : (isAll ? lineOf(previewLine) : cut(lineOf(previewLine), width - 10)) || ' '}
             </Text>
           )
           // The control sits on the last preview row, pinned right.
@@ -963,6 +1022,64 @@ async function loadWedge($: EngineInterface) {
   if (isChanged) $.ui.invalidate('ui.render')
 }
 
+// The theme the code colors come from, read once per session when the first code is about to draw; the mod's own palette draws until it resolves, and when none does.
+let themeLoad: Promise<void> | null = null
+
+const ensureTheme = ($: EngineInterface) => {
+  void loadCodeTheme($).catch(() => {
+    // A failed search keeps the palette's colors.
+  })
+}
+
+// The file as the card's link shows it: under the session folder it is relative to it; the line follows.
+function fileLabel(path: string, line: number) {
+  const slash = path.replace(/\\/g, '/')
+  const base = paths.cwd.replace(/\/$/, '')
+  const isUnder = base && slash.toLowerCase().startsWith(`${base.toLowerCase()}/`)
+  return `${isUnder ? slash.slice(base.length + 1) : slash}:${line}`
+}
+
+const homeOf = async ($: EngineInterface) => ((await $.env.get('USERPROFILE')) ?? (await $.env.get('HOME')) ?? '').replace(/\\/g, '/')
+
+// The session's folder and home, read once per session, so a relative or ~ path in a reply resolves against them.
+let rootsLoad: Promise<void> | null = null
+const loadRoots = ($: EngineInterface) =>
+  (rootsLoad ??= (async () => {
+    paths.cwd = (await $.session.cwd().catch(() => '')).replace(/\\/g, '/')
+    paths.home = await homeOf($).catch(() => '')
+  })())
+
+// The machine as the theme finder reads it; null when no home folder is known.
+async function themeHost($: EngineInterface): Promise<ThemeHost | null> {
+  const home = await homeOf($)
+  if (!home) return null
+  return {
+    home,
+    appData: ((await $.env.get('APPDATA')) ?? '').replace(/\\/g, '/'),
+    localAppData: ((await $.env.get('LOCALAPPDATA')) ?? '').replace(/\\/g, '/'),
+    programFiles: ((await $.env.get('PROGRAMFILES')) ?? '').replace(/\\/g, '/'),
+    read: (path: string) => $.fs.read(path).then(String),
+    list: (path: string) => $.fs.list(path).then(entries => entries.filter(entry => entry.kind !== 'file').map(entry => entry.name)),
+  }
+}
+
+function loadCodeTheme($: EngineInterface) {
+  themeLoad ??= (async () => {
+    const host = await themeHost($)
+    if (!host) return
+    const saved = await Promise.resolve($.store.get('code-theme')).catch(() => undefined)
+    const known = saved && typeof saved === 'object' && typeof (saved as any).label === 'string' && typeof (saved as any).path === 'string' ? (saved as { label: string; path: string }) : undefined
+    const found = await loadTheme(host, codeTheme, known)
+    if (!found) return
+    useTheme(found)
+    $.ui.invalidate('ui.render')
+    await Promise.resolve($.store.set('code-theme', { label: found.label, path: found.path })).catch(() => {
+      // Without a store the search just runs again next time.
+    })
+  })()
+  return themeLoad
+}
+
 // Hooks of one event run in turn, so the slow font check runs beside them instead of holding up every mod after this one.
 let lookLoad: Promise<void> | null = null
 
@@ -1006,8 +1123,42 @@ async function saveSetting($: EngineInterface, key: string, value: ConfigValue) 
   $.ui.invalidate('ui.render')
 }
 
+const CODE_THEME = 'mod-transcript.code_theme'
+const THEMES_MORE = 'themes-more'
+// Past this many rows (Follow VS Code included) the list folds behind its expand control: a long extension folder would push every other card off screen.
+const THEME_ROWS = 8
+
+// The Code theme card: Follow VS Code, then every installed theme; a click on a row saves it as the setting.
+async function themeCard({ Box, Client, Text }: Pick<Rows, 'Box' | 'Client' | 'Text'>, $: EngineInterface, chosen: string) {
+  themeList ??= (async () => {
+    const host = await themeHost($)
+    return host ? { labels: await listThemes(host), active: await activeLabel(host) } : { labels: [], active: undefined }
+  })()
+  const found = await themeList.catch(() => ({ labels: [] as string[], active: undefined }))
+  const all = themeRows(found.labels, found.active, chosen)
+  const shown = isThemesOpen ? all : all.slice(0, THEME_ROWS)
+  const hidden = all.length - shown.length
+  const arrow = isThemesOpen ? look.glyph.less : look.glyph.more
+  const label = isThemesOpen ? text.themeLess : fill(text.themeMore, { n: hidden })
+  const list = <Client key="themes-list" module="./themes.tsx" width="100%" height={shown.length} props={{ rows: shown, glyph: look.glyph.ok, tip: { glyph: look.glyph.ok, text: text.tipTheme }, still } satisfies ThemesProps} />
+  const more =
+    hidden > 0 || isThemesOpen ? (
+      <Client
+        key={THEMES_MORE}
+        module="./entry.tsx"
+        width={cells(label) + 4}
+        height={1}
+        props={{ id: THEMES_MORE, label, lead: arrow, leadColor: THEME.accent, isOpen: false, bg: cardFill(), idle: THEME.muted, nerd: look.nerd, still, tip: { glyph: arrow, label, text: isThemesOpen ? text.tipThemeLess : text.tipThemeMore } } satisfies EntryProps}
+      />
+    ) : null
+  return section({ Box, Text }, look, 'themes', 'icons', text.themeSection, [list, more])
+}
+
 export const register: Register = (on, options) => {
   iconMode = (options.icons as IconMode | undefined) ?? 'auto'
+  codeTheme = typeof options.code_theme === 'string' ? options.code_theme : ''
+  themeLoad = null
+  useTheme(null)
   look = lookFor(iconMode === 'nerd')
   foldTurns = options.fold_turns !== false
   foldTools = options.fold_tools !== false
@@ -1082,9 +1233,20 @@ export const register: Register = (on, options) => {
       }
       const change = settingChoice(e.data)
       if (change) await saveSetting($, change.key, change.value)
+      const theme = e.data as ThemesMessage
+      if (theme?.type === 'code-theme') await saveSetting($, CODE_THEME, theme.value)
+      if (clicked?.type === 'menu-entry' && clicked.id === THEMES_MORE) {
+        isThemesOpen = !isThemesOpen
+        $.ui.invalidate('ui.render')
+      }
       const message = e.data as BarMessage
       if (message?.type === 'fold') await flip($, message.kind, message.id)
       if (clicked?.type === 'menu-entry' && clicked.id.startsWith(MORE)) await flip($, 'tools', clicked.id.slice(MORE.length))
+      const code = clicked?.type === 'menu-entry' && clicked.id.startsWith(COPY_CODE) ? codes.get(clicked.id.slice(COPY_CODE.length)) : undefined
+      if (code !== undefined) {
+        const result = await $.ui.copy({ text: code, surface: e.surface })
+        $.ui.toast(result.isCopied ? fill(text.copied, { what: text.copyChoice.code }) : fill(text.copyFailed, { reason: String('reason' in result ? result.reason : '') }))
+      }
       const picked = e.data as ChipsMessage
       if (picked?.type === 'chip') await pickChip($, picked.id, picked.kind)
       const copy = e.data as CopyMessage
@@ -1139,7 +1301,11 @@ export const register: Register = (on, options) => {
 
     // @ts-expect-error The host's types omit Client from a Pane's elements, yet a Pane draws it.
     const { Box, Button, Client, Text } = $.ui.resolve(e)
-    const rows = (await $.config.list()).filter(row => row.key.startsWith('mod-transcript.'))
+    const own = (await $.config.list()).filter(row => row.key.startsWith('mod-transcript.'))
+    // The settings card for code_theme is the picker below, so the plain one is left out.
+    const themeRow = own.find(row => row.key === CODE_THEME)
+    const rows = own.filter(row => row !== themeRow)
+    const picker = themeRow ? await themeCard({ Box, Client, Text }, $, typeof themeRow.value === 'string' ? themeRow.value : '') : null
     // A saved change reloads this mod, which redraws the panel with the new value.
     const run = async (action: Action) => {
       const said =
@@ -1154,6 +1320,7 @@ export const register: Register = (on, options) => {
       <Box flexDirection="column" paddingX={1} backgroundColor={THEME.bg} minHeight={e.props.scroll.bodyRows}>
         {tabRow({ Box, Client, Text }, look.nerd, [{ id: 'mod-transcript-settings-tab', label: `${text.paneHeading} ${MARK.sep} ${text.paneSubheading}`, icon: look.glyph.gear, isOpen: true, tip: { glyph: look.glyph.gear, label: text.paneSubheading, text: text.tipTabSettings } }], still)}
         <Text wrap="truncate-end" color={statusColor(note)}>{withMark(look, note) || `${text.paneHintClick} ${MARK.sep} ${text.paneHintSaved}`}</Text>
+        {picker}
         <Box marginTop={0}>{settingsBody({ Box, Button, Client, Text }, look, { rows, actions, working, run, previews, still, tips: text.settingTips })}</Box>
         <Box key="footer-space" height={FOOTER_ROWS} />
         {paneFooter({ Box, Text }, hoveredTip(), e.props.bodyColumns, e.props.scroll, actionReveals(actions, look, working))}
@@ -1181,6 +1348,8 @@ export const register: Register = (on, options) => {
   // A /resume or /clear ends this session; what its bridge file still holds is delivered, and the next row asks for the id at once.
   on('session.end', async ($, e, next) => {
     sessionCheckedAt = 0
+    paths.clear()
+    rootsLoad = null
     await endBridge($, e.sessionId)
 
     return next(e)
@@ -1302,6 +1471,7 @@ export const register: Register = (on, options) => {
         {took ? timePill({ Box, Text }, 'toggle-head-time', took) : null}
       </Box>
     )
+    if (isOpen && turn.tools.some(call => FILE_TOOLS.has(call.name))) ensureTheme($)
     const kinds = isOpen && foldTools ? chipSection({ Box, Client, Text }, turn, flips.tools, widthOf(e)) : null
     // The reply closes the card; a turn cancelled before any reply has none, so its head closes it whenever no tool row draws below.
     const isClosed = !turn.reply && (foldTools || !isOpen)
@@ -1329,19 +1499,31 @@ export const register: Register = (on, options) => {
     // A reply drawn live is newer than the transcript the log read; the copy pill hands over what it says.
     if (turn && rowKey(e.requestId) === turn.reply && e.props.text.trim()) turn.replyText = e.props.text.trim()
     const place = await placeOf($, turn, e.requestId)
-    const { Box, Client, Markdown, Text } = $.ui.resolve(e)
+    const { Box, Client, Link, Markdown, Text } = $.ui.resolve(e)
+    await loadRoots($)
+    // The row draws now with its paths as code pills; each one that exists turns into a link once its stat answers and the row redraws.
+    void paths.watch(pathTokens(e.props.text), absolute => $.fs.stat(absolute).then(() => true), () => $.ui.invalidate('ui.render')).catch(() => {
+      // A failed stat leaves the path as it is drawn.
+    })
     const failure = apiFailure?.text && e.props.text.trim() === apiFailure.text ? apiFailure : null
     // Only the reply's row reads the hover, which subscribes it: the pill's choice on this turn marks what that choice copies.
     const hover = showCopy && !failure && turn && rowKey(e.requestId) === turn.reply ? String((await $.state.get({ plugin: 'mod-transcript', key: 'copy-hover' })).value ?? '') : ''
     const hovered = turn && hover.startsWith(`${turn.prompt}\n`) ? hover.slice(turn.prompt.length + 1) : ''
-    const marks = hovered ? markPieces(e.props.text.trim(), hovered as CopyChoice) : null
-    const colors = failure ? [] : hexColors(e.props.text, THEME.surface2)
-    const tables = !failure && !marks && hasTable(e.props.text) ? splitTables(e.props.text.trim()) : null
-    // Claude Code's own table takes over when one is wider than the bubble's text column.
-    const ownTables = tables?.every(block => block.kind === 'markdown' || tableWidth(block.table) <= widthOf(e) - TABLE_INDENT) ? tables : null
+    const found = failure ? [] : hexColors(e.props.text, THEME.surface2)
+    // A paragraph that names a path known to exist is the mod's to draw, since Claude Code's markdown has no link for it.
+    const blocks = !failure ? richBlocks(e.props.text.trim(), paragraph => hexColors(paragraph, THEME.surface2).length > 0 || (!unsupported(paragraph) && pathTokens(paragraph).some(token => paths.href(token)))) : null
+    // Claude Code's own table takes over when one is wider than the bubble's text column; with nothing of the mod's to draw, the reply stays Claude Code's.
+    const inlineLook: Inline = { colors: new Map(found.map(color => [color.code.toUpperCase(), color])), nerd: look.nerd, links: { Link, open: token => paths.href(token) }, paint: hovered ? paintOf(hovered as CopyChoice) : undefined }
+    const own = blocks?.some(block => block.kind !== 'markdown') && blocks.every(block => block.kind !== 'table' || tableWidth(block.table, inlineLook) <= widthOf(e) - TABLE_INDENT) ? blocks : null
+    // A reply that is Claude Code's own at rest stays its drawing while hovered, cut into marked pieces: the mod's drawing would change its height under the pointer.
+    const marks = hovered && !failure && !own ? markPieces(e.props.text.trim(), hovered as CopyChoice) : null
+    if (own?.some(block => block.kind === 'code')) ensureTheme($)
+    // A turn's card rows sit inside a bar and its padding, three cells narrower than the reply.
+    const room = widthOf(e) - (place === 'card' ? 3 : 0)
     const reply = async () =>
-      failure ? apiErrorRow({ Box, Text }, failure, widthOf(e)) : marks ? markedReply({ Box, Markdown, Text }, marks, e.props.isFirstOfReply) : ownTables ? tableReply({ Box, Markdown, Text }, ownTables, e.props.isFirstOfReply) : next(e)
-    // Claude Code draws the reply's markdown, which cannot color a character, so the colors it names show in a strip under it.
+      failure ? apiErrorRow({ Box, Text }, failure, widthOf(e)) : marks ? markedReply({ Box, Markdown, Text }, marks, e.props.isFirstOfReply) : own ? richReply({ Box, Client, Markdown, Text }, own, inlineLook, e.props.isFirstOfReply, e.requestId, room) : next(e)
+    // Claude Code's markdown cannot color a character, so only the colors left in its blocks show in a strip under the reply.
+    const colors = own ? hexColors(own.flatMap(block => (block.kind === 'markdown' ? [block.text] : [])).join('\n'), THEME.surface2) : found
     const drawn = async () =>
       colors.length === 0 ? reply() : (
         <Box key="toggle-colored" flexDirection="column">
@@ -1362,7 +1544,7 @@ export const register: Register = (on, options) => {
           </Box>
         </Box>
       )
-    if (place === 'plain') return turn ? bubble({ Box, Client }, 'toggle-bubble', turn, await drawn(), hasTable(e.props.text) && !ownTables) : drawn()
+    if (place === 'plain') return turn ? bubble({ Box, Client }, 'toggle-bubble', turn, await drawn(), hasTable(e.props.text) && !own) : drawn()
 
     return place === 'hidden' ? <Box key="toggle-hidden" /> : cardRow({ Box, Client }, await drawn(), { kind: 'turns', id: turn!.prompt })
   })
@@ -1438,11 +1620,29 @@ export const register: Register = (on, options) => {
     }
     const turn = log.turnOf(e.requestId)
     seen.set(`ToolResult ${e.requestId}`, Boolean(turn))
-    const { Box, Client } = $.ui.resolve(e)
+    const { Box, Client, Link, Text } = $.ui.resolve(e)
     const place = await placeOf($, turn, e.requestId)
     if (place === 'hidden' || (place === 'card' && foldTools) || (foldTools && !isLive(turn) && !flips.tools.includes(e.props.tool_use_id))) return <Box key="toggle-hidden" />
 
-    const body = nested({ Box, Client }, 'toggle-result', await next(e), { kind: 'tools', id: e.props.tool_use_id })
+    // An errored result, or a record the card does not know, stays Claude Code's.
+    const result = e.props.isErrored ? null : fileResult(e.props.tool, e.props.output)
+    await loadRoots($)
+    const href = result ? paths.address(result.path, result.line) : undefined
+    let drawn: unknown
+    if (result && href) {
+      ensureTheme($)
+      const id = `result:${e.requestId}`
+      const parts = { Box, Client, Text }
+      drawn = resultCard(
+        { Box, Text },
+        result,
+        { isOpen: flips.tools.includes(`code:${id}`), copy: code => copyBlock(parts, id, code), more: (open, hidden, bg) => moreToggle(parts, `code:${id}`, open, hidden, bg), Link, nerd: look.nerd, href, label: fileLabel(result.path, result.line) },
+        // The result sits inside the bar and its padding, and inside the turn's card when that is open.
+        widthOf(e) - 2 - (place === 'card' ? 3 : 0),
+        'toggle-result-card',
+      )
+    }
+    const body = nested({ Box, Client }, 'toggle-result', drawn ?? (await next(e)), { kind: 'tools', id: e.props.tool_use_id })
     if (place === 'card') return cardRow({ Box, Client }, body, { kind: 'turns', id: turn!.prompt })
     return turn ? bubble({ Box, Client }, 'toggle-bubble', turn, body) : body
   })

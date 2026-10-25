@@ -1,6 +1,6 @@
 {
   "name": "mod-transcript",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "description": "Restyles the transcript: prompts and replies as chat bubbles, each finished turn folded to one summary line under its prompt (tools, file changes, skills, agents) with the final reply kept, finished tool rows folded to one line, Bash commands in shell colors, and a copy button under each reply. A click unfolds a turn or a call in place",
   "license": "MIT",
   "author": {
@@ -50,6 +50,12 @@
       "title": "Animations",
       "description": "Fold and kind chips fade when the pointer leaves, a running command's dot blinks, and the tabs and settings fade. Off, they switch at once and the dot stays lit",
       "default": true
+    },
+    "code_theme": {
+      "type": "string",
+      "title": "Code theme",
+      "description": "The VS Code color theme that colors code in replies and in Read, Write and Edit previews. Empty follows the theme VS Code is set to. Otherwise type a theme's label exactly, such as Moonlight. It looks in the .vscode, .vscode-insiders and .cursor extension folders. Without a match, the mod's own colors draw",
+      "default": ""
     },
     "icons": {
       "type": "string",

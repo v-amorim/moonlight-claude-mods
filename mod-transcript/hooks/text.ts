@@ -2,7 +2,7 @@
 // Every string this mod shows. Edit the values to reword or translate; keep the keys and the {slots}.
 export default {
   "commandDescription": "Fold or unfold every finished turn; `settings` opens its settings panel, `debug` writes the drawn row ids to %TEMP%",
-  "panePlacedTitle": "mod-transcript",
+  "panePlacedTitle": "Transcript",
   "paneWaiting": "Settings panel waiting: {reason}",
   "paneHeading": "Transcript",
   "paneSubheading": "Settings",
@@ -50,6 +50,13 @@ export default {
   "tipCopyIcon": "copies this reply",
   "tipCopyChoiceLabel": "Copy {what}",
   "tipCopyChoice": { "reply": "copies the whole reply", "code": "copies the code blocks", "text": "copies the reply as plain text", "table": "copies the tables", "links": "copies the links" },
+  "diffTag": "DIFF",
+  "calloutMark": { "note": "i", "warning": "!" },
+  "calloutTitle": { "note": "Note", "tip": "Tip", "important": "Important", "warning": "Warning", "caution": "Caution" },
+  "codeCopy": "copy",
+  "resultNoExt": "FILE",
+  "tipCodeCopyLabel": "Copy code",
+  "tipCodeCopy": "copies this block's code",
   "previewMore": "{n} more lines",
   "showAll": "Show all",
   "showLess": "Show less",
@@ -98,5 +105,13 @@ export default {
   "reportTask": "task {id}",
   "reportType": "type {type}",
   "reportTool": "tool {id}",
+  "themeSection": "Code theme",
+  "themeFollow": "Follow VS Code",
+  "themeActive": "(selected on VS Code)",
+  "themeMore": "{n} more",
+  "themeLess": "Show fewer",
+  "tipTheme": "colors the code in replies and previews with it",
+  "tipThemeMore": "lists every installed theme",
+  "tipThemeLess": "shows the first themes only",
   "settingTips": {"expand_live":"stays open until your next prompt","prompt_numbers":"#N before each of your prompts","copy_pill":"on each finished reply's edge","animations":"chips and tabs fade, the dot blinks"}
 }

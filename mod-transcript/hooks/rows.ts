@@ -48,11 +48,15 @@ export type HexColor = { code: string; rgb: string }
 
 const channels = (six: string) => [0, 2, 4].map(at => parseInt(six.slice(at, at + 2), 16))
 
+// A hex color in text; a short code counts only with a letter in it, so a prompt number stays a number.
+export const HEX = /(?<![\w#&])#([0-9a-fA-F]{8}|[0-9a-fA-F]{6}|[0-9a-fA-F]{3,4})(?![\w-])/g
+export const isHexCode = (digits: string) => digits.length > 4 || /[a-f]/i.test(digits)
+
 // Each distinct hex color in order of first use; terminals draw no alpha, so it blends over `under`.
 export function hexColors(text: string, under: string): HexColor[] {
   const found = new Map<string, HexColor>()
-  for (const [code, digits] of text.matchAll(/(?<![\w#&])#([0-9a-fA-F]{8}|[0-9a-fA-F]{6}|[0-9a-fA-F]{3,4})(?![\w-])/g)) {
-    if (digits!.length <= 4 && !/[a-f]/i.test(digits!)) continue
+  for (const [code, digits] of text.matchAll(HEX)) {
+    if (!isHexCode(digits!)) continue
     const full = digits!.length <= 4 ? [...digits!].map(digit => digit + digit).join('') : digits!
     const alpha = full.length === 8 ? parseInt(full.slice(6), 16) / 255 : 1
     const base = channels(under.replace('#', ''))

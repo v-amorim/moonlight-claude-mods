@@ -43,6 +43,7 @@ Automatic.
 - **Turn line:** Under each prompt, a line names what the turn did: tool count, file changes with lines added and removed, skills, agents and time.
 - **Tool lines:** Inside an open turn, each finished tool call is one line; a click shows its full row and diff.
 - **Call previews:** A tool call's preview shows its first lines. Show all opens the rest, and a line that was cut wraps in full. Show less folds it back.
+- **Code colors:** Code fences in replies and the lines of a Read, Write or Edit preview are colored from your VS Code color theme: the one VS Code is set to, or the one the Code theme setting names. Without a match, the mod's own colors draw.
 - **Card:** An open turn draws as one tinted card with a bar down its left edge; the final reply stays outside it.
 - **Copy button:** A button under each finished reply copies it as markdown, its code, plain text, its tables rebuilt as clean markdown, or its links. Pointing at a choice marks the characters it takes.
 - **Command hooks:** On SessionStart, PermissionDenied and StopFailure, a small shell hook appends the event's JSON as one line to `~/.claude/mods-data/mod-transcript/bridge/<session id>.jsonl` (under `$CLAUDE_CONFIG_DIR` when that is set), and the mod reads the file every 250 ms. A record can hold the session id, the working folder and the transcript path, and for Stop-type events the last assistant message. SessionEnd deletes the session's file, and SessionStart deletes files older than 7 days. The hooks need a POSIX shell (Git Bash on Windows). Without one they write nothing, and the mod falls back to what it can find on its own. Some plans block plugin hooks on these events; the mod then falls back the same way.
@@ -60,6 +61,7 @@ Change them with `/mod-transcript settings` or the gear pill.
 | Copy button | on | On each finished reply's edge. Point at the copy button to pick reply, code, text, table or links, then click. The reply marks what the choice under the pointer copies. Off, the edge stays plain |
 | Prompt numbers | on | #N before each of your prompts. It matches the number the Prompts and Heads up panels show |
 | Animations | on | Fold and kind chips fade when the pointer leaves, a running command's dot blinks, and the tabs and settings fade. Off, they switch at once and the dot stays lit |
+| Code theme | empty | The VS Code color theme that colors code in replies and in Read, Write and Edit previews. Empty follows the theme VS Code is set to. Otherwise type a theme's label exactly, such as Moonlight. It looks in the .vscode, .vscode-insiders and .cursor extension folders. Without a match, the mod's own colors draw |
 | Icons | `auto` | auto picks Nerd Font or safe glyphs. It uses Nerd Font icons when the terminal's font is a Nerd Font (read from Windows Terminal, iTerm2, VS Code, Ghostty, kitty, WezTerm, Alacritty, GNOME Terminal or Konsole) and safe Unicode glyphs elsewhere. nerd and safe force one |
 
 ## License

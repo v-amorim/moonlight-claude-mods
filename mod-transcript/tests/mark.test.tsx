@@ -2,14 +2,16 @@
 // Tests the characters a hovered copy choice marks in the reply: what is marked is what is copied.
 import { expect, mock, test } from 'claude-code/testing'
 
-import { copyText, type CopyChoice } from '../hooks/clip'
+import { copyChoices, copyText, type CopyChoice } from '../hooks/clip'
 import Copy from '../hooks/copy'
-import { markPieces, type Piece } from '../hooks/mark'
+import { markPieces, paintOf, type Part, type Piece } from '../hooks/mark'
+import style from '../hooks/style'
 import { mix, THEME } from '../hooks/theme'
 import { reading, sessionStarted } from './bridge-feed'
 
-// The selection fill register.tsx gives what a hovered choice copies.
-const MARKED = mix(THEME.accent, THEME.bg, 0.5)
+// The accent wash a hovered choice gives what it copies, and the mix every other part's colours take toward the background.
+const WASH = mix(THEME.bg, THEME.accent, 0.15)
+const dimmed = (color: string) => mix(color, THEME.bg, 0.55)
 
 const ID = (n: number) => `${String(n).padStart(8, '0')}-0000-4000-8000-000000000000`
 const row = (n: number, type: string, extra: object) => JSON.stringify({ type, uuid: ID(n), parentUuid: n > 1 ? ID(n - 1) : null, ...extra })
@@ -29,9 +31,12 @@ const REPLY = [
   'Nothing else to say.',
 ].join('\n')
 
-const TRANSCRIPT = [
+// A reply with nothing the mod draws itself, so it stays Claude Code's own drawing.
+const PLAIN = 'See https://ci.example.dev/run/42 for the log.\n\nNothing else to say.'
+
+const transcriptOf = (text: string) => [
   row(1, 'user', { message: { role: 'user', content: 'build it' } }),
-  said(2, [{ type: 'text', text: REPLY }]),
+  said(2, [{ type: 'text', text }]),
   row(3, 'system', { subtype: 'turn_duration', durationMs: 3000 }),
   row(4, 'user', { message: { role: 'user', content: 'thanks' } }),
 ].join('\n') + '\n'
@@ -88,7 +93,28 @@ test('marks: what a choice leaves stays markdown, in order, and a choice marking
   expect(markPieces('', 'reply')).toBeNull()
 })
 
-async function mountReply($: any, on: any) {
+test('paint: reply and text mark every part, the other choices only theirs, and a part left dims toward the background', () => {
+  const parts: Part[] = ['text', 'code', 'table', 'link']
+  const marked = (what: CopyChoice) => parts.filter(part => paintOf(what).on(part))
+  expect(marked('reply')).toEqual(parts)
+  expect(marked('text')).toEqual(parts)
+  expect(marked('code')).toEqual(['code'])
+  expect(marked('table')).toEqual(['table'])
+  expect(marked('links')).toEqual(['link'])
+  const code = paintOf('code')
+  expect(code.color('#aabbcc', 'code')).toBe('#aabbcc')
+  expect(code.color('#aabbcc', 'text')).toBe(dimmed('#aabbcc'))
+  expect(code.color(undefined, 'table')).toBe(dimmed(THEME.onSurface))
+  expect(code.wash('code')).toBe(WASH)
+  expect(code.wash('text')).toBeUndefined()
+  expect(code.fill(THEME.surface1, 'code')).toBe(CARD_WASH)
+  expect(code.fill(THEME.surface1, 'text')).toBe(CARD_DIM)
+  expect(paintOf('table').rule('table')).toBe(style.colors.pills.separator)
+  expect(code.rule('table')).toBe(dimmed(THEME.border))
+})
+
+async function mountReply($: any, on: any, said = REPLY) {
+  const TRANSCRIPT = transcriptOf(said)
   on('store.get', () => ({ value: undefined }))
   on('store.set', () => ({ value: undefined }))
   on('session.id', () => ({ value: 's1' }))
@@ -107,7 +133,7 @@ async function mountReply($: any, on: any) {
     $.ui.mount({ plugin: 'mod-transcript', surface: 'terminal', component, requestId, viewport: { columns: 120, rows: 40 }, props } as never)
   return {
     prompt: await mount('UserMessage', ID(1), { text: 'build it', origin: { kind: 'composer' }, isExpanded: false }),
-    reply: await mount('AssistantMessage', ID(2), { text: REPLY, isFirstOfReply: true }),
+    reply: await mount('AssistantMessage', ID(2), { text: said, isFirstOfReply: true }),
     next: await mount('UserMessage', ID(4), { text: 'thanks', origin: { kind: 'composer' }, isExpanded: false }),
   }
 }
@@ -119,38 +145,105 @@ const point = (ui: any, type: string, x: number) => ui.pointer({ in: 'toggle-cop
 const leadOf = async (ui: any) => String((await ui.drawn({ in: 'toggle-copy-pill' })).children[0].children[0]).length
 
 // The cell inside the choice `at` of the open pill; each choice is its label and a space either side.
-const cellOf = async (ui: any, at: number) => {
+const cellOf = async (ui: any, at: number, choices: string[] = CHOICES) => {
   const lead = await leadOf(ui)
-  return lead + CHOICES.slice(0, at).reduce((sum, what) => sum + what.length + 2, 0) + 1
+  return lead + choices.slice(0, at).reduce((sum, what) => sum + what.length + 2, 0) + 1
 }
 
+// A reply the mod draws whole: prose with a code pill, a web link and a hex pill, a code card and a table.
+const RICH = [
+  'Run `just test`, read https://ci.example.dev/run/42 and note #ff8800.',
+  '',
+  '```ts',
+  'const total = 1',
+  '```',
+  '',
+  '| Name | Count |',
+  '|:-----|------:|',
+  '| apples | 3 |',
+].join('\n')
+
+// The fill of a code card's rows and of a table's inline pills while marked, and the fill the card dims to.
+const CARD_WASH = mix(THEME.surface1, THEME.accent, 0.15)
+const CARD_DIM = mix(THEME.surface1, THEME.bg, 0.4)
+const PILL_WASH = mix(THEME.surface3, THEME.accent, 0.15)
+
+// Layout is what is left once the colours go, so equal trees take equal rows.
+const PAINT = ['color', 'backgroundColor', 'borderColor', 'dimColor']
+const layoutOf = (tree: unknown) =>
+  JSON.stringify(tree, (key, value) => (PAINT.includes(key) ? undefined : key === 'props' && value && !Object.keys(value).some(name => !PAINT.includes(name)) ? undefined : value))
+const has = (drawn: string, color: string) => drawn.includes(`"${color}"`)
+const found = (node: any, key: string): any =>
+  node?.props?.key === key ? node : (node?.children ?? []).reduce((hit: any, child: any) => hit ?? (typeof child === 'object' ? found(child, key) : undefined), undefined)
+const inRow = async (ui: any, key: string) => JSON.stringify(found(await ui.drawn(), key))
+
 for (const icons of ['safe', 'nerd']) {
-  test(`hovering a choice marks its characters on the reply row, and leaving restores it (${icons} icons)`, { options: { icons } }, async ($, on) => {
-    const { prompt, reply, next } = await mountReply($, on)
-    // At rest the row is the mod's own table drawing, and no mark is in it.
+  test(`a hovered choice washes the parts it copies and dims the rest of the reply the mod draws (${icons} icons)`, { options: { icons } }, async ($, on) => {
+    const { prompt, reply, next } = await mountReply($, on, RICH)
+    const rest = await shapeOf(reply)
     expect(await drawnOf(reply)).toContain('"key":"toggle-tables"')
-    expect(await drawnOf(reply)).not.toContain(`"backgroundColor":"${MARKED}"`)
+    expect(rest.layout).not.toBe('')
     await point(reply, 'move', (await leadOf(reply)) + 1)
     await point(reply, 'move', await cellOf(reply, 1))
     for (const [at, what] of CHOICES.entries()) {
       await point(reply, 'move', await cellOf(reply, at))
-      const drawn = await drawnOf(reply)
-      expect(drawn).not.toContain('base AssistantMessage')
-      expect(drawn).toContain(MARKED)
-      for (const text of markedText(markPieces(REPLY, what))) expect(drawn).toContain(JSON.stringify(text).slice(1, -1))
+      const drawn = await shapeOf(reply)
+      // The reply keeps the mod's own drawing and its layout: no pieces, no Claude Code table.
+      expect(await drawnOf(reply)).toContain('"key":"toggle-tables"')
+      expect(await drawnOf(reply)).not.toContain('toggle-marked')
+      expect(drawn.layout, `${what} keeps the rows of the reply at rest`).toBe(rest.layout)
+      const all = what === 'reply' || what === 'text'
+      const prose = await inRow(reply, 'toggle-prose-0')
+      const card = await inRow(reply, 'toggle-code-1')
+      const table = await inRow(reply, 'toggle-table-2')
+      // Text: its colour dims unless the choice copies it, and it sits on the wash when it does (a pill carries it on its caps with the font, on its fill without).
+      expect(has(prose, dimmed(THEME.onSurface))).toBe(!all)
+      expect(has(prose, WASH)).toBe(all || (icons === 'nerd' && (what === 'code' || what === 'links')))
+      expect(has(prose, PILL_WASH)).toBe(icons === 'safe' && (all || what === 'code' || what === 'links'))
+      // The card's own fill takes the wash, or dims.
+      expect(has(card, CARD_WASH)).toBe(all || what === 'code')
+      expect(has(card, CARD_DIM)).toBe(!(all || what === 'code'))
+      expect(has(card, dimmed(THEME.border))).toBe(!(all || what === 'code'))
+      // The table sits on the wash with its hairlines and bars one step brighter, or dims.
+      expect(has(table, WASH)).toBe(all || what === 'table')
+      expect(has(table, style.colors.pills.separator)).toBe(all || what === 'table')
+      expect(has(table, dimmed(THEME.border))).toBe(!(all || what === 'table'))
     }
-    // The links choice leaves the code as markdown, which a marked Text would not be.
-    expect(await drawnOf(reply)).toContain('Nothing else to say.')
-    // What the links choice leaves dims, so the marked characters stand out.
-    expect(await drawnOf(reply)).toContain('"dimColor":true')
-    // The first block keeps the blank line Claude Code draws above it, so the row keeps its height under the pointer.
-    expect(await drawnOf(reply)).toMatch(/"key":"toggle-marked"[^{}]*"marginTop":1|"marginTop":1[^{}]*"key":"toggle-marked"/)
     await point(reply, 'leave', 0)
     expect(await drawnOf(reply)).toContain('"key":"toggle-tables"')
-    expect(await drawnOf(reply)).not.toContain(`"backgroundColor":"${MARKED}"`)
-    for (const ui of [prompt, reply, next]) await ui.unmount()
+    expect(await shapeOf(reply)).toEqual(rest)
+    for (const each of [prompt, reply, next]) await each.unmount()
   })
 }
+
+async function shapeOf(reply: any) {
+  const tree = found(await reply.drawn(), 'toggle-tables')
+  return { layout: layoutOf(tree), drawn: JSON.stringify(tree) }
+}
+
+test('a reply that is Claude Code\'s own while at rest keeps its pieces drawing while hovered', async ($, on) => {
+  const { prompt, reply, next } = await mountReply($, on, PLAIN)
+  const choices = copyChoices(PLAIN)
+  expect(choices).toEqual(['reply', 'links'])
+  expect(await drawnOf(reply)).toContain('base AssistantMessage')
+  await point(reply, 'move', (await leadOf(reply)) + 1)
+  await point(reply, 'move', await cellOf(reply, 1, choices))
+  for (const [at, what] of choices.entries()) {
+    await point(reply, 'move', await cellOf(reply, at, choices))
+    const drawn = await drawnOf(reply)
+    expect(drawn).not.toContain('base AssistantMessage')
+    expect(drawn).toContain(WASH)
+    for (const text of markedText(markPieces(PLAIN, what))) expect(drawn).toContain(JSON.stringify(text).slice(1, -1))
+  }
+  // What the links choice leaves dims, so the marked characters stand out.
+  expect(await drawnOf(reply)).toContain('"dimColor":true')
+  // The first block keeps the blank line Claude Code draws above it, so the row keeps its height under the pointer.
+  expect(await drawnOf(reply)).toMatch(/"key":"toggle-marked"[^{}]*"marginTop":1|"marginTop":1[^{}]*"key":"toggle-marked"/)
+  await point(reply, 'leave', 0)
+  expect(await drawnOf(reply)).toContain('base AssistantMessage')
+  expect(await drawnOf(reply)).not.toContain(`"backgroundColor":"${WASH}"`)
+  for (const each of [prompt, reply, next]) await each.unmount()
+})
 
 test('the mark holds while the copied note shows, and goes when the note ends', async ($, on) => {
   const { prompt, reply, next } = await mountReply($, on)
@@ -159,9 +252,11 @@ test('the mark holds while the copied note shows, and goes when the note ends', 
   await point(reply, 'move', at)
   await point(reply, 'down', at)
   expect(await pillOf(reply)).toContain('copied code')
-  expect(await drawnOf(reply)).toContain('npm run build && npm test')
-  expect(await drawnOf(reply)).toContain(MARKED)
-  for (const ui of [prompt, reply, next]) await ui.unmount()
+  // The code the note names stays on the card's wash, the reply keeps the mod's drawing.
+  const card = await inRow(reply, 'toggle-code-1')
+  expect(card).toContain('"npm"')
+  expect(has(card, CARD_WASH)).toBe(true)
+  for (const each of [prompt, reply, next]) await each.unmount()
 })
 
 // A stand-in surface that keeps what the pill posts and runs its timers by hand.
