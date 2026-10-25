@@ -19,6 +19,33 @@ export default {
   "choiceCancel": "Cancel",
   "question": "Another open session edited {path} {ago} ({clock}). Edit it anyway?",
   "questionUnchecked": "Collision guard could not check {path} for edits from other sessions. Edit it anyway?",
+  "card": {
+    "title": "Paused",
+    "titleHint": "collision guard",
+    "head": "Another open session edited this file:",
+    "headUnchecked": "Could not check other sessions, so this edit waits for you.",
+    "prompt": "#{n}",
+    "moreOne": "+1 more session",
+    "moreMany": "+{n} more sessions",
+    "when": "{ago} · {clock}"
+  },
+  "tips": {
+    "cancel": "stops this edit and lets you say why",
+    "worktree": "refuses this edit and has Claude redo it in a worktree",
+    "proceed": "lets this edit run; this file stays quiet until the other session edits it again",
+    "proceedUnchecked": "lets this edit run without the check",
+    "reasonSend": "sends your reason to Claude and cancels the edit",
+    "reasonSkip": "cancels the edit without a reason",
+    "reasonBack": "goes back to the choices, nothing is decided"
+  },
+  "reason": {
+    "placeholder": "Why? Enter sends, Enter alone skips",
+    "enter": "Enter",
+    "esc": "Esc",
+    "send": "send",
+    "skip": "skip",
+    "back": "back to the choices"
+  },
   "settingSaved": "{label} saved",
   "defaultNote": "Click a setting to change it",
   "defaultNoteTail": "The mod reloads",

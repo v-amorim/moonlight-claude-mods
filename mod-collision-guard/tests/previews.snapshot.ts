@@ -10,30 +10,17 @@ export const snapshot: Snapshot = {
               "text": " "
             },
             {
-              "text": "Another open session edited hooks/a.ts 4 min ago",
-              "color": "onSurface"
-            }
-          ]
-        },
-        {
-          "spans": [
-            {
-              "text": " "
-            },
-            {
-              "text": "(14:32). Edit it anyway?",
-              "color": "onSurface"
-            }
-          ]
-        },
-        {
-          "spans": [
-            {
-              "text": " "
-            },
-            {
-              "text": "1 Proceed  2 Move to a worktree  3 Cancel  4 type",
+              "text": "Another open session edited this file: ",
               "color": "muted"
+            },
+            {
+              "text": "hook-guard",
+              "color": "onSurface",
+              "bold": true
+            },
+            {
+              "text": " #12",
+              "color": "accent"
             }
           ]
         },
@@ -43,7 +30,18 @@ export const snapshot: Snapshot = {
               "text": " "
             },
             {
-              "text": "something",
+              "text": "hooks/a.ts",
+              "color": "secondary"
+            }
+          ]
+        },
+        {
+          "spans": [
+            {
+              "text": " "
+            },
+            {
+              "text": "1 Cancel   2 Move to a worktree   3 Proceed",
               "color": "muted"
             }
           ]
@@ -56,30 +54,17 @@ export const snapshot: Snapshot = {
               "text": " "
             },
             {
-              "text": "Another open session edited hooks/a.ts 4 min ago",
-              "color": "onSurface"
-            }
-          ]
-        },
-        {
-          "spans": [
-            {
-              "text": " "
-            },
-            {
-              "text": "(14:32). Edit it anyway?",
-              "color": "onSurface"
-            }
-          ]
-        },
-        {
-          "spans": [
-            {
-              "text": " "
-            },
-            {
-              "text": "1 Proceed  2 Move to a worktree  3 Cancel  4 type",
+              "text": "Another open session edited this file: ",
               "color": "muted"
+            },
+            {
+              "text": "hook-guard",
+              "color": "onSurface",
+              "bold": true
+            },
+            {
+              "text": " #12",
+              "color": "accent"
             }
           ]
         },
@@ -89,7 +74,18 @@ export const snapshot: Snapshot = {
               "text": " "
             },
             {
-              "text": "something",
+              "text": "hooks/a.ts",
+              "color": "secondary"
+            }
+          ]
+        },
+        {
+          "spans": [
+            {
+              "text": " "
+            },
+            {
+              "text": "1 Cancel   2 Move to a worktree   3 Proceed",
               "color": "muted"
             }
           ]

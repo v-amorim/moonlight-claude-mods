@@ -1,22 +1,22 @@
 // mod-collision-guard / tests/previews.test.tsx, by v-amorim
 import { test } from 'claude-code/testing'
 
-import { agoText } from '../hooks/guard'
 import text from '../hooks/text'
 import { fill } from '../hooks/theme'
 import { expectPreview, written } from './previews-kit'
 import { snapshot } from './previews.snapshot'
 
-// The host draws the dialog, so its two lines are worded from the mod's strings; "type something" is the host's own fourth choice.
-const dialog = () =>
+// The card's head, file and action rows, worded from the mod's strings.
+const card = () =>
   written(
-    [{ text: fill(text.question, { path: 'hooks/a.ts', ago: agoText(4 * 60_000), clock: '14:32' }), color: 'onSurface' }],
-    [{ text: [text.choiceProceed, text.choiceWorktree, text.choiceCancel, 'type something'].map((choice, at) => `${at + 1} ${choice}`).join('  '), color: 'muted' }],
+    [{ text: `${text.card.head} `, color: 'muted' }, { text: 'hook-guard', color: 'onSurface', bold: true }, { text: ` ${fill(text.card.prompt, { n: 12 })}`, color: 'accent' }],
+    [{ text: 'hooks/a.ts', color: 'secondary' }],
+    [{ text: [text.choiceCancel, text.choiceWorktree, text.choiceProceed].map((choice, at) => `${at + 1} ${choice}`).join('   '), color: 'muted' }],
   )
 
 for (const mode of ['nerd', 'safe'] as const) {
-  test(`enabled=true example is the dialog's own wording (${mode})`, { options: { icons: mode } }, async () => {
-    expectPreview(snapshot, 'enabled', 'true', mode, dialog())
+  test(`enabled=true example is the card's own wording (${mode})`, { options: { icons: mode } }, async () => {
+    expectPreview(snapshot, 'enabled', 'true', mode, card())
   })
 
   test(`enabled=false example is its written line (${mode})`, { options: { icons: mode } }, async () => {

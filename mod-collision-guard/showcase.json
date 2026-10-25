@@ -1,9 +1,9 @@
 {
   "tagline": "Two open sessions, one file: ask before the second edit lands",
   "features": [
-    { "title": "Shared log", "detail": "Each session records the files it edits in its own small file under ~/.claude/mods-data/mod-collision-guard/sessions, so sessions never write over each other." },
-    { "title": "Pause", "detail": "Before Edit, Write, MultiEdit or NotebookEdit, a question appears when another open session edited that file inside the window." },
-    { "title": "Four ways out", "detail": "Proceed, move to a worktree (Claude calls EnterWorktree and redoes the edit there), cancel, or type an instruction for Claude." }
+    { "title": "Shared log", "detail": "Each session records the files it edits, with its prompt number, in its own small file under ~/.claude/mods-data/mod-collision-guard/sessions, so sessions never write over each other." },
+    { "title": "Pause", "detail": "Before Edit, Write, MultiEdit or NotebookEdit, a card above the prompt holds the call when another open session edited that file inside the window. It names that session (its /rename title, else a short id), its prompt number and when it edited, with the file as a link that opens in VS Code." },
+    { "title": "Four ways out", "detail": "Type 1, 2 or 3 in the empty prompt, or click: Cancel (asks why, Enter alone skips), move to a worktree (Claude calls EnterWorktree and redoes the edit there, offered only inside a git repo), or proceed. If the check itself fails, the same card offers Cancel and Proceed." }
   ],
   "actions": [
     { "label": "Forget this session's recorded edits", "command": "mod-collision-guard", "args": "clear" }
@@ -12,16 +12,14 @@
     "enabled": {
       "true": {
         "nerd": [
-          { "spans": [{ "text": " " }, { "text": "Another open session edited hooks/a.ts 4 min ago", "color": "onSurface" }] },
-          { "spans": [{ "text": " " }, { "text": "(14:32). Edit it anyway?", "color": "onSurface" }] },
-          { "spans": [{ "text": " " }, { "text": "1 Proceed  2 Move to a worktree  3 Cancel  4 type", "color": "muted" }] },
-          { "spans": [{ "text": " " }, { "text": "something", "color": "muted" }] }
+          { "spans": [{ "text": " " }, { "text": "Another open session edited this file: ", "color": "muted" }, { "text": "hook-guard", "color": "onSurface", "bold": true }, { "text": " #12", "color": "accent" }] },
+          { "spans": [{ "text": " " }, { "text": "hooks/a.ts", "color": "secondary" }] },
+          { "spans": [{ "text": " " }, { "text": "1 Cancel   2 Move to a worktree   3 Proceed", "color": "muted" }] }
         ],
         "safe": [
-          { "spans": [{ "text": " " }, { "text": "Another open session edited hooks/a.ts 4 min ago", "color": "onSurface" }] },
-          { "spans": [{ "text": " " }, { "text": "(14:32). Edit it anyway?", "color": "onSurface" }] },
-          { "spans": [{ "text": " " }, { "text": "1 Proceed  2 Move to a worktree  3 Cancel  4 type", "color": "muted" }] },
-          { "spans": [{ "text": " " }, { "text": "something", "color": "muted" }] }
+          { "spans": [{ "text": " " }, { "text": "Another open session edited this file: ", "color": "muted" }, { "text": "hook-guard", "color": "onSurface", "bold": true }, { "text": " #12", "color": "accent" }] },
+          { "spans": [{ "text": " " }, { "text": "hooks/a.ts", "color": "secondary" }] },
+          { "spans": [{ "text": " " }, { "text": "1 Cancel   2 Move to a worktree   3 Proceed", "color": "muted" }] }
         ]
       },
       "false": {
