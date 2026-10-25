@@ -58,6 +58,7 @@ export default {
   "reloadFailed": "Reload failed: {error}",
   "howRestart": "new folder, restart with claude -c once to load it",
   "settingSaved": "{label} saved",
+  "openInSettings": "Open in {name} settings",
   "actionRan": "Ran /{command}",
   "pageTitle": "{name} {sep} {version}",
   "noDescription": "No description.",

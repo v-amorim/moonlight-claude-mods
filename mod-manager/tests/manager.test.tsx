@@ -640,6 +640,62 @@ test('a mod page changes its settings, runs its actions, and holds them while Cl
   await ui.unmount()
 })
 
+test('a text setting its mod edits in its own panel gets an open pill that runs the mod command; other text settings keep the /config note', async ($, on) => {
+  const { files } = disk({
+    '/h/.claude/mods/alpha/.claude-plugin/plugin.json': JSON.stringify({ name: 'alpha', description: 'alpha does a thing', version: '1.0.0', userConfig: {} }),
+    '/h/.claude/mods/alpha/showcase.json': JSON.stringify({ editors: ['theme'] }),
+  })
+  const ran: string[] = []
+  on('fs.read', (_$, e) => {
+    const path = neutral(e.path)
+    if (!(path in files)) throw new Error('ENOENT')
+    return { value: files[path]! }
+  })
+  on('fs.list', () => ({ value: [{ name: 'alpha', kind: 'dir', size: 0, mtimeMs: 0, isLink: false }] }))
+  on('env.get', (_$, e) => ({ value: e.name === 'USERPROFILE' ? '/h' : undefined }))
+  on('ui.open', () => ({ value: { isPlaced: true } }))
+  on('ui.panes', () => ({ value: [] }))
+  on('config.list', () => ({
+    value: [
+      { key: 'alpha.theme', label: 'Theme', description: 'Picked in a panel', kind: 'text', value: 'Dark', provider: { kind: 'plugin', name: 'alpha' }, isLocked: false },
+      { key: 'alpha.name', label: 'Name', description: 'Plain text', kind: 'text', value: 'x', provider: { kind: 'plugin', name: 'alpha' }, isLocked: false },
+    ] as never,
+  }))
+  on('command.run', (_$, e) => {
+    ran.push(`${e.command} ${e.args}`)
+    return { text: '' }
+  })
+  on('turn.start', (_$, e) => ({ turnId: e.turnId }))
+  on('ui.render', ($$, e) => {
+    const { Text } = $$.ui.resolve(e)
+    return <Text>base</Text>
+  })
+
+  await $.command.run({ command: 'mod-manager' } as never)
+  const ui = withPointer(await $.ui.mount({
+    plugin: 'mod-manager',
+    surface: 'terminal',
+    component: 'Pane',
+    requestId: 'manager',
+    props: { title: 'Mods', isFocused: false, bodyColumns: 80, placement: 'dock', scroll: { offset: 0, bodyRows: 30 }, view: {} },
+  } as never))
+  await ui.pointer({ in: 'list-dir', type: 'down', button: 'left', x: 12, y: 0 })
+
+  expect(await ui.find({ type: 'Text', text: /Open in Alpha settings/ })).toBeDefined()
+  expect((await ui.findAll({ type: 'Text', text: /Open in Alpha settings/ })).length).toBe(1)
+  expect(await ui.find({ type: 'Text', text: /^Picked in a panel$/ })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /Plain text · edit it in \/config/ })).toBeDefined()
+  await ui.press({ key: 'setting-editor-0' })
+  expect(ran).toEqual(['alpha settings'])
+
+  // Another mod's command would only queue mid-turn, so the pill waits.
+  await $.turn.start({ turnId: 't1' } as never)
+  await ui.redraw()
+  expect(await ui.find({ type: 'Text', text: /Open in Alpha settings/ })).toBeUndefined()
+  expect(await ui.find({ type: 'Text', text: /Picked in a panel · available once Claude is idle/ })).toBeDefined()
+  await ui.unmount()
+})
+
 test('the command toggles: it opens a closed pane and closes an open one', async ($, on) => {
   let open: string[] = []
   const calls: string[] = []

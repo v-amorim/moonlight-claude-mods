@@ -12,7 +12,7 @@ import { isTipMessage, type EntryMessage, type EntryProps, type Tip } from './en
 import { labelsOf, menuEntry, pill, pillRow, splitRow, tabRow, tipLine } from './pills'
 import { TOAST_MS, ToastList, toastCards } from './toasts'
 import { cardFill, cardGap, detectNerd, FOOTER_ROWS, lookFor, paneFooter, section, sepText, titleEdge, type IconMode, type Reveal, withMark } from './look'
-import { actionReveals, choiceBar, hairline, settingChoice, settingHead, settingsBody, type Action } from './settings'
+import { actionReveals, choiceBar, editorReveals, hairline, settingChoice, settingHead, settingsBody, type Action } from './settings'
 import { cardSpace, HEAD_ROWS, stickyCard } from './card'
 import { costPill } from './cost'
 import { readSpend, resetSpend, spendLine, type Spend } from './spend'
@@ -692,6 +692,9 @@ export const register: Register = (on, options) => {
       // /config lists a plugin's settings as `<plugin>.<field>`, and only while the plugin is on.
       const rows = mod.enabled ? (await $.config.list()).filter(row => row.key.startsWith(`${mod.name}.`)) : []
       const actions: Action[] = mod.enabled ? (mod.showcase?.actions ?? []) : []
+      // showcase.json names the text settings the mod edits in its own panel, which its command opens; the manifest has no room for it.
+      const editors: Record<string, Action> = {}
+      for (const field of mod.showcase?.editors ?? []) editors[field] = { label: fill(text.openInSettings, { name: shownName(mod.name) }), command: mod.name, args: 'settings' }
       const run = async (action: Action) => {
         note = await $.command
           .run({ command: action.command, args: action.args ?? '' })
@@ -799,7 +802,7 @@ export const register: Register = (on, options) => {
           : null,
         spendCard,
         mod.enabled || mod.settings === 0 ? (
-          settingsBody({ Box, Button, Client, Text }, look, { rows, actions, working, run, previews: mod.showcase?.previews, fields: mod.fields, still })
+          settingsBody({ Box, Button, Client, Text }, look, { rows, actions, working, run, previews: mod.showcase?.previews, fields: mod.fields, editors, still })
         ) : (
           <Box key="page-off" flexDirection="column">
             {cardGap({ Box }, 'page-off')}
@@ -807,7 +810,7 @@ export const register: Register = (on, options) => {
           </Box>
         ),
         section({ Box, Text }, look, 'features', 'features', text.sectionFeatures, features.length ? featureRows : <Text color={THEME.muted}>{text.noFeatures}</Text>),
-      ], actionReveals(actions, look, working))
+      ], [...actionReveals(actions, look, working), ...editorReveals(rows, editors, look, working)])
     }
 
     if (!catalogLoaded) await loadSetup($)

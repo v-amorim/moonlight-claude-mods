@@ -24,7 +24,7 @@ export type Io = {
 
 export type Feature = { title: string; detail: string }
 export type ShowcaseAction = { label: string; command: string; args?: string }
-export type Showcase = { tagline?: string; features?: Feature[]; actions?: ShowcaseAction[]; previews?: Previews; cost?: { summary: string } }
+export type Showcase = { tagline?: string; features?: Feature[]; actions?: ShowcaseAction[]; editors?: string[]; previews?: Previews; cost?: { summary: string } }
 
 export type ModInfo = {
   id: string
