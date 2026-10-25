@@ -329,6 +329,7 @@ export function restoreContext(ledger: Ledger, mdPath: string, cap = RESTORE_WOR
     `Decisions in force, from the ledger:\n${decisionLines}`,
     skipped.length ? `By id only, text in ${mdPath}: ${skipped.slice(0, MAX_IDS).join(', ')}${skipped.length > MAX_IDS ? `, and ${skipped.length - MAX_IDS} more in the file` : ''}` : '',
     `The ledger also holds ${plural(ledger.problems.length, 'problem')}, ${plural(ledger.ideas.length, 'idea')}, ${plural(ledger.picks.length, 'pick')}, not shown here. Read ${mdPath} before proposing an option, changing a look, retrying a fix, or answering what is next. The ledger beats this handoff when they disagree.`,
+    'Ids such as t5 or d12 are the ledger\'s own labels and mean nothing to the person. In replies, name each item in plain words and never cite its id.',
   ]
     .filter(Boolean)
     .join('\n\n')

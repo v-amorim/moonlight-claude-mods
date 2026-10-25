@@ -477,6 +477,26 @@ test('a pill cut to its icon does not expand on hover, and the hover still posts
   await band.unmount()
 })
 
+test('a band tip whose entry was redrawn while hovered clears after 5 s with no newer hover', async ($, on) => {
+  const w = world(on, answered)
+  // Live, a band redraw mid-turn replaced the hovered entry, so its own quiet timer, and the leave, never came.
+  const first = await $.ui.mount(BAND())
+  await first.pointer({ type: 'move', x: 1, y: 0, in: 'wrap-up-entry' } as never)
+  await first.unmount()
+  // The pill's tip text also sits in the Client props, so only the tip row's Text says whether it shows.
+  const showsNow = async () => {
+    const band = await $.ui.mount(BAND())
+    const shown = (await band.find({ type: 'Text', text: /offers to hand off to a fresh session/ })) !== undefined
+    await band.unmount()
+    return shown
+  }
+  expect(await showsNow()).toBe(true)
+  await w.clock.advance(4000)
+  expect(await showsNow()).toBe(true)
+  await w.clock.advance(1000)
+  expect(await showsNow()).toBe(false)
+})
+
 test('a click on the icon pill opens the choices card above the row; a choice runs as before and closes it', { options: { icons: 'nerd' } }, async ($, on) => {
   world(on, answered)
   const band = await narrowBand($)

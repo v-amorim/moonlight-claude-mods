@@ -226,6 +226,7 @@ test('the restore inlines open tasks and live decisions, counts the rest, points
   expect(context).toContain('2 problems, 2 ideas, 1 pick')
   expect(context).toContain('Read /d/ledger.md before proposing an option, changing a look, retrying a fix, or answering what is next.')
   expect(context).toMatch(/ledger beats this handoff/)
+  expect(context).toContain('In replies, name each item in plain words and never cite its id.')
   expect(context).not.toMatch(/ignore|disregard|override/i)
 })
 

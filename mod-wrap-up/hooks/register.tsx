@@ -893,6 +893,19 @@ function countdownCard({ Box, Button, Text }: Elements & { Button: (props: any) 
 // The pill part or card control under the pointer, shown in the tip row above the pill row.
 let bandTip: TipMessage | null = null
 
+// A band redraw can replace a hovered entry, whose leave and quiet timer then never come, so a band tip ends on its own.
+const BAND_TIP_MS = 5000
+let bandTipAt = 0
+
+function expireBandTip($: EngineInterface) {
+  const at = ++bandTipAt
+  $.clock.after(BAND_TIP_MS, () => {
+    if (at !== bandTipAt || !bandTip) return
+    bandTip = null
+    $.ui.invalidate('ui.render')
+  })
+}
+
 // The settings pane's control under the pointer, shown in its footer.
 let paneTip: Tip | null = null
 
@@ -1090,6 +1103,7 @@ export const register: Register = (on, options) => {
       const tip = e.data
       const own = Boolean(tip.id?.startsWith('wrap-up-') || tip.id?.startsWith('toast-wrap-up-'))
       bandTip = own ? tip : null
+      if (bandTip?.id) expireBandTip($)
       paneTip = tip.id && !own ? { glyph: tip.glyph ?? '', label: tip.label ?? '', text: tip.text ?? '' } : null
       $.ui.invalidate('ui.render')
       return next(e)
