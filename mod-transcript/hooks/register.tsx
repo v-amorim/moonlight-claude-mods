@@ -819,7 +819,7 @@ async function pickChip($: EngineInterface, turnId: string, kind: string) {
 
 // An open turn's work under its head: a line of kind chips (Thought first, then each kind in order of first use) and, under the picked one, its calls or its thinking.
 // A click on a call's line opens or closes it: its own row then shows under the list, in the turn's order.
-function chipSection({ Box, Client, Text }: Rows, turn: Turn, openTools: string[], width: number) {
+function chipSection({ Box, Client, Link, Text }: Rows & { Link: (props: any) => RenderElement }, turn: Turn, openTools: string[], width: number) {
   // Claude Code's drawing reaches a mod sealed, so the thinking comes from the session's messages, without its time.
   const thoughts = turnThoughts(turn)
   const kinds = turnKinds(turn)
@@ -839,6 +839,25 @@ function chipSection({ Box, Client, Text }: Rows, turn: Turn, openTools: string[
   const thoughtLines = thoughts.filter(Boolean).join('\n\n').split('\n').flatMap(paragraph => wrapWords(paragraph, width - 8))
   // An open call's preview under its line: diff lines on Claude Code's add and remove backgrounds, any other output muted.
   const preview = (call: Turn['tools'][number], n: number) => {
+    // A file tool's record draws the same card the result row does; any shape it does not know keeps the preview below.
+    const result = fileResult(call.name, call.file)
+    const href = result ? paths.address(result.path, result.line) : undefined
+    if (result && href) {
+      const id = `call:${call.id}`
+      const parts = { Box, Client, Text }
+      return (
+        <Box key={`toggle-call-${n}-preview`} flexDirection="column" paddingLeft={3}>
+          {resultCard(
+            { Box, Text },
+            result,
+            { isOpen: flips.tools.includes(`code:${id}`), copy: code => copyBlock(parts, id, code), more: (open, hidden, bg) => moreToggle(parts, `code:${id}`, open, hidden, bg), Link, nerd: look.nerd, href, label: fileLabel(result.path, result.line) },
+            // The card sits inside the turn card's edge, the picked bar and its padding, and this preview's own padding.
+            width - 8,
+            'toggle-call-card',
+          )}
+        </Box>
+      )
+    }
     const more = call.preview?.more ?? 0
     const moreId = `preview:${call.id}`
     const lineOf = (previewLine: { kind: string; text: string }) => `${previewLine.kind === 'add' ? '+ ' : previewLine.kind === 'del' ? '- ' : previewLine.kind === 'same' ? '  ' : ''}${previewLine.text}`
@@ -1421,7 +1440,7 @@ export const register: Register = (on, options) => {
     }
     const turn = log.turnAt(e.requestId)
     seen.set(`UserMessage ${e.requestId}`, Boolean(turn))
-    const { Box, Client, Text } = $.ui.resolve(e)
+    const { Box, Client, Link, Text } = $.ui.resolve(e)
     // Read before next(e) draws, since a row drawn meanwhile can renumber the prompts.
     const n = showNumbers && turn ? log.numberOf(turn) : undefined
     const prompt = await next(e)
@@ -1471,8 +1490,11 @@ export const register: Register = (on, options) => {
         {took ? timePill({ Box, Text }, 'toggle-head-time', took) : null}
       </Box>
     )
-    if (isOpen && turn.tools.some(call => FILE_TOOLS.has(call.name))) ensureTheme($)
-    const kinds = isOpen && foldTools ? chipSection({ Box, Client, Text }, turn, flips.tools, widthOf(e)) : null
+    if (isOpen && turn.tools.some(call => FILE_TOOLS.has(call.name))) {
+      ensureTheme($)
+      await loadRoots($)
+    }
+    const kinds = isOpen && foldTools ? chipSection({ Box, Client, Link, Text },turn, flips.tools, widthOf(e)) : null
     // The reply closes the card; a turn cancelled before any reply has none, so its head closes it whenever no tool row draws below.
     const isClosed = !turn.reply && (foldTools || !isOpen)
     return (

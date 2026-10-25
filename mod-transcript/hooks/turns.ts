@@ -32,7 +32,19 @@ export type Turn = {
 type MessageRow = { role: 'user' | 'assistant'; text: string; toolUses: readonly { tool_use_id: string; tool: string; input: any; result?: unknown; isError?: true }[]; toolResults?: readonly unknown[] }
 
 // Times in epoch ms; thought is the thinking just before the call, empty when it kept no text.
-export type ToolCall = { id: string; name: string; input: any; added: number; removed: number; startedAt?: number; endedAt?: number; thought?: string; preview?: Preview }
+export type ToolCall = { id: string; name: string; input: any; added: number; removed: number; startedAt?: number; endedAt?: number; thought?: string; preview?: Preview; file?: unknown }
+
+const FILE_RESULT_TOOLS = new Set(['Read', 'Write', 'Edit', 'MultiEdit'])
+
+// Only the fields the file card reads from a file tool's result record; undefined for a failed call or any other tool.
+export function fileRecord(name: string, output: any, isFailed: boolean): unknown {
+  if (isFailed || !FILE_RESULT_TOOLS.has(name) || typeof output !== 'object' || output === null) return undefined
+  if (name === 'Read') {
+    const file = output.file
+    return typeof file === 'object' && file !== null ? { type: output.type, file: { filePath: file.filePath, content: file.content, startLine: file.startLine } } : undefined
+  }
+  return { filePath: output.filePath, staged: output.staged, type: output.type, content: output.type === 'create' ? output.content : undefined, structuredPatch: output.structuredPatch }
+}
 
 // What an opened call shows under its line: a diff's lines, or the start of what the call gave back, and how many lines were left out.
 export type PreviewLine = { text: string; kind: 'add' | 'del' | 'same' | 'out' }
@@ -204,7 +216,7 @@ export class TurnLog {
       this.thinking = undefined
       for (const block of content) {
         const call = block?.type === 'tool_result' ? this.calls.get(block.tool_use_id) : undefined
-        if (call) Object.assign(call, diffStat(call.name, call.input, row.toolUseResult, block.is_error === true), { endedAt: timeOf(row), preview: previewOf(call.name, call.input, row.toolUseResult, resultText(block.content)) })
+        if (call) Object.assign(call, diffStat(call.name, call.input, row.toolUseResult, block.is_error === true), { endedAt: timeOf(row), preview: previewOf(call.name, call.input, row.toolUseResult, resultText(block.content)), file: fileRecord(call.name, row.toolUseResult, block.is_error === true) })
       }
       return
     }
@@ -272,6 +284,7 @@ export class TurnLog {
     const stat = diffStat(name, call.input, output, isFailed)
     if (stat.added || stat.removed || isFailed) Object.assign(call, stat)
     if (!call.preview?.lines.length) call.preview = previewOf(name, call.input, output, '')
+    call.file ??= fileRecord(name, output, isFailed)
   }
 
   // Calls claimed as they drew have no thought yet; the session's own messages, read once a turn ends, carry the thinking before each.

@@ -1115,3 +1115,53 @@ for (const [name, tool, output, extra] of FALLBACKS) {
     expect(await result.find({ key: CARD })).toBeUndefined()
   })
 }
+
+// A finished turn whose one call carries the given result record, opened through its head, chip and call line.
+const openCall = async ($: any, on: any, tool: string, input: object, output: object) => {
+  const turn = [
+    row(1, 'user', { message: { role: 'user', content: 'go' } }),
+    said(2, [{ type: 'tool_use', id: 'toolu_c', name: tool, input }]),
+    answered(3, 'toolu_c', { toolUseResult: output }),
+    said(4, [{ type: 'text', text: 'Done.' }]),
+    row(5, 'system', { subtype: 'turn_duration', durationMs: 1000 }),
+    row(6, 'user', { message: { role: 'user', content: 'next' } }),
+  ].join('\n') + '\n'
+  const mount = await open($, on, turn)
+  const head = await mount('UserMessage', ID(1), prompt('go'))
+  await clickLabel(head, 'toggle-turn-colored')
+  await head.pointer({ in: 'toggle-chips-line', type: 'down', button: 'left', x: 1, y: 0 })
+  await clickLabel(head, 'toggle-call-0-colored')
+  return head
+}
+const CALL_CARD = 'toggle-call-card'
+
+for (const icons of ['safe', 'nerd'] as const) {
+  test(`icons=${icons}: an opened Edit call in a finished turn draws the card with its link, copy pill and numbered rows`, { options: { expand_live: false, icons } }, async ($, on) => {
+    const head = await openCall($, on, 'Edit', { file_path: '/w/src/a.ts' }, EDIT_OUTPUT)
+    expect(textOf(await head.find({ key: `${CALL_CARD}-top` }))).toMatch(/^╭─ TS · /)
+    expect(((await head.findAll({ type: 'Link' })) as any[]).map(link => link.props.href)).toEqual(['vscode://file/w/src/a.ts:11'])
+    expect(textOf(await head.find({ key: `${CALL_CARD}-row-1-0-in` }))).toBe('11 − │ const a = "x"')
+    expect(textOf(await head.find({ key: `${CALL_CARD}-row-2-0-in` }))).toBe('11 + │ const a = "y"')
+    const pill = await head.find({ type: 'Client', key: 'toggle-copy-code-pill-call:toolu_c' })
+    expect(pill.props.props).toMatchObject({ label: 'copy', lead: icons === 'safe' ? '⧉' : String.fromCodePoint(0xf018f) })
+    const inner = (await head.find({ key: `${CALL_CARD}-row-0-0-in` })) as any
+    // The viewport less the row's margin, the picked bar and its padding, the turn card's edge and the preview's own padding.
+    expect(inner.props.width + 2).toBe(120 - 6 - 8)
+    // Live, a top row left to fill a wider preview pushed the ╮ past the rails onto a row of its own.
+    expect((await head.find({ key: `${CALL_CARD}-top` }))?.props.width).toBe(inner.props.width + 2)
+    expect((await head.find({ key: `${CALL_CARD}-corner` }))?.props.flexShrink).toBe(0)
+  })
+}
+
+test('an opened Edit call whose record has no structuredPatch keeps the old preview', { options: { expand_live: false } }, async ($, on) => {
+  const head = await openCall($, on, 'Edit', { file_path: '/w/src/a.ts' }, { filePath: '/w/src/a.ts' })
+  expect(await head.find({ key: CALL_CARD })).toBeUndefined()
+  expect(await head.find({ key: `${CALL_CARD}-top` })).toBeUndefined()
+  expect(await head.find({ key: 'toggle-call-0-preview' })).toBeDefined()
+})
+
+test('an opened Read call draws the code card from its first line', { options: { expand_live: false } }, async ($, on) => {
+  const head = await openCall($, on, 'Read', { file_path: '/w/src/a.ts' }, { type: 'text', file: { filePath: '/w/src/a.ts', content: 'export const a = 1\nexport const b = 2', numLines: 2, startLine: 5, totalLines: 9 } })
+  expect(textOf(await head.find({ key: `${CALL_CARD}-row-0-0-in` }))).toBe('5   │ export const a = 1')
+  expect(((await head.findAll({ type: 'Link' })) as any[]).map(link => link.props.href)).toEqual(['vscode://file/w/src/a.ts:5'])
+})

@@ -139,7 +139,7 @@ export function resultCard({ Box, Text }: Elements, result: FileResult, parts: R
   const bottom = `${CORNER.bottomLeft}${MARK.rule.repeat(Math.max(0, width - 2))}${CORNER.bottomRight}`
   return (
     <Box key={key} flexDirection="column">
-      <Box key={`${key}-top`} flexDirection="row" height={1}>
+      <Box key={`${key}-top`} flexDirection="row" height={1} width={width}>
         <Box key={`${key}-tag`} flexShrink={0}>
           <Text>
             <Text color={THEME.border}>{`${CORNER.topLeft}${MARK.rule}`}</Text>
@@ -155,7 +155,9 @@ export function resultCard({ Box, Text }: Elements, result: FileResult, parts: R
         </Box>
         <Text color={THEME.border}>{' '}</Text>
         <Box key={`${key}-copy`} flexShrink={0}>{parts.copy(result.copy) as never}</Box>
-        <Text color={THEME.border}>{` ${MARK.rule}${CORNER.topRight}`}</Text>
+        <Box key={`${key}-corner`} flexShrink={0}>
+          <Text color={THEME.border}>{` ${MARK.rule}${CORNER.topRight}`}</Text>
+        </Box>
       </Box>
       {lines}
       {isCapped ? edge(THEME.surface1, [<Box key={`${key}-gap`} flexGrow={1} />, <Box key={`${key}-more`} flexShrink={0}>{parts.more(parts.isOpen, rows.length - CODE_CAP, THEME.surface1) as never}</Box>], 'more') : null}
