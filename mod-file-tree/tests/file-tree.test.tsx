@@ -40,7 +40,7 @@ const SHELL_DIFF = {
 const isTranscript = (path: string) => path.replace(/\\/g, '/').endsWith('/s1.jsonl')
 
 // `transcript.text` is the session's .jsonl, which a test may grow between events.
-const stubs = (on: Parameters<TestBody>[1], opened: string[] = [], transcript = { text: '', reads: 0 }, placed: string[] = [], seen: { store?: Map<string, unknown>; now?: number; stateFails?: { left: number }; env?: (name: string) => string | undefined; listed?: string[]; exists?: (path: string) => boolean; readFails?: string } = {}) => {
+const stubs = (on: Parameters<TestBody>[1], opened: string[] = [], transcript = { text: '', reads: 0 }, placed: string[] = [], seen: { store?: Map<string, unknown>; now?: number; stateFails?: { left: number }; env?: (name: string) => string | undefined; listed?: string[]; exists?: (path: string) => boolean; readFails?: string; clock?: ReturnType<typeof mock.clock> } = {}) => {
   on('session.cwd', () => ({ value: '/w' }))
   on('session.id', () => ({ value: 's1' }))
   on('env.get', (_$, e) => ({ value: seen.env ? seen.env(e.name) : e.name === 'USERPROFILE' ? '/h' : undefined }))
@@ -88,8 +88,7 @@ const stubs = (on: Parameters<TestBody>[1], opened: string[] = [], transcript = 
   on('tool.call', (_$, e) => ({ result: e.tool === 'Bash' ? { stdout: '', bashEditDiff: SHELL_DIFF } : { text: 'ok' } }) as never)
   on('turn.start', (_$, e) => ({ turnId: e.turnId }) as never)
   on('turn.complete', () => ({ text: '' }))
-  if (seen.now === undefined) mock.clock(on)
-  else mock.clock(on, { now: seen.now })
+  seen.clock = seen.now === undefined ? mock.clock(on) : mock.clock(on, { now: seen.now })
   on('ui.render', ($$, e) => {
     const { Text } = $$.ui.resolve(e)
     return <Text>base</Text>
@@ -499,6 +498,35 @@ test('the Files pill opens the pane from the band', async ($, on) => {
   await pointing(band).pointer({ type: 'down', x: 1, y: 0, button: 'left', in: 'menu-entry-filetree' } as never)
   expect(opened).toContain('filetree')
   await band.unmount()
+})
+
+test('a band tip whose entry was redrawn while hovered clears after 5 s with no newer hover', async ($, on) => {
+  const seen: Parameters<typeof stubs>[4] = {}
+  stubs(on, [], undefined, [], seen)
+  on('state.get', () => ({ value: false, version: 0 }) as never)
+  const clock = seen.clock!
+  const band = {
+    plugin: 'mod-file-tree',
+    surface: 'terminal',
+    component: 'AbovePrompt',
+    props: { hasSurvey: false, isWorking: false, maxRows: 6, bodyColumns: 80, scroll: { offset: 0, bodyRows: 6 }, view: {} },
+  } as never
+  // Live, a band redraw mid-turn replaced the hovered entry, so its own quiet timer, and the leave, never came.
+  const first = await $.ui.mount(band)
+  await pointing(first).pointer({ type: 'move', x: 1, y: 0, in: 'menu-entry-filetree' } as never)
+  await first.unmount()
+  // The pill's tip text also sits in the Client props, so only the tip row's Text says whether it shows.
+  const showsNow = async () => {
+    const ui = await $.ui.mount(band)
+    const shown = (await ui.find({ type: 'Text', text: /what Claude read and changed/ })) !== undefined
+    await ui.unmount()
+    return shown
+  }
+  expect(await showsNow()).toBe(true)
+  await clock.advance(4000)
+  expect(await showsNow()).toBe(true)
+  await clock.advance(1000)
+  expect(await showsNow()).toBe(false)
 })
 
 test('mod-menu labels never leaves the Files entry as its icon alone', { options: { icons: 'nerd' } }, async ($, on) => {
