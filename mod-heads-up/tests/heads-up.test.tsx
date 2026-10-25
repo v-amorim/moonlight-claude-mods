@@ -878,6 +878,25 @@ test('hovering a toast × shows its tip in the band tip row', async ($, on) => {
   await ui.unmount()
 })
 
+test('a band tip whose entry was redrawn while hovered clears after 5 s with no newer hover', async ($, on) => {
+  const { clock } = setup(on, { isUnplaced: true })
+  // Live, a band redraw mid-turn replaced the hovered entry, so its own quiet timer, and the leave, never came.
+  const first = await band($)
+  await first.pointer({ in: 'menu-entry-headsup', type: 'move', x: 1, y: 0 })
+  await first.unmount()
+  const showsNow = async () => {
+    const ui = await band($)
+    const shown = (await ui.find({ type: 'Text', text: /notes on things you should know/ })) !== undefined
+    await ui.unmount()
+    return shown
+  }
+  expect(await showsNow()).toBe(true)
+  await clock.advance(4000)
+  expect(await showsNow()).toBe(true)
+  await clock.advance(1000)
+  expect(await showsNow()).toBe(false)
+})
+
 const LIFTED = '#2F3654'
 const CARD_FILL = '#1a1e30'
 const ACCENT = '#7386D0'

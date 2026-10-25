@@ -566,6 +566,19 @@ const tabs = (isSettings: boolean) => [
 let bandTip = ''
 let paneTip: Tip | null = null
 
+// A band redraw can replace a hovered entry, whose leave and quiet timer then never come, so a band tip ends on its own.
+const BAND_TIP_MS = 5000
+let bandTipAt = 0
+
+function expireBandTip($: EngineInterface) {
+  const at = ++bandTipAt
+  $.clock.after(BAND_TIP_MS, () => {
+    if (at !== bandTipAt || !bandTip) return
+    bandTip = ''
+    $.ui.invalidate('ui.render')
+  })
+}
+
 const toasts = new ToastList('headsup')
 // The animations setting, fixed per activation: off, every entry draws still.
 let still = false
@@ -725,8 +738,10 @@ export const register: Register = (on, options) => {
       if (!tip.id) {
         bandTip = ''
         paneTip = null
-      } else if (isBand) bandTip = tipText(tip)
-      else paneTip = { glyph: tip.glyph ?? '', label: tip.label ?? '', text: tip.text ?? '' }
+      } else if (isBand) {
+        bandTip = tipText(tip)
+        if (bandTip) expireBandTip($)
+      } else paneTip = { glyph: tip.glyph ?? '', label: tip.label ?? '', text: tip.text ?? '' }
       $.ui.invalidate('ui.render')
       return next(e)
     }
