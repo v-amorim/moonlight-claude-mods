@@ -434,6 +434,31 @@ test('hovering the band pill shows its tip in the tip row, and a card shows its 
   await pane.unmount()
 })
 
+test('a band tip whose entry was redrawn while hovered clears after 5 s with no newer hover', async ($, on) => {
+  const { clock } = stubEngine(on, [AGENT], [])
+  on('ui.render', ($$, e) => {
+    const { Text } = $$.ui.resolve(e)
+    return <Text>other mod</Text>
+  })
+  await $.session.start({ cwd: '/w' } as never)
+  // Live, a band redraw mid-turn replaced the hovered entry, so its own quiet timer, and the leave, never came.
+  const first = await $.ui.mount(BAND)
+  await pointerOn(first, { in: 'menu-entry-progress', type: 'enter', x: 1, y: 0, button: 'left' })
+  await first.unmount()
+  // The pill's tip text also sits in the Client props, so only the tip row's Text says whether it shows.
+  const showsNow = async () => {
+    const ui = await $.ui.mount(BAND)
+    const shown = (await ui.find({ type: 'Text', text: /^ (\d+ running, gates|every agent with)/ })) !== undefined
+    await ui.unmount()
+    return shown
+  }
+  expect(await showsNow()).toBe(true)
+  await clock.advance(4000)
+  expect(await showsNow()).toBe(true)
+  await clock.advance(1000)
+  expect(await showsNow()).toBe(false)
+})
+
 // Each StopFailure kind, its stop line words and its tone (alert: act; warn: may clear).
 const STOPS = [
   ['authentication_failed', 'sign-in needed', 'alert'],
@@ -527,9 +552,10 @@ test('the band pill tip carries the stop line while the turn is stopped, and its
   const band = await $.ui.mount(BAND)
   await pointerOn(band, { in: 'menu-entry-progress', type: 'enter', x: 1, y: 0, button: 'left' })
   expect((await band.find({ type: 'Text', text: /Stopped 0s ago/ }))?.text).toBe(' Stopped 0s ago: billing problem.')
-  await clock.advance(2 * 60000)
+  // The tip ends after 5 s, so the age is checked inside that window.
+  await clock.advance(4000)
   await band.redraw()
-  expect((await band.find({ type: 'Text', text: /Stopped 2m ago/ }))?.text).toBe(' Stopped 2m ago: billing problem.')
+  expect((await band.find({ type: 'Text', text: /Stopped 4s ago/ }))?.text).toBe(' Stopped 4s ago: billing problem.')
   await band.unmount()
 })
 
