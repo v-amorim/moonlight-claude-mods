@@ -188,7 +188,7 @@ async function toggleSettings($: EngineInterface) {
   previews = showcase?.previews
   fields = await $.fs.read(`${$.plugin.root}/.claude-plugin/plugin.json`).then(text => JSON.parse(String(text)).userConfig).catch(() => undefined)
   actions = (Array.isArray(showcase?.actions) ? showcase.actions : []).map((action: Action) => ({ ...action, isLocal: action.command === 'mod-next-steps' }))
-  const opened = await $.ui.open({ id: PANE, title: 'mod-next-steps', closeOnEscape: true })
+  const opened = await $.ui.open({ id: PANE, title: 'Next steps', closeOnEscape: true })
   if (!opened.isPlaced) $.ui.toast(fill(text.settingsWaiting, { reason: opened.reason }))
   await $.state.set({ plugin: 'mod-next-steps', key: 'pane' }, opened.isPlaced)
 }

@@ -28,6 +28,8 @@ export type SettingsProps = {
   previews?: Previews
   // The mod's plugin.json userConfig, read by its own panel and by mod-manager alike, for the min and max a number setting declares.
   fields?: Record<string, Range>
+  // Text settings (by field) another mod edits in its own panel: the card shows a pill running that panel's command in place of "edit it in /config".
+  editors?: Record<string, Action>
 }
 
 export type Range = { min?: number; max?: number }
@@ -169,6 +171,31 @@ export const actionReveals = (actions: Action[], look: Look, working: boolean): 
     working && !action.isLocal ? [] : [{ scope: actionScope(index), tip: { glyph: bare(look.glyph.go), label: action.label, text: fill(style.text.runsCommand, { command: [action.command, action.args].filter(Boolean).join(' ') }) } }],
   )
 
+const editorScope = (index: number) => `editor-row-${index}`
+
+const fieldOf = (row: ConfigRow) => row.key.slice(row.key.indexOf('.') + 1)
+
+// The footer tip of each live editor pill, like actionReveals.
+export const editorReveals = (rows: ConfigRow[], editors: Record<string, Action>, look: Look, working: boolean): Reveal[] =>
+  rows.flatMap((row, index) => {
+    const action = row.kind === 'text' && !row.isLocked ? editors[fieldOf(row)] : undefined
+    return action && !working ? [{ scope: editorScope(index), tip: { glyph: MARK.open, label: action.label, text: fill(style.text.runsCommand, { command: [action.command, action.args].filter(Boolean).join(' ') }) } }] : []
+  })
+
+// A pill with a plain Button so the press is a real one; the glyph sits in the label so the whole pill lights.
+const buttonPill = (elements: Elements, look: Look, scope: string, key: string, glyph: string, label: string, onPress: () => unknown) => {
+  const { Button } = elements
+  return pillOn(
+    elements,
+    look,
+    scope,
+    THEME.surface3,
+    <Button key={key} label={look.nerd ? `${glyph} ${label}` : ` ${glyph} ${label} `} plain hover={{ scope, color: THEME.accent, inverse: true }} onPress={onPress} />,
+    THEME.surface1,
+    THEME.accent,
+  )
+}
+
 // Edits the row in place: on/off flips, a choice is a bar, a number steps; text is edited in /config.
 function control(elements: Elements, look: Look, row: ConfigRow, index: number, still: boolean, tips?: Record<string, string>, fields?: Record<string, Range>) {
   const { Client, Text } = elements
@@ -219,18 +246,29 @@ export const hairline = ({ Client }: Pick<Elements, 'Client'>, key: string, bg: 
 )
 
 // The Settings and Actions sections of a mod's panel or page: one round-bordered card per setting.
-export function settingsBody(elements: Elements, look: Look, { rows, actions, working, run, previews, tips, fields, still = false }: SettingsProps) {
-  const { Box, Button, Text } = elements
+export function settingsBody(elements: Elements, look: Look, { rows, actions, working, run, previews, tips, fields, editors = {}, still = false }: SettingsProps) {
+  const { Box, Text } = elements
   const settings = [
     rows.length === 0 ? <Text key="settings-none" color={THEME.muted}>{style.text.noSettings}</Text> : null,
     ...rows.map((row, index) => {
       const example = exampleOf(elements, look, previews, row, index)
+      const editor = row.kind === 'text' && !row.isLocked ? editors[fieldOf(row)] : undefined
+      const head = editor && !working ? (
+        <Box key={`setting-control-${index}`} flexDirection="row" columnGap={1}>
+          {control(elements, look, row, index, still, tips, fields)}
+          {buttonPill(elements, look, editorScope(index), `setting-editor-${index}`, MARK.open, editor.label, () => run(editor))}
+        </Box>
+      ) : (
+        control(elements, look, row, index, still, tips, fields)
+      )
+      const hint = row.kind !== 'text' ? '' : editor ? (working ? style.text.idleOnly : '') : style.text.editInConfig
+      const note = [row.description, hint].filter(Boolean).join(` ${MARK.sep} `)
       return (
         <Box key={`setting-row-${index}`} flexDirection="column" borderStyle="round" borderColor={THEME.border} backgroundColor={cardFill()} paddingX={1} marginTop={index === 0 ? 0 : 1}>
-          {settingHead(elements, `setting-head-${index}`, splitTitle(row.label).name, control(elements, look, row, index, still, tips, fields))}
+          {settingHead(elements, `setting-head-${index}`, splitTitle(row.label).name, head)}
           {row.description || example ? hairline(elements, `setting-rule-${index}`, cardFill()) : null}
           {row.description ? (
-            sepText(elements, row.kind === 'text' ? `${row.description} ${MARK.sep} ${style.text.editInConfig}` : row.description, THEME.muted, `setting-text-${index}`)
+            sepText(elements, note, THEME.muted, `setting-text-${index}`)
           ) : null}
           {example}
         </Box>
@@ -241,16 +279,7 @@ export function settingsBody(elements: Elements, look: Look, { rows, actions, wo
     working && !action.isLocal ? (
       sepText(elements, `${look.glyph.go} ${action.label} ${MARK.sep} ${style.text.idleOnly}`, THEME.muted, `action-${index}`)
     ) : (
-      // A plain Button so the action needs a real press; the glyph sits in the label so the whole pill lights.
-      pillOn(
-        elements,
-        look,
-        actionScope(index),
-        THEME.surface3,
-        <Button key={`action-${index}`} label={look.nerd ? `${bare(look.glyph.go)} ${action.label}` : ` ${bare(look.glyph.go)} ${action.label} `} plain hover={{ scope: actionScope(index), color: THEME.accent, inverse: true }} onPress={() => run(action)} />,
-        THEME.surface1,
-        THEME.accent,
-      )
+      buttonPill(elements, look, actionScope(index), `action-${index}`, bare(look.glyph.go), action.label, () => run(action))
     ),
   )
   return (
