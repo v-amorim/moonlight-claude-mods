@@ -43,7 +43,7 @@ test('the timeline lists prompts and the turn of the open one, a click opens a s
   const spawned: string[] = []
   const neutral = (path: string) => path.replace(/\\/g, '/').replace(/^[A-Za-z]:/, '')
   on('session.start', () => ({ cwd: '/w' }))
-  on('command.register', () => ({ value: undefined }))
+  on('command.register', () => ({ value: { command: 'mod-prompts' } }))
   on('store.keys', () => ({ value: [] }))
   on('store.get', () => ({ value: undefined }))
   on('store.set', () => ({ value: undefined }))
@@ -640,7 +640,7 @@ test('transcript paths untouched for 30 days are deleted at session start, a bar
     return { value: undefined }
   })
   on('session.start', () => ({ cwd: '/w' }))
-  on('command.register', () => ({ value: undefined }))
+  on('command.register', () => ({ value: { command: 'mod-prompts' } }))
   on('ui.panes', () => ({ value: [] }))
   mock.env(on, {})
   mock.clock(on, { now })
@@ -653,7 +653,7 @@ test('transcript paths untouched for 30 days are deleted at session start, a bar
 
 test('a store that fails on the transcript path still lets the session start and the list load', async ($, on) => {
   on('session.start', () => ({ cwd: '/w' }))
-  on('command.register', () => ({ value: undefined }))
+  on('command.register', () => ({ value: { command: 'mod-prompts' } }))
   on('store.keys', () => ({ value: [] }))
   on('store.get', () => ({ value: undefined }))
   on('store.set', () => {

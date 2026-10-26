@@ -91,7 +91,7 @@ export function parseRow(line: string): Row | undefined {
     return tools ? { ...base, tools } : base
   }
   if (row.type !== 'user' || row.isMeta || row.isCompactSummary || row.message?.role !== 'user') return base
-  const content = row.message.content
+  const { content } = row.message
   if (Array.isArray(content) && content.some((block: any) => block?.type === 'tool_result')) return { ...base, ...changedLines(row) }
   const typed = textOf(content)
   return { ...base, prompt: commandPrompt(row, typed) ?? promptText(typed) }
@@ -107,7 +107,7 @@ export function promptsOf(rows: Row[]): Prompt[] {
   let row = main[main.length - 1]
   while (row && !live.has(row.uuid)) {
     live.add(row.uuid)
-    row = !row.parent ? undefined : (byId.get(row.parent) ?? before.get(row.uuid))
+    row = row.parent ? (byId.get(row.parent) ?? before.get(row.uuid)) : undefined
   }
   const prompts: Prompt[] = []
   // The prompt the rows after it belong to, in file order; undefined after a report or an abandoned prompt.

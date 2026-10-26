@@ -28,7 +28,7 @@ const fades = new WeakMap<object, () => void>()
 const startFade = (surface: ClientSurface<State>) => {
   if (fades.has(surface)) return
   const stop = surface.every(HOVER_TICK_MS, () => {
-    const state = surface.state
+    const { state } = surface
     if (!state || state.fading < 0) return
     const level = stepToward(state.level, false)
     surface.setState(level === 0 ? { ...state, fading: -1, level: 0 } : { ...state, level })
