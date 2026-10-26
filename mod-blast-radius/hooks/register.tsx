@@ -728,7 +728,7 @@ function holdCard({ Box, Button, Client, Input, Text }: Elements & { Button: (pr
   )
   // The idle countdown sits at the top edge's right end, across from the title; it never takes the title's room.
   const titleUsed = 1 + 2 + [...text.card.title].length + (text.card.titleHint ? 1 + [...text.card.titleHint].length : 0) + 1
-  const parts = idleMs > 0 && state.leftMs !== undefined && !state.isStored ? countdownParts(state.leftMs, columns - 1 - titleUsed - 1 - 1) : null
+  const parts = idleMs > 0 && state.leftMs !== undefined && !state.isStored ? countdownParts(state.leftMs, columns - 1 - titleUsed - 1 - 1, idleMs) : null
   const countdown = parts ? (
     <Box key="blast-card-edge-right" position="absolute" top={0} right={1} flexDirection="row" height={1} backgroundColor={THEME.bg}>
       <Text key="blast-idle-lead" color={THEME.muted}>{` ${parts.lead}`}</Text>
@@ -886,8 +886,9 @@ async function holdRisky($: EngineInterface, next:{ signal: AbortSignal }, risk:
         if (next.signal.aborted) mine.decision = 'interrupted'
         else if (idleMs > 0 && left <= 0) mine.decision = 'idle'
         else {
-          // The shown time changes once a minute, then once a second in the last minute: redraw only then.
-          if (idleMs > 0 && countdownOf(left).time !== countdownOf(mine.leftMs ?? left).time) {
+          // Redraw only when the shown time or its tone changes; a scaled threshold can fall inside a minute.
+          const [now, was] = [countdownOf(left, idleMs), countdownOf(mine.leftMs ?? left, idleMs)]
+          if (idleMs > 0 && (now.time !== was.time || now.color !== was.color)) {
             mine.leftMs = left
             $.ui.invalidate('ui.render')
           }

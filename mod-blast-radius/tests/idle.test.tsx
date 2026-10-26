@@ -399,23 +399,37 @@ const settle = async (clock: { advance: (ms: number) => Promise<void> }, ms: num
 }
 
 test('countdown: whole minutes rounded up, then seconds, with the tone going warn at 2 min and alert in the last minute', () => {
-  expect(countdownOf(10 * MINUTE)).toEqual({ time: '10 min', color: THEME.onSurface })
-  expect(countdownOf(9.5 * MINUTE)).toEqual({ time: '10 min', color: THEME.onSurface })
-  expect(countdownOf(2 * MINUTE + 1)).toEqual({ time: '3 min', color: THEME.onSurface })
-  expect(countdownOf(2 * MINUTE)).toEqual({ time: '2 min', color: THEME.warn })
-  expect(countdownOf(MINUTE + 59 * SECOND)).toEqual({ time: '2 min', color: THEME.warn })
-  expect(countdownOf(MINUTE)).toEqual({ time: '1 min', color: THEME.warn })
-  expect(countdownOf(42 * SECOND)).toEqual({ time: '42 s', color: THEME.alert })
-  expect(countdownOf(41.2 * SECOND)).toEqual({ time: '42 s', color: THEME.alert })
-  expect(countdownOf(-5)).toEqual({ time: '0 s', color: THEME.alert })
+  const total = 10 * MINUTE
+  expect(countdownOf(10 * MINUTE, total)).toEqual({ time: '10 min', color: THEME.onSurface })
+  expect(countdownOf(9.5 * MINUTE, total)).toEqual({ time: '10 min', color: THEME.onSurface })
+  expect(countdownOf(2 * MINUTE + 1, total)).toEqual({ time: '3 min', color: THEME.onSurface })
+  expect(countdownOf(2 * MINUTE, total)).toEqual({ time: '2 min', color: THEME.warn })
+  expect(countdownOf(MINUTE + 59 * SECOND, total)).toEqual({ time: '2 min', color: THEME.warn })
+  expect(countdownOf(MINUTE, total)).toEqual({ time: '1 min', color: THEME.warn })
+  expect(countdownOf(42 * SECOND, total)).toEqual({ time: '42 s', color: THEME.alert })
+  expect(countdownOf(41.2 * SECOND, total)).toEqual({ time: '42 s', color: THEME.alert })
+  expect(countdownOf(-5, total)).toEqual({ time: '0 s', color: THEME.alert })
+})
+
+test('countdown: a short timeout scales its thresholds, so a 2 min one starts calm, warns at half and alerts in the last quarter', () => {
+  const total = 2 * MINUTE
+  expect(countdownOf(2 * MINUTE, total)).toEqual({ time: '2 min', color: THEME.onSurface })
+  expect(countdownOf(61 * SECOND, total)).toEqual({ time: '2 min', color: THEME.onSurface })
+  expect(countdownOf(MINUTE, total)).toEqual({ time: '1 min', color: THEME.warn })
+  expect(countdownOf(30 * SECOND, total)).toEqual({ time: '30 s', color: THEME.warn })
+  expect(countdownOf(29 * SECOND, total)).toEqual({ time: '29 s', color: THEME.alert })
+  // 5 min and longer keep the picked 2 min and 1 min marks.
+  expect(countdownOf(2 * MINUTE, 5 * MINUTE).color).toBe(THEME.warn)
+  expect(countdownOf(59 * SECOND, 5 * MINUTE).color).toBe(THEME.alert)
 })
 
 test('countdown: the whole sentence when it fits, then without its clause, then nothing', () => {
   const full = 'Sets this aside in 10 min, Claude keeps going'
-  expect(countdownParts(10 * MINUTE, full.length + 2)).toMatchObject({ lead: 'Sets this aside in ', time: '10 min', tail: ', Claude keeps going' })
-  expect(countdownParts(10 * MINUTE, full.length + 1)).toMatchObject({ tail: '' })
-  expect(countdownParts(10 * MINUTE, 'Sets this aside in 10 min'.length + 2)).toMatchObject({ tail: '' })
-  expect(countdownParts(10 * MINUTE, 'Sets this aside in 10 min'.length + 1)).toBeNull()
+  const total = 10 * MINUTE
+  expect(countdownParts(10 * MINUTE, full.length + 2, total)).toMatchObject({ lead: 'Sets this aside in ', time: '10 min', tail: ', Claude keeps going' })
+  expect(countdownParts(10 * MINUTE, full.length + 1, total)).toMatchObject({ tail: '' })
+  expect(countdownParts(10 * MINUTE, 'Sets this aside in 10 min'.length + 2, total)).toMatchObject({ tail: '' })
+  expect(countdownParts(10 * MINUTE, 'Sets this aside in 10 min'.length + 1, total)).toBeNull()
 })
 
 test('countdown: the card draws it at 9:30 left as 10 min, muted words and an on-surface time', IDLE, async ($, on) => {

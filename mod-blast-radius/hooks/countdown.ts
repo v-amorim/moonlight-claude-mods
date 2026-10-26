@@ -4,16 +4,19 @@ import { fill, THEME } from './theme'
 
 export type Countdown = { time: string; color: string }
 
-// Whole minutes rounded up while a minute or more is left, then whole seconds; warn at 2 min or less, alert in the last minute.
-export function countdownOf(leftMs: number): Countdown {
+// Minutes rounded up, then seconds; warn at 2 min, alert at 1 min, capped at half and a quarter of the timeout.
+export function countdownOf(leftMs: number, totalMs: number): Countdown {
   const seconds = Math.max(0, Math.ceil(leftMs / 1000))
   const time = seconds >= 60 ? fill(text.card.idleMin, { n: Math.ceil(seconds / 60) }) : fill(text.card.idleSec, { n: seconds })
-  return { time, color: seconds < 60 ? THEME.alert : seconds <= 120 ? THEME.warn : THEME.onSurface }
+  const total = totalMs / 1000
+  const warnAt = Math.min(120, total / 2)
+  const alertAt = Math.min(60, total / 4)
+  return { time, color: seconds < alertAt ? THEME.alert : seconds <= warnAt ? THEME.warn : THEME.onSurface }
 }
 
 // What the edge shows in `room` cells: the whole sentence, the sentence without its clause, or nothing.
-export function countdownParts(leftMs: number, room: number): { lead: string; time: string; color: string; tail: string } | null {
-  const { time, color } = countdownOf(leftMs)
+export function countdownParts(leftMs: number, room: number, totalMs: number): { lead: string; time: string; color: string; tail: string } | null {
+  const { time, color } = countdownOf(leftMs, totalMs)
   const [lead = '', after = ''] = text.card.idle.split('{time}')
   for (const tail of [`${after}${text.card.idleKeeps}`, after]) {
     // One blank on each side of the words.
