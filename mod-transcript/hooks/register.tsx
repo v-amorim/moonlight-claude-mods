@@ -375,7 +375,7 @@ const HEAD_CHROME = 12
 // How a turn's row draws: hidden while its turn is folded, inside the card while unfolded, as is in the live turn or as the reply.
 async function placeOf($: EngineInterface, turn: Turn | undefined, requestId: string) {
   if (!turn || !isDone(turn) || turn.command || rowKey(requestId) === turn.reply) return 'plain'
-  return isTurnOpen(flips.turns, turn) ? 'card' : 'hidden'
+  return isTurnOpen(flips.turns, turn) || turn.answers.has(rowKey(requestId)) ? 'card' : 'hidden'
 }
 
 type Elements = { Box: (props: any) => RenderElement }
@@ -1756,6 +1756,7 @@ export const register: Register = (on, options) => {
     seen.set(`TurnDuration ${e.requestId}`, Boolean(turn))
     // A turn learned as it drew has no duration row from the transcript; this line carries it.
     if (turn && turn.durationMs === undefined && typeof e.props.durationMs === 'number') turn.durationMs = e.props.durationMs
+    if (turn?.reply) turn.answers.add(turn.reply)
     const place = await placeOf($, turn, e.requestId)
     const { Box, Client } = $.ui.resolve(e)
     if (place === 'hidden') return <Box key="toggle-hidden" />

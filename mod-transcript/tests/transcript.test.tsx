@@ -635,6 +635,48 @@ test('a finished turn folds under its prompt, keeps its reply, and a click unfol
   for (const ui of [prompt, step, reply, edit, result]) await ui.unmount()
 })
 
+test('a reply that ended a response stays drawn when a notification in the same turn gets a later reply and the turn folds', async ($, on) => {
+  const notified = [
+    row(1, 'user', { message: { role: 'user', content: 'so yasb done?' } }),
+    said(2, [{ type: 'tool_use', id: 'toolu_ls', name: 'Bash', input: { command: 'ls' } }]),
+    row(3, 'user', { message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: 'toolu_ls', content: 'ok' }] } }),
+    said(4, [{ type: 'text', text: 'Almost.' }]),
+    row(5, 'system', { subtype: 'turn_duration', durationMs: 19000 }),
+    row(6, 'user', { message: { role: 'user', content: '<task-notification>watchdog ended</task-notification>' } }),
+    said(7, [{ type: 'text', text: 'That was the watchdog.' }]),
+    row(8, 'system', { subtype: 'turn_duration', durationMs: 9000 }),
+    row(9, 'user', { message: { role: 'user', content: 'next' } }),
+    '',
+  ].join('\n')
+  expect(logOf(notified).turns[0]!.answers).toEqual(new Set([rowKey(ID(4)), rowKey(ID(7))]))
+
+  on('store.get', () => ({ value: undefined }))
+  on('store.set', () => ({ value: undefined }))
+  on('session.id', () => ({ value: 's7' }))
+  on('fs.stat', () => ({ value: { kind: 'file', size: notified.length, mtimeMs: 0, isLink: false } }))
+  on('fs.read', reading(() => ({ value: notified })))
+  const clock = mock.clock(on)
+  mock.env(on, { USERPROFILE: '/home' })
+  on('session.start', () => ({ cwd: '/w' }))
+  on('ui.render', ($$, e) => {
+    const { Text } = $$.ui.resolve(e)
+    return <Text>{`base ${e.component}`}</Text>
+  })
+  await sessionStarted($, clock, 's7', '/t/s7.jsonl', 'startup')
+  const mount = (component: string, requestId: string, props: object) =>
+    $.ui.mount({ plugin: 'mod-transcript', surface: 'terminal', component, requestId, viewport: { columns: 120, rows: 40 }, props } as never)
+  const prompt = await mount('UserMessage', ID(1), { text: 'so yasb done?', origin: { kind: 'composer' }, isExpanded: false })
+  const first = await mount('AssistantMessage', ID(4), { text: 'Almost.', isFirstOfReply: true })
+  const last = await mount('AssistantMessage', ID(7), { text: 'That was the watchdog.', isFirstOfReply: true })
+
+  // Folded: the tools hide, the first answer stays in the card and the last one closes the bubble.
+  expect(await isChipOpen(prompt)).toBe(false)
+  expect(await first.find({ type: 'Text', text: 'base AssistantMessage' })).toBeDefined()
+  expect(await first.find({ key: 'toggle-card-bar' })).toBeDefined()
+  expect(await last.find({ key: 'toggle-bubble-bottom-edge' })).toBeDefined()
+  for (const ui of [prompt, first, last]) await ui.unmount()
+})
+
 test('an open turn shows a chip per kind in order of first use, Thought first, one open at a time', async ($, on) => {
   on('store.get', () => ({ value: undefined }))
   on('store.set', () => ({ value: undefined }))

@@ -10,6 +10,8 @@ export type Turn = {
   ids: Set<string>
   // Row key of the turn's last text block, which stays visible when the turn folds.
   reply?: string
+  // Row keys of the text that ended each response: a notification answered in the same turn adds a response, so an earlier one also stays visible.
+  answers: Set<string>
   tools: ToolCall[]
   durationMs?: number
   // When the prompt was sent, in epoch ms.
@@ -239,7 +241,10 @@ export class TurnLog {
     }
     if (row.type === 'system') {
       this.add(current, rowKey(row.uuid))
-      if (row.subtype === 'turn_duration' && typeof row.durationMs === 'number') current.durationMs = row.durationMs
+      if (row.subtype === 'turn_duration' && typeof row.durationMs === 'number') {
+        current.durationMs = row.durationMs
+        if (current.reply) current.answers.add(current.reply)
+      }
     }
   }
 
@@ -446,7 +451,7 @@ export class TurnLog {
   }
 
   private start(uuid: string, at: number | undefined, isReport = false) {
-    const turn: Turn = { prompt: uuid, ids: new Set(), tools: [], at, ...(isReport ? { isReport } : {}) }
+    const turn: Turn = { prompt: uuid, ids: new Set(), answers: new Set(), tools: [], at, ...(isReport ? { isReport } : {}) }
     this.numbers = undefined
     this.turns.push(turn)
     this.thinking = undefined
