@@ -52,6 +52,7 @@ function host(on: any, transcriptAt: string) {
     return { value: e.as === 'bytes' ? { base64: btoa(FILE) } : FILE }
   })
   on('process.run', () => ({ value: { exitCode: 0, stdout: '', stderr: '' } }))
+  // sourcery skip: generators-should-yield
   on('turn.step', async function* (_$: unknown, e: { turnId: string; index: number }) {
     return { turnId: e.turnId, index: e.index, answer: '', toolUses: [], stopReason: 'tool_use', usage: null }
   })

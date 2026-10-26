@@ -14,11 +14,29 @@ export const snapshot: Snapshot = {
               "text": " "
             },
             {
-              "text": "The main agent cached /ask, so",
+              "text": "The main agent cached /ask, so one-off questions",
               "color": "onSurface"
+            }
+          ]
+        },
+        {
+          "spans": [
+            {
+              "text": " "
             },
             {
-              "text": "     "
+              "text": "cost more.",
+              "color": "onSurface"
+            }
+          ]
+        },
+        {
+          "spans": []
+        },
+        {
+          "spans": [
+            {
+              "text": " "
             },
             {
               "text": "\ue0b6",
@@ -52,7 +70,7 @@ export const snapshot: Snapshot = {
               "bg": "#1a1e30"
             },
             {
-              "text": " "
+              "text": "  "
             },
             {
               "text": "\ue0b6",
@@ -60,7 +78,23 @@ export const snapshot: Snapshot = {
               "bg": "#1a1e30"
             },
             {
-              "text": " \uf00d ",
+              "text": "\ue0b6",
+              "color": "#3b446a",
+              "bg": "surface3"
+            },
+            {
+              "text": "\uf054",
+              "color": "accent",
+              "bg": "#3b446a",
+              "bold": true
+            },
+            {
+              "text": "\ue0b4",
+              "color": "#3b446a",
+              "bg": "surface3"
+            },
+            {
+              "text": " Ask Claude ",
               "color": "onSurface",
               "bg": "surface3"
             },
@@ -68,44 +102,39 @@ export const snapshot: Snapshot = {
               "text": "\ue0b4",
               "color": "surface3",
               "bg": "#1a1e30"
-            }
-          ]
-        },
-        {
-          "spans": [
-            {
-              "text": " "
             },
             {
-              "text": "one-off questions cost more.",
-              "color": "onSurface"
+              "text": "  "
             },
             {
-              "text": "       "
-            },
-            {
-              "text": " ",
+              "text": "\ue0b6",
+              "color": "surface3",
               "bg": "#1a1e30"
             },
             {
-              "text": "         "
+              "text": "\ue0b6",
+              "color": "#3b446a",
+              "bg": "surface3"
             },
             {
-              "text": " ",
-              "bg": "#1a1e30"
+              "text": "\uf00d",
+              "color": "accent",
+              "bg": "#3b446a",
+              "bold": true
             },
             {
-              "text": " "
+              "text": "\ue0b4",
+              "color": "#3b446a",
+              "bg": "surface3"
             },
             {
-              "text": " ",
-              "bg": "#1a1e30"
+              "text": " Dismiss ",
+              "color": "onSurface",
+              "bg": "surface3"
             },
             {
-              "text": "   "
-            },
-            {
-              "text": " ",
+              "text": "\ue0b4",
+              "color": "surface3",
               "bg": "#1a1e30"
             }
           ]
@@ -118,9 +147,27 @@ export const snapshot: Snapshot = {
               "text": " "
             },
             {
-              "text": "The main agent cached /ask, so one-off",
+              "text": "The main agent cached /ask, so one-off questions",
               "color": "onSurface"
+            }
+          ]
+        },
+        {
+          "spans": [
+            {
+              "text": " "
             },
+            {
+              "text": "cost more.",
+              "color": "onSurface"
+            }
+          ]
+        },
+        {
+          "spans": []
+        },
+        {
+          "spans": [
             {
               "text": " "
             },
@@ -136,23 +183,32 @@ export const snapshot: Snapshot = {
               "bg": "surface3"
             },
             {
-              "text": " "
+              "text": "  "
+            },
+            {
+              "text": " ↵ ",
+              "color": "accent",
+              "bg": "#3b446a",
+              "bold": true
+            },
+            {
+              "text": " Ask Claude ",
+              "color": "onSurface",
+              "bg": "surface3"
+            },
+            {
+              "text": "  "
             },
             {
               "text": " × ",
-              "color": "onSurface",
-              "bg": "surface3"
-            }
-          ]
-        },
-        {
-          "spans": [
-            {
-              "text": " "
+              "color": "accent",
+              "bg": "#3b446a",
+              "bold": true
             },
             {
-              "text": "questions cost more.",
-              "color": "onSurface"
+              "text": " Dismiss ",
+              "color": "onSurface",
+              "bg": "surface3"
             }
           ]
         }

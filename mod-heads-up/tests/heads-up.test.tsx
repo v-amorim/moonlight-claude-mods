@@ -1,12 +1,12 @@
 // mod-heads-up / tests/heads-up.test.tsx, by v-amorim
 // Tests the panel above the prompt: rendering, pill, pane and note cards.
-import { expect, mock, test as kitTest } from 'claude-code/testing'
+import { expect, mock, test as kitTest, type TestRest } from 'claude-code/testing'
 
 // The side check is opt-in, so these tests turn it on unless a test sets its own value.
-const test = ((name: string, first: any, second?: any) => {
-  const [settings, body] = typeof first === 'function' ? [{}, first] : [first, second]
+const test = (name: string, ...rest: TestRest) => {
+  const [settings, body] = rest.length === 1 ? [{}, rest[0]] : rest
   return kitTest(name, { ...settings, options: { enabled: true, ...settings.options } }, body)
-}) as typeof kitTest
+}
 
 import Row from '../hooks/timeline'
 
@@ -130,6 +130,7 @@ function setup(on: any, { reply = () => answered(FULL), below, isUnplaced, gate,
     const slice = encoder.encode(transcript()).subarray(from, from + Number(e.argv[6]))
     return { value: { exitCode: 0, stdout: base64Of(slice), stderr: '' } }
   })
+  // sourcery skip: generators-should-yield
   on('turn.step', async function* (_$: unknown, e: { turnId: string; index: number }) {
     return { turnId: e.turnId, index: e.index, answer: '', toolUses: [], stopReason: 'tool_use', usage: null }
   })
@@ -271,7 +272,7 @@ test('a failed side call raises one "Side check unavailable" toast per session, 
   const notes: string[] = []
   on('ui.toast', (_$: unknown, e: { text: string }) => {
     notes.push(e.text)
-    return { value: {} }
+    return { value: undefined }
   })
   let calls = 0
   const { clock } = setup(on, {
@@ -291,7 +292,7 @@ test('a thrown side call names its message, and an empty reply raises nothing', 
   const notes: string[] = []
   on('ui.toast', (_$: unknown, e: { text: string }) => {
     notes.push(e.text)
-    return { value: {} }
+    return { value: undefined }
   })
   let mode = 'empty'
   const { clock } = setup(on, {
@@ -483,14 +484,32 @@ test('the timeline dot marks what is unread: a filled badge-blue dot, and a read
   await panel.unmount()
 })
 
-test('the card has two actions, Open and ×, and no Know this already', async ($, on) => {
+test('the card has three unnumbered actions on a row under the note: Open, Ask Claude, Dismiss', async ($, on) => {
   const { clock } = setup(on)
   await finding($, clock)
   const ui = await band($)
   const tree = JSON.stringify(await ui.drawn())
   const ids = [...tree.matchAll(/"id":"(headsup-card-[a-z]+)"/g)].map(each => each[1])
-  expect([...new Set(ids.filter(id => id !== 'headsup-card-tag'))].sort()).toEqual(['headsup-card-dismiss', 'headsup-card-open'])
+  expect([...new Set(ids.filter(id => id !== 'headsup-card-tag'))].sort()).toEqual(['headsup-card-chat', 'headsup-card-dismiss', 'headsup-card-open'])
   expect(tree).not.toContain('Know this')
+  expect(tree.indexOf('"headsup-card-text"') < tree.indexOf('"headsup-card-keys"')).toBe(true)
+  expect(await ui.find({ key: 'headsup-card-line' })).toBeUndefined()
+  for (const [id, label] of [['open', 'Open'], ['chat', 'Ask Claude'], ['dismiss', 'Dismiss']] as const) {
+    expect(await drawn(ui, `headsup-card-${id}`)).toContain(label)
+    expect(await drawn(ui, `headsup-card-${id}`)).not.toMatch(/"[123]"/)
+    expect(await ui.find({ key: `headsup-card-${id}-hotkey` })).toBeUndefined()
+  }
+  await ui.unmount()
+})
+
+test('Ask Claude on the card sends the note to Claude', async ($, on) => {
+  const { clock, sent } = setup(on)
+  await finding($, clock)
+  const ui = await band($)
+  await click(ui, 'headsup-card-chat')
+  await clock.settle()
+  expect(sent.slice(1)).toHaveLength(1)
+  expect(sent[1]).toMatch(/^A heads-up note/)
   await ui.unmount()
 })
 
@@ -1014,8 +1033,8 @@ test('a check result adds its usage to spend.json under today and the session mo
   await step($, 6)
   await clock.settle()
   expect(writes.length).toBe(1)
-  expect(writes[0].path).toBe(SPEND)
-  const day = Object.values(JSON.parse(writes[0].text).days)[0] as Record<string, unknown>
+  expect(writes[0]!.path).toBe(SPEND)
+  const day = Object.values(JSON.parse(writes[0]!.text).days)[0] as Record<string, unknown>
   expect(day['claude-opus-5-5']).toEqual({ calls: 1, input: 100, output: 20, cacheRead: 5, cacheWrite: 7 })
 })
 

@@ -1,11 +1,11 @@
 // mod-heads-up / tests/previews.test.tsx, by v-amorim
-import { mock, test as kitTest } from 'claude-code/testing'
+import { mock, test as kitTest, type TestRest } from 'claude-code/testing'
 
 // The side check is opt-in, so these tests turn it on unless a test sets its own value.
-const test = ((name: string, first: any, second?: any) => {
-  const [settings, body] = typeof first === 'function' ? [{}, first] : [first, second]
+const test = (name: string, ...rest: TestRest) => {
+  const [settings, body] = rest.length === 1 ? [{}, rest[0]] : rest
   return kitTest(name, { ...settings, options: { enabled: true, ...settings.options } }, body)
-}) as typeof kitTest
+}
 
 import { capture, expectPreview, written } from './previews-kit'
 import { snapshot } from './previews.snapshot'
@@ -58,6 +58,7 @@ async function card($: any, on: any) {
     const from = Number(e.argv[5]) - 1
     return { value: { exitCode: 0, stdout: base64Of(encoder.encode(TRANSCRIPT).subarray(from, from + Number(e.argv[6]))), stderr: '' } }
   })
+  // sourcery skip: generators-should-yield
   on('turn.step', async function* (_$: unknown, e: { turnId: string; index: number }) {
     return { turnId: e.turnId, index: e.index, answer: '', toolUses: [], stopReason: 'tool_use', usage: null }
   })

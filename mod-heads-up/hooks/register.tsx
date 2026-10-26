@@ -1,6 +1,6 @@
 // mod-heads-up / hooks/register.tsx, by v-amorim
 // Registers the heads up pane, pill, commands and side check flow with the engine.
-import type { ConfigValue, EngineInterface, Register, SessionMessage } from 'claude-code'
+import type { ConfigValue, EngineInterface, Register, RenderElement, SessionMessage } from 'claude-code'
 
 import { bridgeOn, endBridge, startBridge, type BridgeRecord } from './bridge'
 import { checkPrompt, parseCheck, parseRecheck, parseRewrite, recheckPrompt, rewritePrompt, type Direction } from './ask'
@@ -313,7 +313,7 @@ async function ask($: EngineInterface, prompt: string) {
       // $.model.fork takes no timeoutMs, so a fork that never answers is cut here.
       const reply = await Promise.race([$.model.fork({ prompt }), $.clock.sleep(ASK_TIMEOUT_MS).then(() => null)])
       if (reply === null) return null
-      recordSpend($, lastModel || (await $.session.model().catch(() => '')), reply)
+      recordSpend($, lastModel || (await $.session.model().catch(() => '')), !reply.isAnswered && reply.reason === 'nothing-to-fork' ? null : reply)
       if (reply.isAnswered) return reply.text
       const failure = apiReason(reply)
       if (failure !== null) await sideUnavailable($, failure)
@@ -409,6 +409,19 @@ async function chat($: EngineInterface, id: string) {
   const box = await $.prompt.read()
   const filled = await $.prompt.fill({ text: box.text.trim() ? `\n${prompt}` : prompt, mode: box.text.trim() ? 'append' : 'replace' }).catch(() => ({ isFilled: false }))
   $.ui.toast(fill(filled.isFilled ? text.chatDropped : text.chatLost, { reason: result.drop }))
+}
+
+// The band card's actions.
+async function cardAction($: EngineInterface, id: string) {
+  const card = saved.card ?? ''
+  if (!card) return
+  if (id === 'headsup-card-open') await learnMore($, card)
+  else if (id === 'headsup-card-chat') await chat($, card)
+  else if (id === 'headsup-card-dismiss') {
+    bandTip = ''
+    await closeCard($)
+    await update($, card, { isRead: true })
+  }
 }
 
 async function redo($: EngineInterface, id: string, direction: Direction) {
@@ -550,7 +563,7 @@ const bare = (glyph: string) => glyph.replace(/[[\]\s]/g, '')
 
 // The row under the hint: when the last check ran, the turn it read and whether it showed a note.
 async function lastCheckLine($: EngineInterface) {
-  const checked = saved.checked
+  const { checked } = saved
   if (!checked) return text.noCheck
   const minutes = Math.max(0, Math.floor(((await $.clock.now()) - checked.at) / 60_000))
   const ago = minutes < 1 ? text.agoUnder : fill(text.agoMinutes, { min: minutes })
@@ -753,17 +766,13 @@ export const register: Register = (on, options) => {
       $.ui.invalidate('ui.render')
       return next(e)
     }
-    const id = clicked.id
+    const { id } = clicked
     const card = saved.card ?? ''
     if (id === 'headsup') await openingPane($, () => togglePane($))
     else if (id === 'headsup-tab' && !(await isOpen($))) await showPane($)
     else if (id === 'headsup-settings' && !(await isOpen($, SETTINGS))) await toggleSettings($)
-    else if (id === 'headsup-card-open' && card) await learnMore($, card)
-    else if (id === 'headsup-card-dismiss' && card) {
-      bandTip = ''
-      await closeCard($)
-      await update($, card, { isRead: true })
-    } else if (id.startsWith('headsup-note-')) {
+    else if (id.startsWith('headsup-card-')) await cardAction($, id)
+    else if (id.startsWith('headsup-note-')) {
       const noteId = id.slice('headsup-note-'.length)
       await $.state.set(OPEN_KEY, [noteId])
       isCardClosed = false
@@ -805,23 +814,22 @@ export const register: Register = (on, options) => {
     await ensureLoaded($)
     const elements = $.ui.resolve(e)
     const { Box, Client, Text } = elements
-    const nerd = look.nerd
+    const { nerd } = look
     // A command waiting on the person outranks a heads-up: the band has few rows, and a hidden hold looks like a hang.
     const isHolding = (await $.state.get({ plugin: 'mod-blast-radius', key: 'holding' })).value === true
     const shown = saved.card && !isHolding ? noteOf(saved.card) : undefined
-    const keyed = (id: string, label: string, subLead: string | undefined, tipLabel: string, tipBody: string) =>
-      pill({ Box, Text }, nerd, THEME.surface3, <Client key={id} module="./entry.tsx" height={1} props={{ id, label, isOpen: true, bg: THEME.surface3, nerd, still, tip: { glyph: subLead ?? bare(look.glyph.close), label: tipLabel, text: tipBody }, ...(subLead ? { subLead } : {}) } satisfies EntryProps} />, `${id}-pill`, cardFill())
+    const action = (id: string, label: string, glyph: string, tipBody: string) =>
+      pill({ Box, Text }, nerd, THEME.surface3, <Client key={id} module="./entry.tsx" height={1} props={{ id, label, isOpen: true, bg: THEME.surface3, nerd, still, subLead: glyph, tip: { glyph, label, text: tipBody } } satisfies EntryProps} />, `${id}-pill`, cardFill())
     const card = shown ? (
       <Box key="headsup-card-block" flexDirection="column">
         <Box key="headsup-card" flexDirection="column" paddingX={1} borderStyle="round" borderColor={THEME.border} backgroundColor={cardFill()}>
-          <Box key="headsup-card-line" flexDirection="row" columnGap={1}>
-            <Box key="headsup-card-text" flexShrink={1} flexGrow={1}>
-              <Text color={THEME.onSurface}>{shown.learn}</Text>
-            </Box>
-            <Box key="headsup-card-keys" flexDirection="row" columnGap={1} flexShrink={0}>
-              {keyed('headsup-card-open', text.open, bare(look.glyph.go), text.open, text.tipOpen)}
-              {keyed('headsup-card-dismiss', bare(look.glyph.close), undefined, text.dismiss, text.tipDismiss)}
-            </Box>
+          <Box key="headsup-card-text">
+            <Text color={THEME.onSurface}>{shown.learn}</Text>
+          </Box>
+          <Box key="headsup-card-keys" flexDirection="row" columnGap={2} marginTop={1}>
+            {action('headsup-card-open', text.open, bare(look.glyph.go), text.tipOpen)}
+            {action('headsup-card-chat', text.askClaude, bare(look.glyph.go), text.tipAsk)}
+            {action('headsup-card-dismiss', text.dismiss, bare(look.glyph.close), text.tipDismiss)}
           </Box>
         </Box>
         {titleEdge({ Box, Text }, look, 'headsup-card', '', text.pillLabel, shown.tag, 0)}
@@ -855,7 +863,7 @@ export const register: Register = (on, options) => {
     const elements = $.ui.resolve(e)
     // @ts-expect-error The host's types omit Client from a Pane's elements, yet a Pane draws it.
     const { Box, Button, Client, Text } = elements
-    const nerd = look.nerd
+    const { nerd } = look
 
     if (e.requestId === SETTINGS) {
       const rows = (await $.config.list()).filter(row => row.key.startsWith('mod-heads-up.'))
@@ -942,7 +950,7 @@ export const register: Register = (on, options) => {
       return <Client key={`headsup-more-${found.id}`} module="./entry.tsx" height={1} props={{ id: `headsup-more-${found.id}`, label, lead: arrow, leadColor: THEME.accent, isOpen: false, bg: cardFill(), idle: THEME.muted, nerd, still, tip: { glyph: arrow, label, text: isFull ? text.tipShowLess : text.tipShowAll } } satisfies EntryProps} />
     }
 
-    const actionsBar = (found: Note, more: unknown) => {
+    const actionsBar = (found: Note, more: RenderElement | null) => {
       const isRewording = wording === found.id
       const reword = pill({ Box, Text }, nerd, THEME.surface3, <Client key={`headsup-reword-${found.id}`} module="./entry.tsx" height={1} props={{ id: `headsup-reword-${found.id}`, label: text.reword, isOpen: true, bg: THEME.surface3, nerd, still, isBusy: rewriting.endsWith(`-${found.id}`), spinner: rewriting.endsWith(`-${found.id}`), subLead: bare(look.glyph.cycle), tip: { glyph: bare(look.glyph.cycle), label: text.reword, text: text.tipReword } } satisfies EntryProps} />, `headsup-reword-${found.id}-pill`, cardFill())
       return (
