@@ -710,7 +710,7 @@ export const register: Register = (on, options) => {
 
   // A task stopped from /tasks reaches no tool call, Stop or prompt hook; only its drawn notification row carries the status.
   on('ui.render', { component: 'UserMessage' }, async ($, e, next) => {
-    const task = (e.props as { task?: { id?: string; status?: string } }).task
+    const { task } = e.props as { task?: { id?: string; status?: string } }
     if (task?.id && task.status) {
       const { id, status } = task
       $.clock.after(0, async () => {
@@ -832,7 +832,7 @@ export const register: Register = (on, options) => {
       // The card keeps its toggle under the pointer, but its tip now says the opposite.
       const row = (await currentRows($)).rows.find(each => each.id === message.id)
       if (row) {
-        const tip = foldTip(row, !isFolded, !isFolded ? look.glyph.collapsed : look.glyph.expanded)
+        const tip = foldTip(row, !isFolded, isFolded ? look.glyph.expanded : look.glyph.collapsed)
         paneTip = { type: 'tip', id: 'loops', ...tip }
       }
       $.ui.invalidate('ui.render')

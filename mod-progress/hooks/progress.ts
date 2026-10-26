@@ -438,7 +438,7 @@ const shownDescription = (loop: Loop, status: Status, description: string) => (s
 
 // The main session first, then each agent in spawn order.
 export function buildRows(snap: Snap, list: AgentLite[], usage: UsageLite | undefined, now: number, mainName: string, mainTask: string, mainModel: string | undefined): Row[] {
-  const main = snap.main
+  const { main } = snap
   const model = main.model ?? mainModel
   // The main ledger is GATES.md plus every gates/<name>.md.
   const ledger = Object.entries(snap.gates).sort(([a], [b]) => Number(b === MAIN_GATES) - Number(a === MAIN_GATES)).flatMap(([, gates]) => gates)

@@ -788,7 +788,7 @@ test('an open page keeps following new output, and a short output has no control
   await pane.unmount()
 })
 
-const SHELLS = async ($: Parameters<Parameters<typeof test>[1]>[0], on: On) => {
+const SHELLS = async ($: Parameters<Extract<Parameters<typeof test>[1], (...args: never[]) => unknown>>[0], on: On) => {
   const stub = stubEngine(on, [AGENT])
   await $.session.start({ cwd: '/w' } as never)
   await $.tool.call(shellCall('make main-job'))
