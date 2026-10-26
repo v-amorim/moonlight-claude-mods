@@ -43,12 +43,12 @@ export default {
       "#8993B9"
     ],
     "usage": [
-      "#CED9FF",
+      "#B9C6F5",
       "#ACB9E6",
-      "#CDBBE5",
-      "#EA98EE",
-      "#F883C9",
-      "#FF6F7A"
+      "#A5A1E9",
+      "#CF95CA",
+      "#CA5FA6",
+      "#CA5F71"
     ],
     "statusline": {
       "pillBorder": "#3A3D4A",
@@ -66,7 +66,7 @@ export default {
       "thinking": { "hue": "#C3A6FF", "wash": "#494267" },
       "read": { "hue": "#B9C6F5", "wash": "#464C64" },
       "search": { "hue": "#A5CFFF", "wash": "#404E67" },
-      "edit": { "hue": "#CED9FF", "wash": "#4C5167" },
+      "edit": { "hue": "#B9C6F5", "wash": "#4C5167" },
       "shell": { "hue": "#FFCB6B", "wash": "#5B4D3B" },
       "web": { "hue": "#79C0FF", "wash": "#324A67" },
       "agent": { "hue": "#F99BD1", "wash": "#593F59" },
@@ -113,10 +113,10 @@ export default {
   },
   "levels": {
     "low": { "glyph": "○", "color": "#ACB9E6" },
-    "medium": { "glyph": "◐", "color": "#CDBBE5" },
-    "high": { "glyph": "●", "color": "#EA98EE" },
-    "xhigh": { "glyph": "◉", "color": "#F883C9" },
-    "max": { "glyph": "◈", "color": "#FF6F7A" }
+    "medium": { "glyph": "◐", "color": "#A5A1E9" },
+    "high": { "glyph": "●", "color": "#CF95CA" },
+    "xhigh": { "glyph": "◉", "color": "#CA5FA6" },
+    "max": { "glyph": "◈", "color": "#CA5F71" }
   },
   "statuslineMarks": {
     "branch": "⑂",
