@@ -421,8 +421,9 @@ test('before the transcript is read, turns come from the session messages and ro
   expect(log.turnOf(ID(11))).toBe(log.turns[1])
 })
 
-test('a table too wide for the mod goes to Claude Code and drops the bubble padding, since Claude Code sizes it to the whole terminal', async ($, on) => {
-  const table = `Two ways:\n\n| | How |\n| --- | --- |\n| A | ${'Copy the scanner '.repeat(8)}|`
+test('a table too wide for the mod even at its narrowest goes to Claude Code and drops the bubble padding, since Claude Code sizes it to the whole terminal', async ($, on) => {
+  const heads = Array.from({ length: 12 }, (_, k) => `column-${k}-name`)
+  const table = `Two ways:\n\n| ${heads.join(' | ')} |\n| ${heads.map(() => '---').join(' | ')} |\n| ${heads.join(' | ')} |`
   on('store.get', () => ({ value: undefined }))
   on('store.set', () => ({ value: undefined }))
   on('session.messages', () => ({ value: [{ role: 'user', text: 'compare them', toolUses: [] }, { role: 'assistant', text: table, toolUses: [] }, { role: 'assistant', text: 'Plain text.', toolUses: [] }] }))

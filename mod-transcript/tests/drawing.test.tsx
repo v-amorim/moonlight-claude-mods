@@ -2,6 +2,7 @@
 // Tests how finished turns, edits and diffs are drawn from transcript rows.
 import { expect, mock, test } from 'claude-code/testing'
 
+import { cells } from '../hooks/cells'
 import Chips from '../hooks/chips'
 import Copy from '../hooks/copy'
 import Dot from '../hooks/dot'
@@ -245,11 +246,73 @@ test('a reply table draws caps headers in the dim colour, hairlines between rows
   expect(await reply.find({ type: 'Markdown', props: { text: 'The transcript is the busiest.' } } as never)).toBeDefined()
 })
 
-test('a reply table wider than the bubble goes back to Claude Code\'s own table', async ($, on) => {
+test('a reply table that cannot fit even with every column at its narrowest goes back to Claude Code\'s own table', async ($, on) => {
   const mount = await open($, on)
-  const wide = `| ${'a'.repeat(60)} | ${'b'.repeat(60)} |\n| --- | --- |\n| x | y |`
-  const reply = await mount('AssistantMessage', ID(7), { text: wide, isFirstOfReply: true }, 100)
+  const cols = Array.from({ length: 12 }, (_, k) => `word${k}`)
+  const wide = `| ${cols.join(' | ')} |\n| ${cols.map(() => '---').join(' | ')} |\n| ${cols.join(' | ')} |`
+  const reply = await mount('AssistantMessage', ID(7), { text: wide, isFirstOfReply: true }, 40)
   expect(await reply.find({ type: 'Text', text: 'base AssistantMessage' })).toBeDefined()
+})
+
+// The text of each line a table drew, rules included, in order.
+const tableLines = async (reply: any, at = 0) => {
+  const table = (await reply.find({ key: `toggle-table-${at}` })) as any
+  return (table.children as any[]).flat(Infinity).map(line => textOf(line) as string)
+}
+const isRule = (line: string) => /^─+(┼─+)*$/.test(line)
+// The lines of each row, header first, split at the hairlines.
+const rowsOf = (lines: string[]) => lines.reduce<string[][]>((rows, line) => (isRule(line) ? [...rows, []] : (rows.at(-1)!.push(line), rows)), [[]])
+const PROSE = 'Draws every row as one line, wraps a long sentence onto as many lines as it needs, and keeps its pills whole.'
+const LONG = `| Name | Kind | Rows | Notes |\n| --- | --- | ---: | --- |\n| alpha | pane | 42 | ${PROSE} ${PROSE} |\n| beta | band | 7 | short |`
+
+test('a table with sentence-long cells keeps the mod\'s look at 120 columns, shrinking the widest column, and every line fits', async ($, on) => {
+  const reply = await replyOf($, on, LONG)
+  expect(await reply.find({ type: 'Text', text: 'base AssistantMessage' })).toBeUndefined()
+  const lines = await tableLines(reply)
+  expect(lines.length).toBeGreaterThan(5)
+  for (const line of lines) expect(cells(line)).toBeLessThanOrEqual(108)
+  expect(lines[0]).toMatch(/^NAME\s+│\s+KIND\s+│\s+ROWS\s+│\s+NOTES\s*$/)
+})
+
+test('a long cell wraps and its row grows to the tallest cell, with the bars on every line and one hairline between rows', async ($, on) => {
+  const reply = await replyOf($, on, LONG)
+  const lines = await tableLines(reply)
+  const [head, alpha, beta] = rowsOf(lines)
+  expect(lines.filter(isRule)).toHaveLength(2)
+  expect(lines.filter(isRule).every(rule => /^─+┼─+┼─+┼─+$/.test(rule))).toBe(true)
+  expect(head).toHaveLength(1)
+  expect(alpha!.length).toBeGreaterThan(2)
+  expect(beta).toHaveLength(1)
+  for (const line of lines.filter(line => !isRule(line))) expect(line.match(/│/g)).toHaveLength(3)
+})
+
+test('the bold first column and the right-aligned numbers hold on every wrapped line', async ($, on) => {
+  const reply = await replyOf($, on, LONG)
+  expect(((await textsOf(reply, /^alpha\s*$/)) as any[]).every(cell => cell.props.bold === true)).toBe(true)
+  const numbers = rowsOf(await tableLines(reply))[1]!.map(line => line.split('│')[2]!)
+  expect(new Set(numbers.map(cell => cell.length)).size).toBe(1)
+  expect(numbers.filter(cell => cell.trim())).toHaveLength(1)
+  expect(numbers[0]!.endsWith('42 ')).toBe(true)
+  expect(numbers.slice(1).every(cell => cell.trim() === '')).toBe(true)
+})
+
+test('a hex code, inline code and a link inside a wrapped cell stay whole, and the hex code is not in the strip', async ($, on) => {
+  const note = `${PROSE} The accent is #7386D0 and run \`just test --all\` then see [the docs](https://example.com/docs) ${PROSE}`
+  const reply = await replyOf($, on, `| Role | Note |\n| --- | --- |\n| accent | ${note} |`, 60)
+  expect(await reply.find({ type: 'Text', text: 'base AssistantMessage' })).toBeUndefined()
+  expect(await reply.find({ key: 'toggle-colors' })).toBeUndefined()
+  expect((await reply.findAll({ type: 'Text', text: '●' })).some((square: any) => square.props.color === '#7386D0')).toBe(true)
+  expect(await textsOf(reply, /^\s*just test --all\s*$/)).toHaveLength(1)
+  expect(((await reply.findAll({ type: 'Link' })) as any[]).map(link => link.props.href)).toEqual(['https://example.com/docs'])
+  expect(await textsOf(reply, /^\s*the docs\s*$/)).toHaveLength(1)
+})
+
+test('a header word is never split, and a column shrinks no narrower than its longest unbreakable token', async ($, on) => {
+  const prose = 'word '.repeat(60)
+  const reply = await replyOf($, on, `| Configuration | Notes |\n| --- | --- |\n| a | ${prose} |`, 60)
+  const lines = await tableLines(reply)
+  expect(lines[0]).toMatch(/^CONFIGURATION\s+│\s+NOTES\s*$/)
+  for (const line of lines) expect(cells(line)).toBeLessThanOrEqual(54)
 })
 
 test('an API error that needs the person is one red line that says so', async ($, on) => {

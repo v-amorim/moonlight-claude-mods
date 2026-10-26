@@ -6,6 +6,7 @@ import { copyChoices, copyText, type CopyChoice } from '../hooks/clip'
 import Copy from '../hooks/copy'
 import { markPieces, paintOf, type Part, type Piece } from '../hooks/mark'
 import style from '../hooks/style'
+import { inTable } from '../hooks/table'
 import { mix, THEME } from '../hooks/theme'
 import { reading, sessionStarted } from './bridge-feed'
 
@@ -212,6 +213,45 @@ for (const icons of ['safe', 'nerd']) {
     await point(reply, 'leave', 0)
     expect(await drawnOf(reply)).toContain('"key":"toggle-tables"')
     expect(await shapeOf(reply)).toEqual(rest)
+    for (const each of [prompt, reply, next]) await each.unmount()
+  })
+}
+
+const PILLED = ['Intro.', '', '```ts', 'const a = 1', '```', '', '| Name | Note |', '| --- | --- |', '| plain | `run` #ff8800 [docs](https://example.com/docs) |'].join('\n')
+
+test('inside a table a token counts as the table when the table is hovered, and keeps its own part otherwise', () => {
+  const parts: Part[] = ['text', 'code', 'link']
+  const table = inTable(paintOf('table'))!
+  for (const part of parts) {
+    expect(table.on(part)).toBe(true)
+    expect(table.color('#aabbcc', part)).toBe('#aabbcc')
+    expect(table.wash(part)).toBe(WASH)
+  }
+  const links = inTable(paintOf('links'))!
+  expect(links.on('link')).toBe(true)
+  expect(links.on('text')).toBe(false)
+  expect(links.on('table')).toBe(false)
+  expect(inTable(paintOf('code'))!.on('code')).toBe(true)
+  expect(inTable(paintOf('code'))!.on('text')).toBe(false)
+  expect(inTable(undefined)).toBeUndefined()
+})
+
+for (const icons of ['safe', 'nerd']) {
+  test(`a code pill, hex chip and link pill in a table keep their colours when the table is hovered, and follow their own part otherwise (${icons} icons)`, { options: { icons } }, async ($, on) => {
+    const { prompt, reply, next } = await mountReply($, on, PILLED)
+    await point(reply, 'move', (await leadOf(reply)) + 1)
+    await point(reply, 'move', await cellOf(reply, 1))
+    for (const [at, what] of CHOICES.entries()) {
+      await point(reply, 'move', await cellOf(reply, at))
+      const table = await inRow(reply, 'toggle-table-2')
+      const all = what === 'reply' || what === 'text'
+      const lit = (color: string) => has(table, color) && !has(table, dimmed(color))
+      expect(lit(THEME.ok), `${what}: code pill`).toBe(all || what === 'table' || what === 'code')
+      expect(lit(THEME.secondary), `${what}: link pill`).toBe(all || what === 'table' || what === 'links')
+      expect(has(table, dimmed(THEME.surface2)), `${what}: hex chip`).toBe(!(all || what === 'table'))
+      expect(has(table, dimmed(THEME.onSurface)), `${what}: plain text`).toBe(!(all || what === 'table'))
+      if (icons === 'safe') expect(has(table, PILL_WASH), `${what}: pill wash`).toBe(all || what === 'table' || what === 'code' || what === 'links')
+    }
     for (const each of [prompt, reply, next]) await each.unmount()
   })
 }

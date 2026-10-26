@@ -31,7 +31,7 @@ import { CAPS, fill, MARK, mix, statusColor, SYNTAX, THEME, WASH } from './theme
 import { copyChoices, copyText, type CopyChoice } from './clip'
 import { markPieces, paintOf, type Piece } from './mark'
 import { proseBlock, type Inline } from './prose'
-import { richBlocks, tableBlock, tableWidth, unsupported, type Block } from './table'
+import { richBlocks, tableBlock, tableMinWidth, unsupported, type Block } from './table'
 import { callTime, commandOf, diffStat, elapsed, isPrompt, rowKey, timeOfDay, toolLabel, turnKinds, turnLine, turnThoughts, TurnLog, type Turn } from './turns'
 import { apiErrorAction, completeLines, hexColors, questionsOf, reportOf, senderTaskOf, statusesOf, withNotice, type Notice, type Report } from './rows'
 import { bridgeOn, endBridge, startBridge, type BridgeRecord } from './bridge'
@@ -549,7 +549,7 @@ function bashRow({ Box, Client, Text }: Rows, input: any, isRunning: boolean, is
   )
 }
 
-// The bubble's padding and the reply's gutter, so a table wider than what is left goes back to Claude Code's.
+// The bubble's padding and the reply's gutter, so a table shrinks to what is left, and one that cannot goes back to Claude Code's.
 const TABLE_INDENT = 6
 
 // The code each code block's copy pill copies, by block id; set as the block draws.
@@ -598,7 +598,7 @@ function richReply(parts: Rows & { Markdown: (props: any) => RenderElement }, bl
               ) : block.kind === 'callout' ? (
                 calloutCard({ Box, Text }, block, inlineLook, width, `toggle-callout-${n}`)
               ) : (
-                tableBlock({ Box, Text }, block.table, inlineLook, `toggle-table-${n}`)
+                tableBlock({ Box, Text }, block.table, inlineLook, `toggle-table-${n}`, width - TABLE_INDENT)
               )}
             </Box>
           )
@@ -1546,14 +1546,14 @@ export const register: Register = (on, options) => {
     const found = failure ? [] : hexColors(e.props.text, THEME.surface2)
     // A paragraph that names a path known to exist is the mod's to draw, since Claude Code's markdown has no link for it.
     const blocks = failure ? null : richBlocks(e.props.text.trim(), paragraph => hexColors(paragraph, THEME.surface2).length > 0 || (!unsupported(paragraph) && pathTokens(paragraph).some(token => paths.href(token))))
-    // Claude Code's own table takes over when one is wider than the bubble's text column; with nothing of the mod's to draw, the reply stays Claude Code's.
+    // A turn's card rows sit inside a bar and its padding, three cells narrower than the reply.
+    const room = widthOf(e) - (place === 'card' ? 3 : 0)
+    // Claude Code's own table takes over only when one cannot fit the bubble's text column even with every column at its narrowest; with nothing of the mod's to draw, the reply stays Claude Code's.
     const inlineLook: Inline = { colors: new Map(found.map(color => [color.code.toUpperCase(), color])), nerd: look.nerd, links: { Link, open: token => paths.href(token) }, paint: hovered ? paintOf(hovered as CopyChoice) : undefined }
-    const own = blocks?.some(block => block.kind !== 'markdown') && blocks.every(block => block.kind !== 'table' || tableWidth(block.table, inlineLook) <= widthOf(e) - TABLE_INDENT) ? blocks : null
+    const own = blocks?.some(block => block.kind !== 'markdown') && blocks.every(block => block.kind !== 'table' || tableMinWidth(block.table, inlineLook) <= room - TABLE_INDENT) ? blocks : null
     // A reply that is Claude Code's own at rest stays its drawing while hovered, cut into marked pieces: the mod's drawing would change its height under the pointer.
     const marks = hovered && !failure && !own ? markPieces(e.props.text.trim(), hovered as CopyChoice) : null
     if (own?.some(block => block.kind === 'code')) ensureTheme($)
-    // A turn's card rows sit inside a bar and its padding, three cells narrower than the reply.
-    const room = widthOf(e) - (place === 'card' ? 3 : 0)
     const reply = async () =>
       failure ? apiErrorRow({ Box, Text }, failure, widthOf(e)) : marks ? markedReply({ Box, Markdown, Text }, marks, e.props.isFirstOfReply) : own ? richReply({ Box, Client, Markdown, Text }, own, inlineLook, e.props.isFirstOfReply, e.requestId, room) : next(e)
     // Claude Code's markdown cannot color a character, so only the colors left in its blocks show in a strip under the reply.

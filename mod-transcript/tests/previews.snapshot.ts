@@ -510,7 +510,7 @@ export const snapshot: Snapshot = {
             },
             {
               "text": "\uf040 ",
-              "color": "#CED9FF",
+              "color": "secondary",
               "bg": "surface2"
             },
             {
@@ -520,18 +520,18 @@ export const snapshot: Snapshot = {
             },
             {
               "text": "\ue0b6",
-              "color": "#4e546c",
+              "color": "#484e69",
               "bg": "surface2"
             },
             {
               "text": "1",
-              "color": "#CED9FF",
-              "bg": "#4e546c",
+              "color": "secondary",
+              "bg": "#484e69",
               "bold": true
             },
             {
               "text": "\ue0b4",
-              "color": "#4e546c",
+              "color": "#484e69",
               "bg": "surface2"
             },
             {
@@ -786,7 +786,7 @@ export const snapshot: Snapshot = {
             },
             {
               "text": "± ",
-              "color": "#CED9FF",
+              "color": "secondary",
               "bg": "surface2"
             },
             {
@@ -796,17 +796,17 @@ export const snapshot: Snapshot = {
             },
             {
               "text": " ",
-              "bg": "#4e546c"
+              "bg": "#484e69"
             },
             {
               "text": "1",
-              "color": "#CED9FF",
-              "bg": "#4e546c",
+              "color": "secondary",
+              "bg": "#484e69",
               "bold": true
             },
             {
               "text": " ",
-              "bg": "#4e546c"
+              "bg": "#484e69"
             },
             {
               "text": " +2",
@@ -1072,7 +1072,7 @@ export const snapshot: Snapshot = {
             },
             {
               "text": "\uf040 ",
-              "color": "#CED9FF",
+              "color": "secondary",
               "bg": "surface2"
             },
             {
@@ -1082,18 +1082,18 @@ export const snapshot: Snapshot = {
             },
             {
               "text": "\ue0b6",
-              "color": "#4e546c",
+              "color": "#484e69",
               "bg": "surface2"
             },
             {
               "text": "1",
-              "color": "#CED9FF",
-              "bg": "#4e546c",
+              "color": "secondary",
+              "bg": "#484e69",
               "bold": true
             },
             {
               "text": "\ue0b4",
-              "color": "#4e546c",
+              "color": "#484e69",
               "bg": "surface2"
             },
             {
@@ -1348,7 +1348,7 @@ export const snapshot: Snapshot = {
             },
             {
               "text": "± ",
-              "color": "#CED9FF",
+              "color": "secondary",
               "bg": "surface2"
             },
             {
@@ -1358,17 +1358,17 @@ export const snapshot: Snapshot = {
             },
             {
               "text": " ",
-              "bg": "#4e546c"
+              "bg": "#484e69"
             },
             {
               "text": "1",
-              "color": "#CED9FF",
-              "bg": "#4e546c",
+              "color": "secondary",
+              "bg": "#484e69",
               "bold": true
             },
             {
               "text": " ",
-              "bg": "#4e546c"
+              "bg": "#484e69"
             },
             {
               "text": " +2",

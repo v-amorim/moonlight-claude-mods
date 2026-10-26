@@ -3,7 +3,9 @@
 import type { RenderElement } from 'claude-code'
 
 import { calloutOf, squareTag, STATUS_EXTRA, statusHue, type Callout, type Fence } from './blocks'
+import { cells, cut } from './cells'
 import { hasTask, inline, isSimple, shownWidth, tinted, type Inline } from './prose'
+import type { Paint, Part } from './mark'
 import style from './style'
 import { MARK, THEME } from './theme'
 
@@ -175,48 +177,150 @@ export function richBlocks(text: string, wants: (paragraph: string) => boolean):
 }
 
 // A body cell holding only a status word draws as a tag, two cells wider than its word.
+const isTag = (cell: string) => Boolean(statusHue(plain(cell)))
+
 // A header is drawn in capitals, which would spoil a link's address, so only body cells carry links.
-const cellWidth = (cell: string, isHead: boolean, look?: Inline) => shownWidth(cell, isHead ? undefined : look) + (!isHead && statusHue(plain(cell)) ? STATUS_EXTRA : 0)
+const shown = (cell: string, isHead: boolean, look: Inline | undefined, tag: boolean) => shownWidth(cell, isHead ? undefined : look) + (tag ? STATUS_EXTRA : 0)
+const cellWidth = (cell: string, isHead: boolean, look?: Inline) => shown(cell, isHead, look, !isHead && isTag(cell))
 
-const widths = (table: Table, look?: Inline) => table.head.map((cell, column) => Math.max(cellWidth(cell, true), ...table.rows.map(row => cellWidth(row[column] ?? '', false, look))))
+// The widest a column's narrowest width gets, so one long address cannot starve the other columns; it is cut with … instead.
+const MIN_CAP = 40
 
-export const tableWidth = (table: Table, look?: Inline) => widths(table, look).reduce((sum, width) => sum + width, 0) + GAP * Math.max(0, table.head.length - 1)
+// A cell's words as markdown that can break apart: a code span or a link is one word, bold splits into bold words.
+function wordsOf(cell: string): string[] {
+  const out: string[] = []
+  let word = ''
+  const flush = () => {
+    if (word) out.push(word)
+    word = ''
+  }
+  for (const [piece, bold, under] of cell.matchAll(/`[^`]*`|\[[^\]]+\]\([^)]+\)|\*\*(.+?)\*\*|__(.+?)__|\s+|[^\s`[*_]+|[\s\S]/g)) {
+    if (/^\s+$/.test(piece)) flush()
+    else if (bold !== undefined || under !== undefined) {
+      const mark = bold !== undefined ? '**' : '__'
+      wordsOf(bold ?? under!).forEach((inner, at) => {
+        if (at) flush()
+        word += `${mark}${inner}${mark}`
+      })
+    } else word += piece
+  }
+  flush()
+  return out
+}
 
-// One cell's text with its inline marks, hex pills and status tag, padded to its column on the side its numbers align to.
-function cellText(elements: Elements, cell: string, width: number, isRight: boolean, color: string, isBold: boolean, isHead: boolean, look: Inline, key: string) {
+// A word wider than its column, its text cut with … inside the code or link marks around it.
+function cutWord(word: string, width: number, look: Inline | undefined) {
+  const inner = /^`([^`]*)`$/.exec(word)?.[1] ?? /^\[([^\]]+)\]\(/.exec(word)?.[1] ?? word.replace(/^(\*\*|__)|(\*\*|__)$/g, '')
+  const cutTo = (n: number) => word.replace(inner, () => cut(inner, n))
+  let n = cells(inner)
+  while (n > 1 && shownWidth(cutTo(n), look) > width) n--
+  return cutTo(n)
+}
+
+// A cell's lines, its words filled greedily into `width`; a status tag stays one piece, a word wider than the column takes a line of its own.
+function wrapCell(cell: string, width: number, isHead: boolean, look: Inline): string[] {
+  if (!isHead && isTag(cell)) return [cell]
+  const words = wordsOf(cell)
+  const eyes = isHead ? undefined : look
+  const lines: string[] = []
+  let line = ''
+  let used = 0
+  for (const word of words) {
+    const wide = shownWidth(word, eyes)
+    if (line && used + 1 + wide <= width) {
+      line += ` ${word}`
+      used += 1 + wide
+      continue
+    }
+    if (line) lines.push(line)
+    line = wide > width ? cutWord(word, width, eyes) : word
+    used = Math.min(wide, width)
+  }
+  return [...lines, line]
+}
+
+// One column's narrowest: its longest word in any cell, a tag whole, never past MIN_CAP.
+const narrowest = (table: Table, column: number, look: Inline, natural: number) =>
+  Math.min(natural, MIN_CAP, Math.max(...[table.head[column] ?? '', ...table.rows.map(row => row[column] ?? '')].map((cell, at) => (at && isTag(cell) ? cellWidth(cell, false, look) : Math.max(0, ...wordsOf(cell).map(word => shownWidth(word, at ? look : undefined)))))))
+
+const naturals = (table: Table, look?: Inline) => table.head.map((cell, column) => Math.max(cellWidth(cell, true), ...table.rows.map(row => cellWidth(row[column] ?? '', false, look))))
+
+const minimums = (table: Table, look: Inline) => naturals(table, look).map((natural, column) => narrowest(table, column, look, natural))
+
+const gaps = (table: Table) => GAP * Math.max(0, table.head.length - 1)
+const total = (sizes: number[]) => sizes.reduce((sum, width) => sum + width, 0)
+
+// The cells the table takes with every column at its narrowest; a reply whose table is wider than the room even so goes back to Claude Code's.
+export const tableMinWidth = (table: Table, look: Inline) => total(minimums(table, look)) + gaps(table)
+
+// Column widths for `room` cells: each keeps its natural width unless the table is too wide, then the widest columns shrink to a shared level, none below its narrowest.
+function columnWidths(table: Table, look: Inline, room: number) {
+  const natural = naturals(table, look)
+  const least = minimums(table, look)
+  const space = room - gaps(table)
+  if (total(natural) <= space) return natural
+  const at = (level: number) => natural.map((width, column) => Math.max(least[column]!, Math.min(width, level)))
+  let level = Math.max(...natural)
+  while (level > 0 && total(at(level)) > space) level--
+  const sizes = at(level)
+  // The cells the whole level left over go to the columns still cut, widest first.
+  let spare = space - total(sizes)
+  for (const column of [...natural.keys()].sort((a, b) => natural[b]! - natural[a]!)) {
+    if (spare > 0 && sizes[column]! < natural[column]!) {
+      sizes[column]!++
+      spare--
+    }
+  }
+  return sizes
+}
+
+// One line of a cell's text with its inline marks, hex pills and status tag, padded to its column on the side its numbers align to.
+function cellText(elements: Elements, cell: string, width: number, isRight: boolean, color: string, isBold: boolean, isHead: boolean, tag: boolean, look: Inline, key: string) {
   const { Text } = elements
-  const room = ' '.repeat(Math.max(0, width - cellWidth(cell, isHead, look)))
-  const hue = isHead ? undefined : statusHue(plain(cell))
+  const room = ' '.repeat(Math.max(0, width - shown(cell, isHead, look, tag)))
   return (
     <Text key={key} color={tinted(look.paint, color, 'table')} bold={isBold}>
       {isRight ? room : ''}
-      {hue ? squareTag(elements, plain(cell).trim(), hue, THEME.bg, `${key}-tag`, look.paint, 'table') : inline(elements, cell, isHead ? { ...look, links: undefined } : look, key)}
+      {tag ? squareTag(elements, plain(cell).trim(), statusHue(plain(cell))!, THEME.bg, `${key}-tag`, look.paint, 'table') : inline(elements, cell, isHead ? { ...look, links: undefined } : look, key)}
       {isRight ? '' : room}
     </Text>
   )
 }
 
-export function tableBlock(elements: Elements, table: Table, look: Inline, key: string) {
+// A token in a cell counts as the table while the table is the hovered choice, and keeps its own part otherwise, so copy links still lights a link in a table.
+export function inTable(paint: Paint | undefined): Paint | undefined {
+  if (!paint) return paint
+  const as = (part: Part): Part => (paint.on('table') ? 'table' : part)
+  return { on: part => paint.on(as(part)), color: (color, part) => paint.color(color, as(part)), wash: part => paint.wash(as(part)), fill: (base, part) => paint.fill(base, as(part)), rule: part => paint.rule(as(part)) }
+}
+
+// `room` is the cells the table may take; a cell too long for its column wraps onto more lines and the row grows to its tallest cell.
+export function tableBlock(elements: Elements, table: Table, outer: Inline, key: string, room = Infinity) {
   const { Box, Text } = elements
-  const sizes = widths(table, look)
+  const look: Inline = { ...outer, paint: inTable(outer.paint) }
+  const sizes = columnWidths(table, look, room)
   const { paint } = look
   // A hovered copy choice washes the table and brightens its hairlines and bars one step.
   const wash = paint?.wash('table')
   const lines = paint ? paint.rule('table') : THEME.border
-  const line = (cellsOf: string[], at: number, isHead: boolean) => (
-    <Text key={`${key}-row-${at}`} backgroundColor={wash}>
-      {sizes.map((width, column) => [
-        column ? <Text key={`${key}-bar-${at}-${column}`} color={lines}>{` ${MARK.rail} `}</Text> : '',
-        cellText(elements, isHead ? (cellsOf[column] ?? '').toUpperCase() : (cellsOf[column] ?? ''), width, table.right[column] === true, isHead ? style.colors.pills.readout : THEME.onSurface, !isHead && column === 0, isHead, look, `${key}-cell-${at}-${column}`),
-      ])}
-    </Text>
-  )
+  const row = (cellsOf: string[], at: number, isHead: boolean) => {
+    const wrapped = sizes.map((width, column) => wrapCell(isHead ? (cellsOf[column] ?? '').toUpperCase() : (cellsOf[column] ?? ''), width, isHead, look))
+    const height = Math.max(...wrapped.map(cell => cell.length))
+    return Array.from({ length: height }, (_, line) => (
+      <Text key={`${key}-row-${at}-${line}`} backgroundColor={wash}>
+        {sizes.map((width, column) => [
+          column ? <Text key={`${key}-bar-${at}-${line}-${column}`} color={lines}>{` ${MARK.rail} `}</Text> : '',
+          cellText(elements, wrapped[column]![line] ?? '', width, table.right[column] === true, isHead ? style.colors.pills.readout : THEME.onSurface, !isHead && column === 0, isHead, !isHead && line === 0 && isTag(cellsOf[column] ?? ''), look, `${key}-cell-${at}-${line}-${column}`),
+        ])}
+      </Text>
+    ))
+  }
   // The hairline crosses each column bar, so the lines join instead of stopping short of it.
   const rule = (at: number) => <Text key={`${key}-rule-${at}`} color={lines} backgroundColor={wash}>{sizes.map(width => MARK.rule.repeat(width)).join(`${MARK.rule}┼${MARK.rule}`)}</Text>
   return (
     <Box key={key} flexDirection="column">
-      {line(table.head, -1, true)}
-      {table.rows.flatMap((row, at) => [rule(at), line(row, at, false)])}
+      {row(table.head, -1, true)}
+      {table.rows.flatMap((cellsOf, at) => [rule(at), ...row(cellsOf, at, false)])}
     </Box>
   )
 }
