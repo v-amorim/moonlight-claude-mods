@@ -1,6 +1,6 @@
 {
   "name": "mod-blast-radius",
-  "version": "1.6.2",
+  "version": "1.6.3",
   "description": "Holds a risky Bash command (rm, git reset --hard, force push, SQL DROP and more) before it runs, shows what it would change, and lets you Run or Cancel",
   "license": "MIT",
   "author": {
@@ -33,6 +33,7 @@
       "description": "A held command nobody answers for this long stops blocking Claude. The command does not run, Claude carries on and asks again after your next message, and a chip in the pill row keeps the command until you answer it. Off (the default), a card waits as long as it takes",
       "options": [
         "Off",
+        "2 min",
         "5 min",
         "10 min",
         "30 min"

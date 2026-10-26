@@ -127,6 +127,20 @@ test('with the idle timeout Off, a card waits past any time and no chip shows', 
   expect(seen.ran).toBe(1)
 })
 
+test('a 2 min timeout waits through 1:59 and refuses the call at 2:00', { options: { idle: '2 min' } }, async ($, on) => {
+  const { seen, clock } = world(on)
+  const call = $.tool.call({ tool: 'Bash', command: COMMAND })
+  await holding(seen)
+  await clock.advance(2 * MINUTE - 1000)
+  let isDone = false
+  void call.then(() => (isDone = true))
+  await sleep(60)
+  expect(isDone).toBe(false)
+  await clock.advance(1000)
+  expect(((await call) as { deny: string }).deny).toMatch(/did not answer for 2 minutes/)
+  expect(seen.ran).toBe(0)
+})
+
 test('a card nobody answers for the set time refuses the call with the idle words and never runs it', IDLE, async ($, on) => {
   const { seen, clock } = world(on)
   const call = $.tool.call({ tool: 'Bash', command: COMMAND })
