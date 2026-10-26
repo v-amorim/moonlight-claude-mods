@@ -39,7 +39,7 @@ const timers = new WeakMap<object, () => void>()
 const wake = (surface: Parameters<ClientModule<MeterProps, Hover>>[1]) => {
   if (timers.has(surface)) return
   const stop = surface.every(HOVER_TICK_MS, () => {
-    const state = surface.state
+    const { state } = surface
     const now = latest.get(surface)
     if (!state || !now) return
     const goal = targets(litOf(now, state.level))

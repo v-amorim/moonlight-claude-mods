@@ -329,7 +329,7 @@ const menuEntry = ({ Box, Client, Text }: Elements, id: string, fill: string, en
 const bare = (glyph: string) => glyph.replace(/[[\]\s]/g, '')
 
 // The models used before (the current one with a ✓), the full picker and ×: one line while it fits the band, else stacked.
-function modelMenu(elements: Elements, currentId: string, columns: number) {
+function modelMenu(elements: Elements, currentId: string | undefined, columns: number) {
   const { Box } = elements
   const ok = bare(look.glyph.ok)
   // While Claude works a pick would queue as a prompt, so the entries draw muted and a click only says why.
@@ -459,7 +459,8 @@ export const register: Register = (on, options) => {
   })
 
   on('state.set', async ($, e, next) => {
-    if (e.key === 'pane' && e.plugin !== 'mod-model-effort' && e.value === true) {
+    // The declared state names no other mod's pane, so the types narrow this event to never.
+    if (e.key === 'pane' && e.plugin !== 'mod-model-effort' && (e as { value?: unknown }).value === true) {
       $.clock.after(0, async () => {
         if (!(await isPaneOpen($))) return
         await $.ui.close({ id: PANE })

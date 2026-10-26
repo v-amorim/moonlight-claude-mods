@@ -1,6 +1,6 @@
 // mod-model-effort / tests/model-effort.test.tsx, by v-amorim
 // Tests the footer meter: effort saving, model switching, icon modes, settings pane and tips.
-import { expect, mock, test } from 'claude-code/testing'
+import { expect, mock, test, type TestBody } from 'claude-code/testing'
 import { mix, THEME } from '../hooks/theme'
 
 import { displayName, withEffort, withModel } from '../hooks/levels'
@@ -87,7 +87,7 @@ test('the footer meter follows each request and a click saves that level', async
 })
 
 // Mounts the meter on a disk that throws for a missing file, then clicks the fifth level.
-async function clickMax($: Parameters<Parameters<typeof test>[1]>[0], on: Parameters<Parameters<typeof test>[1]>[1], files: Record<string, string>, env: Record<string, string>, check?: (ui: object) => Promise<void>) {
+async function clickMax($: Parameters<TestBody>[0], on: Parameters<TestBody>[1], files: Record<string, string>, env: Record<string, string>, check?: (ui: object) => Promise<void>) {
   const neutral = (path: string) => path.replace(/\\/g, '/').replace(/^[A-Za-z]:/, '')
   on('env.get', (_$, e) => ({ value: env[e.name] }))
   on('fs.exists', (_$, e) => ({ value: neutral(e.path) in files }))
@@ -248,6 +248,7 @@ test('a model joins the menu only once a request with it is answered', async ($,
     store[e.key] = e.value
     return { value: undefined }
   })
+  // sourcery skip: generators-should-yield
   on('turn.step', async function* ($$, e) {
     const usage = e.model === 'claude-nonexistent-9' ? null : { model: e.model }
     return { turnId: e.turnId, index: e.index, answer: '', toolUses: [], stopReason: null, usage } as never
@@ -618,7 +619,7 @@ test('before the first request the pill shows this session\'s model, not the las
   on('session.model', () => ({ value: 'claude-sonnet-5-5' }))
   on('settings.read', () => ({ value: { modelSettings: { 'claude-opus-5-5': { effortLevel: 'medium' }, 'claude-sonnet-5-5': { effortLevel: 'low' } } } }))
   on('session.start', () => ({ cwd: '/w' }))
-  on('command.register', () => ({ value: undefined }))
+  on('command.register', () => ({ value: { command: 'mod-model-effort' } }))
   on('ui.panes', () => ({ value: [] }))
   on('state.set', (_$, e) => {
     if (e.key === 'current') shown.push(e.value)
