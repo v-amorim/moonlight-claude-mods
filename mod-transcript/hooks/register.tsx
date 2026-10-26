@@ -800,7 +800,9 @@ async function taskRow(parts: Rows, $: EngineInterface, requestId: string, props
     const id = props.task?.id
     if (id) learnNotice($, id, { status: props.task?.status, durationMs: props.task?.durationMs })
     if (id && reported.has(id)) return <Box key="toggle-hidden" />
-    return reportRow(parts, props, reportOf(props.from, props.task), width, requestId)
+    // Inside a turn it sits between Claude's replies, so it takes the bubble's sides and the room they leave.
+    if (!log.turnOf(requestId)) return reportRow(parts, props, reportOf(props.from, props.task), width, requestId)
+    return frame(parts, 'toggle-notice', reportRow(parts, props, reportOf(props.from, props.task), width - 4, requestId), false, false)
   }
   const id = senderTaskOf(props.origin)
   if (id) learnReport($, id)
@@ -1470,6 +1472,7 @@ export const register: Register = (on, options) => {
     const isSent = e.props.origin.kind === 'composer' || e.props.origin.kind === 'plugin'
     if (isLoaded && (isReport ? !working : isSent && isPrompt(e.props.text))) log.claim(e.requestId, 'prompt', Date.now(), isReport, String(e.props.text ?? ''))
     if (isFullView) return next(e)
+    if (isLoaded && e.props.origin.kind === 'task-notification') log.claim(e.requestId, 'row')
     if (e.props.origin.kind === 'peer' || e.props.origin.kind === 'task-notification') return taskRow($.ui.resolve(e), $, e.requestId, e.props, widthOf(e))
     if (!isSent) return next(e)
     if (!isLoaded) {
@@ -1755,8 +1758,7 @@ export const register: Register = (on, options) => {
     const turn = log.turnOf(e.requestId)
     seen.set(`TurnDuration ${e.requestId}`, Boolean(turn))
     // A turn learned as it drew has no duration row from the transcript; this line carries it.
-    if (turn && turn.durationMs === undefined && typeof e.props.durationMs === 'number') turn.durationMs = e.props.durationMs
-    if (turn?.reply) turn.answers.add(turn.reply)
+    if (turn && typeof e.props.durationMs === 'number') log.took(turn, rowKey(e.requestId), e.props.durationMs)
     const place = await placeOf($, turn, e.requestId)
     const { Box, Client } = $.ui.resolve(e)
     if (place === 'hidden') return <Box key="toggle-hidden" />

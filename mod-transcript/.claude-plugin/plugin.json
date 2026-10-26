@@ -1,6 +1,6 @@
 {
   "name": "mod-transcript",
-  "version": "1.4.1",
+  "version": "1.4.2",
   "description": "Restyles the transcript: prompts and replies as chat bubbles, each finished turn folded to one summary line under its prompt (tools, file changes, skills, agents) with the final reply kept, finished tool rows folded to one line, Bash commands in shell colors, and a copy button under each reply. A click unfolds a turn or a call in place",
   "license": "MIT",
   "author": {

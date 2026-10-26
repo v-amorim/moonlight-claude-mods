@@ -649,6 +649,8 @@ test('a reply that ended a response stays drawn when a notification in the same 
     '',
   ].join('\n')
   expect(logOf(notified).turns[0]!.answers).toEqual(new Set([rowKey(ID(4)), rowKey(ID(7))]))
+  // The turn took both responses' time.
+  expect(logOf(notified).turns[0]!.durationMs).toBe(28000)
 
   on('store.get', () => ({ value: undefined }))
   on('store.set', () => ({ value: undefined }))
@@ -674,7 +676,16 @@ test('a reply that ended a response stays drawn when a notification in the same 
   expect(await first.find({ type: 'Text', text: 'base AssistantMessage' })).toBeDefined()
   expect(await first.find({ key: 'toggle-card-bar' })).toBeDefined()
   expect(await last.find({ key: 'toggle-bubble-bottom-edge' })).toBeDefined()
-  for (const ui of [prompt, first, last]) await ui.unmount()
+  // The notification between them sits inside the bubble's sides.
+  const notice = await mount('UserMessage', ID(6), { text: 'watchdog ended', origin: { kind: 'task-notification' }, isExpanded: false, task: { id: 'bwatch', status: 'completed' } })
+  expect(await notice.find({ key: 'toggle-notice-left-edge' })).toBeDefined()
+  expect(await notice.find({ key: 'toggle-notice-bottom-edge' })).toBeUndefined()
+  // A duration line drawn again counts once.
+  const took = await mount('TurnDuration', ID(5), { word: 'Cogitated', durationMs: 19000 })
+  await took.unmount()
+  await mount('TurnDuration', ID(5), { word: 'Cogitated', durationMs: 19000 })
+  expect(await prompt.find({ type: 'Text', text: '28s ' })).toBeDefined()
+  for (const ui of [prompt, first, last, notice]) await ui.unmount()
 })
 
 test('an open turn shows a chip per kind in order of first use, Thought first, one open at a time', async ($, on) => {

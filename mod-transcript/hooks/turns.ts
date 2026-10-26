@@ -14,6 +14,8 @@ export type Turn = {
   answers: Set<string>
   tools: ToolCall[]
   durationMs?: number
+  // Each duration line's time by its row key.
+  spans: Map<string, number>
   // When the prompt was sent, in epoch ms.
   at?: number
   // A turn guessed from the session's messages: the prompt's and the text blocks' text, for matching rows that carry no id yet.
@@ -67,6 +69,7 @@ const thoughtAfter = (pending: string | undefined, block: any) => {
 const PLACEHOLDER = 'placeholder'
 
 const WRAPPER = /^<(command-|local-command-|bash-|system-reminder|task-notification|user-prompt-submit-hook)/
+const NOTIFICATION = /^<task-notification/
 const INTERRUPTED = /^\[Request interrupted by user/
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
@@ -202,6 +205,8 @@ export class TurnLog {
       const command = typeof row.promptId === 'string' ? commandOf(said) : undefined
       if (command) this.adoptOrStart(row.uuid, command, timeOf(row)).command = command
       else if (isPrompt(said)) this.adoptOrStart(row.uuid, said, timeOf(row))
+      // A background task's notification draws inside the running turn's bubble.
+      else if (current && NOTIFICATION.test(said.trim())) this.add(current, rowKey(row.uuid))
       return
     }
     // A meta queued command is a report delivered mid-turn, which stays in the running turn. A prompt with an image holds content blocks, not a string.
@@ -241,11 +246,15 @@ export class TurnLog {
     }
     if (row.type === 'system') {
       this.add(current, rowKey(row.uuid))
-      if (row.subtype === 'turn_duration' && typeof row.durationMs === 'number') {
-        current.durationMs = row.durationMs
-        if (current.reply) current.answers.add(current.reply)
-      }
+      if (row.subtype === 'turn_duration' && typeof row.durationMs === 'number') this.took(current, rowKey(row.uuid), row.durationMs)
     }
+  }
+
+  // Each duration line ends one response; the turn took their sum, and a line read or drawn again counts once.
+  took(turn: Turn, key: string, ms: number) {
+    turn.spans.set(key, ms)
+    turn.durationMs = [...turn.spans.values()].reduce((sum, each) => sum + each, 0)
+    if (turn.reply) turn.answers.add(turn.reply)
   }
 
   // A turn started by a skill or prompt command, before the transcript holds its row; the row's text is adopted when it lands.
@@ -451,7 +460,7 @@ export class TurnLog {
   }
 
   private start(uuid: string, at: number | undefined, isReport = false) {
-    const turn: Turn = { prompt: uuid, ids: new Set(), answers: new Set(), tools: [], at, ...(isReport ? { isReport } : {}) }
+    const turn: Turn = { prompt: uuid, ids: new Set(), answers: new Set(), spans: new Map(), tools: [], at, ...(isReport ? { isReport } : {}) }
     this.numbers = undefined
     this.turns.push(turn)
     this.thinking = undefined
