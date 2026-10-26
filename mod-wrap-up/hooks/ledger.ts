@@ -43,9 +43,11 @@ export const emptyLedger = (now: number, sessionId: string): Ledger => ({ versio
 
 const MAX_TEXT = 400
 
-const clean = (value: unknown) => (typeof value === 'string' ? value.replace(/\s+/g, ' ').trim().slice(0, MAX_TEXT) : '')
+const clean = (value: unknown, max = MAX_TEXT) => (typeof value === 'string' ? value.replace(/\s+/g, ' ').trim().slice(0, max) : '')
+// Run state lists every repo path, branch and restart command, so it outgrows a single entry's cap
+const MAX_RUN_STATE = 1200
 
-const list = (value: unknown) => (Array.isArray(value) ? value.map(clean).filter(Boolean) : [])
+const list = (value: unknown) => (Array.isArray(value) ? value.map(item => clean(item)).filter(Boolean) : [])
 
 // Old ledgers lack these lists; an item with no id or no key text is dropped.
 const rows = (value: unknown, key: (item: any) => string, shape: (item: any) => object): any[] =>
@@ -65,7 +67,7 @@ export function readLedger(raw: unknown): Ledger | null {
   return {
     ...base,
     goal: clean(data.goal),
-    runState: clean(data.runState),
+    runState: clean(data.runState, MAX_RUN_STATE),
     decisions: data.decisions.filter((item: any) => item && clean(item.text) && typeof item.id === 'string').map((item: any) => ({ id: item.id, text: clean(item.text), at: Number(item.at) || 0, ...(clean(item.supersededBy) ? { supersededBy: clean(item.supersededBy) } : {}) })),
     tasks: data.tasks.filter((item: any) => item && clean(item.text) && typeof item.id === 'string').map((item: any) => ({ id: item.id, text: clean(item.text), status: item.status === 'done' ? 'done' : 'open', at: Number(item.at) || 0 })),
     problems: rows(data.problems, item => clean(item.problem), item => ({ problem: clean(item.problem), fix: clean(item.fix) })),
@@ -129,7 +131,7 @@ export const AUTO_SYSTEM = [
 ].join(' ')
 
 const SCHEMA = [
-  '{ "delta": { "goal": "only if it changed, else leave out", "runState": "only if it changed, else leave out", "decisions": ["each new decision, with its reason"], "superseded": [ { "id": "an id from the ledger", "by": "the decision that replaces it" } ], "opened": ["each new task"], "done": ["ids of ledger tasks now finished"], "problems": [ { "problem": "what broke or what the assistant got wrong", "fix": "the fix or lesson, empty while open" } ], "ideas": [ { "text": "an option weighed and not taken", "status": "parked or rejected", "reason": "why" } ], "picks": [ { "family": "the pick board family", "pick": "the pick line, verbatim" } ] }, "handoff": "the handoff text", "names": { "this": "name for this session", "next": "name for the next session" } }',
+  '{ "delta": { "goal": "only if it changed, else leave out", "runState": "only if it changed, else leave out; the full list each time: every repo or folder the work happens in as an absolute path with its branch, every plan or progress file as an absolute path, and how to start or restart what runs (the recipe or command, from which folder)", "decisions": ["each new decision, with its reason"], "superseded": [ { "id": "an id from the ledger", "by": "the decision that replaces it" } ], "opened": ["each new task"], "done": ["ids of ledger tasks now finished"], "problems": [ { "problem": "what broke or what the assistant got wrong", "fix": "the fix or lesson, empty while open" } ], "ideas": [ { "text": "an option weighed and not taken", "status": "parked or rejected", "reason": "why" } ], "picks": [ { "family": "the pick board family", "pick": "the pick line, verbatim" } ] }, "handoff": "the handoff text", "names": { "this": "name for this session", "next": "name for the next session" } }',
 ].join('\n')
 
 // Ledger plus the turns since the last handoff; the skill's template shapes the handoff field.
@@ -169,7 +171,7 @@ export function parseUpdate(reply: string): Update | null {
   const problems = each(delta.problems).map(item => ({ problem: clean(item.problem), fix: clean(item.fix) })).filter(item => item.problem)
   const ideas = each(delta.ideas).map(item => ({ text: clean(item.text), status: item.status === 'rejected' ? ('rejected' as const) : ('parked' as const), reason: clean(item.reason) })).filter(item => item.text)
   const picks = each(delta.picks).map(item => ({ family: clean(item.family), pick: clean(item.pick) })).filter(item => item.family && item.pick)
-  return { handoff, names: parseNames(reply), delta: { goal: clean(delta.goal) || undefined, runState: clean(delta.runState) || undefined, decisions: list(delta.decisions), superseded, done: list(delta.done), opened: list(delta.opened), problems, ideas, picks } }
+  return { handoff, names: parseNames(reply), delta: { goal: clean(delta.goal) || undefined, runState: clean(delta.runState, MAX_RUN_STATE) || undefined, decisions: list(delta.decisions), superseded, done: list(delta.done), opened: list(delta.opened), problems, ideas, picks } }
 }
 
 export function capWords(handoff: string, words: number) {

@@ -85,6 +85,18 @@ test('the reply parses into a delta and a handoff; a reply with no handoff is no
   expect(parseUpdate('{ broken')).toBeNull()
 })
 
+test('a run state listing every repo path keeps past the single-entry cap, while a decision is still cut there', () => {
+  const runState = Array.from({ length: 8 }, (_, i) => `C:/Users/me/Documents/GitHub/repo${i} on branch feature-${i}, restart with just run`).join('; ')
+  const long = 'x'.repeat(500)
+  const reply = JSON.stringify({ delta: { runState, decisions: [long, 'B'] }, handoff: 'h' })
+  const parsed = parseUpdate(reply)!
+  expect(runState.length).toBeGreaterThan(400)
+  expect(parsed.delta.runState).toBe(runState)
+  expect(parsed.delta.decisions).toEqual(['x'.repeat(400), 'B'])
+  const ledger = mergeDelta(seeded(), { ...NONE, runState }, 4)
+  expect(readLedger(JSON.stringify(ledger))!.runState).toBe(runState)
+})
+
 const frag = (sessions: string[], updatedAt: number, delta: Partial<Delta> & { handoff?: string; names?: { this: string; next: string } } = {}) => {
   const { handoff, names, ...rest } = delta
   return { ...mergeDelta(emptyLedger(updatedAt - 1, ''), { ...NONE, ...rest }, updatedAt), sessions, handoff: handoff ?? '', handoffAt: handoff ? updatedAt : 0, names: names ?? { this: '', next: '' } }
