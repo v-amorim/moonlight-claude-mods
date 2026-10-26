@@ -25,7 +25,9 @@ export function readFrontmatter(text: string): { name?: string; tag: string; des
     const raw = new RegExp(`^${key}:[ \\t]*(.+?)[ \\t]*$`, 'm').exec(block)?.[1]
     return raw?.replace(/^(["'])(.*)\1$/, '$2')
   }
-  return { name: field('name'), tag: field('color-tag')?.toLowerCase() ?? PERSONAL, description: field('description'), hidden: field('disable-model-invocation') === 'true' }
+  // A model-disabled skill is internal unless it says user-invocable outright, which marks a slash-only command.
+  const hidden = field('disable-model-invocation') === 'true' && field('user-invocable') !== 'true'
+  return { name: field('name'), tag: field('color-tag')?.toLowerCase() ?? PERSONAL, description: field('description'), hidden }
 }
 
 export type Skill = { name: string; tag: string; description: string; hidden: boolean }

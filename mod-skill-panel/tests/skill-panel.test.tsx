@@ -58,6 +58,8 @@ test('tags: default personal, explicit tag, unknown fallback, malformed skipped'
   expect(readFrontmatter('---\r\nname: "quoted"\r\ncolor-tag: tool \r\n---\r\n')).toEqual({ name: 'quoted', tag: 'tool', hidden: false })
   expect(readFrontmatter('no frontmatter here')).toBeNull()
   expect(readFrontmatter(FILES['/h/.claude/skills/secret/SKILL.md']!)?.hidden).toBe(true)
+  // Slash-only: the model may not call it, but the person types it, so the panel still lists it.
+  expect(readFrontmatter('---\nname: sync\ndisable-model-invocation: true\nuser-invocable: true\n---\n')?.hidden).toBe(false)
   expect(swatchFor('nope')).toEqual(swatchFor('personal'))
   const safe = markDescription('Does X', 'review', false)
   expect(safe).toContain(`${REVIEW_HUE} ∴ review `)
