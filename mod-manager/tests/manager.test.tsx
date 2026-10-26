@@ -13,8 +13,11 @@ const SETTINGS = {
   model: 'x',
 }
 
-// The host's Mounted type lacks pointer.
-const withPointer = <T,>(m: T) => m as T & { pointer(e: object): Promise<unknown> }
+// The host's Mounted type lacks pointer and post.
+const withPointer = <T,>(m: T) => m as T & { pointer(e: object): Promise<unknown>; post(message: object, target: object): Promise<unknown> }
+
+// The kit's types declare no timer globals, yet the runtime has them.
+declare const setTimeout: (handler: (value: unknown) => void, ms: number) => unknown
 
 const manifest = (name: string) => JSON.stringify({ name, description: `${name} does a thing`, version: '1.0.0' })
 const hooks = JSON.stringify({ modules: ['./register.tsx'] })
@@ -324,7 +327,8 @@ test('toggles wait for Apply, a reopen drops them, and Apply writes both to sett
     requestId: 'manager',
     props: { title: 'Mods', isFocused: true, bodyColumns: 80, placement: 'above', scroll: { offset: 0, bodyRows: 20 }, view: {} },
   } as never))
-  const rows = ((await ui.find({ type: 'Client', key: 'list-dir' }))?.props.props.rows ?? []) as { index: number; name: string }[]
+  const list = await ui.find({ type: 'Client', key: 'list-dir' })
+  const rows = (list?.props.props as { rows?: { index: number; name: string }[] } | undefined)?.rows ?? []
   const indexOf = (name: string) => rows.find(row => row.name === name)!.index
   const untouched = files[settingsPath]
   await ui.post({ type: 'toggle', index: indexOf('Alpha') }, { in: 'list-dir' })

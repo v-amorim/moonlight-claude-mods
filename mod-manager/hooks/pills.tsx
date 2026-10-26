@@ -78,7 +78,7 @@ const cellsOf = (node: unknown): number => {
   if (typeof node === 'string') return [...node].length
   if (!node || typeof node !== 'object') return 0
   if (isClient(node)) {
-    const props = node.props.props
+    const { props } = node.props
     return typeof props.cells === 'number' ? props.cells : entryCells({ ...(props as EntryProps), compact: false })
   }
   // A `menu-flash` word comes and goes with the pointer; counting it would flip the row under the pointer.

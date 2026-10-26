@@ -5,6 +5,8 @@ import { cardFill } from '../hooks/look'
 import { mix, THEME } from '../hooks/theme'
 
 const neutral = (path: string) => path.replace(/\\/g, '/').replace(/^[A-Za-z]:/, '')
+// The kit's types declare no timer globals, yet the runtime has them.
+declare const setTimeout: (handler: (value: unknown) => void, ms: number) => unknown
 const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms))
 const hooks = JSON.stringify({ modules: ['./register.tsx'] })
 const WT_SETTINGS = '/l/Packages/Microsoft.WindowsTerminal_8wekyb3d8bbwe/LocalState/settings.json'

@@ -599,7 +599,8 @@ export const register: Register = (on, options) => {
     // Opening the pane from here queues nothing, so the entry stays live mid-turn.
     const entry = menuEntry({ Box, Client, Text }, look.nerd, 'manager', { label: look.glyph.gear, isOpen: shown, idle: THEME.pill, isBusy: isOpening, still, labels })
 
-    const tipNow = toastTip ? tipLine({ Box, Text }, toastTip) : tipShown ? tipLine({ Box, Text }, text.pillTip) : tip
+    // splitRow types the tip as unknown (shared pills.tsx); it is always a menu-tip child of the row stack.
+    const tipNow = (toastTip ? tipLine({ Box, Text }, toastTip) : tipShown ? tipLine({ Box, Text }, text.pillTip) : tip) as RenderChildren
     // Keyed as the tip row, so the next mod's splitRow takes it as the tip and never as one more row.
     const tipSlot = openTip ? <Box key="menu-tip" flexDirection="column">{tipNow ?? tipLine({ Box, Text }, ' ')}{openTip}</Box> : tipNow
     return pillRow({ Box, Client, Text }, look.nerd, [entry, ...group], row, [...toastCards({ Box, Client, Text }, toasts, look, text.tipToast), ...(card ? [card] : []), ...rest], tipSlot, e.props.bodyColumns)
@@ -821,7 +822,7 @@ export const register: Register = (on, options) => {
           settingsBody({ Box, Button, Client, Text }, look, { rows, actions, working, run, previews: mod.showcase?.previews, fields: mod.fields, editors, still })
         ) : (
           <Box key="page-off" flexDirection="column">
-            {cardGap({ Box }, 'page-off')}
+            {cardGap({ Box, Text }, 'page-off')}
             <Text color={THEME.muted}>{fill(text.turnOnFirst, { name: shownName(mod.name) })}</Text>
           </Box>
         ),

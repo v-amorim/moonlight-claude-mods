@@ -6,6 +6,8 @@ import { lookFor } from '../hooks/look'
 import { THEME } from '../hooks/theme'
 
 const neutral = (path: string) => path.replace(/\\/g, '/').replace(/^[A-Za-z]:/, '')
+// The kit's types declare no timer globals, yet the runtime has them.
+declare const setTimeout: (handler: (value: unknown) => void, ms: number) => unknown
 const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms))
 const hooks = JSON.stringify({ modules: ['./register.tsx'] })
 const WT_SETTINGS = '/l/Packages/Microsoft.WindowsTerminal_8wekyb3d8bbwe/LocalState/settings.json'
@@ -213,7 +215,8 @@ test('update-card: shows with updates', async ($, on) => {
 })
 
 test('update-card: while updating the button spins and says Updating, with no icon', () => {
-  const part = (type: string) => (props: object) => ({ type, props })
+  // Plain records stand in for drawn elements, so the card's tree can be serialized.
+  const part = (type: string) => (props: object) => ({ type, props }) as never
   const elements = { Box: part('Box'), Client: part('Client'), Text: part('Text'), Link: part('Link') }
   const mod = (name: string) => ({ name, version: '2.0.0', installedVersion: '1.0.0' }) as never
   const draw = (isUpdating: boolean) => JSON.stringify(updatesCard(elements, lookFor(true), { updates: [mod('upmod')], shown: name => name, isWorking: isUpdating, isUpdating, still: true, maxRows: 12 }))
