@@ -295,7 +295,7 @@ export function inTable(paint: Paint | undefined): Paint | undefined {
 }
 
 // `room` is the cells the table may take; a cell too long for its column wraps onto more lines and the row grows to its tallest cell.
-export function tableBlock(elements: Elements, table: Table, outer: Inline, key: string, room = Infinity) {
+export function tableBlock(elements: Elements, table: Table, outer: Inline, key: string, room = Infinity, boldColumn = 0) {
   const { Box, Text } = elements
   const look: Inline = { ...outer, paint: inTable(outer.paint) }
   const sizes = columnWidths(table, look, room)
@@ -310,7 +310,7 @@ export function tableBlock(elements: Elements, table: Table, outer: Inline, key:
       <Text key={`${key}-row-${at}-${line}`} backgroundColor={wash}>
         {sizes.map((width, column) => [
           column ? <Text key={`${key}-bar-${at}-${line}-${column}`} color={lines}>{` ${MARK.rail} `}</Text> : '',
-          cellText(elements, wrapped[column]![line] ?? '', width, table.right[column] === true, isHead ? style.colors.pills.readout : THEME.onSurface, !isHead && column === 0, isHead, !isHead && line === 0 && isTag(cellsOf[column] ?? ''), look, `${key}-cell-${at}-${line}-${column}`),
+          cellText(elements, wrapped[column]![line] ?? '', width, table.right[column] === true, isHead ? style.colors.pills.readout : THEME.onSurface, !isHead && column === boldColumn, isHead, !isHead && line === 0 && isTag(cellsOf[column] ?? ''), look, `${key}-cell-${at}-${line}-${column}`),
         ])}
       </Text>
     ))

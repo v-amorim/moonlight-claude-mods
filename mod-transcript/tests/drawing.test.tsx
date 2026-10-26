@@ -162,32 +162,41 @@ test('a call that ran in the background says so, and an interrupted one says int
   expect(await labelText(cut, 'toggle-tool-colored')).toMatch(/· interrupted/)
 })
 
-test('AskUserQuestion folds to one line per question: its answer, or that it asked', { options: { expand_live: false } }, async ($, on) => {
+const ASK = {
+  tool_use_id: 'toolu_ask',
+  tool: 'AskUserQuestion',
+  input: { questions: [{ header: 'Database', question: 'Which db?' }, { question: 'Ship now?' }] },
+  isRunning: false,
+  isErrored: false,
+  isInterrupted: false,
+  output: { questions: [], answers: { 'Which db?': 'Postgres' }, annotations: { 'Which db?': { notes: 'the managed one' } } },
+}
+
+test('a folded AskUserQuestion draws the count line over a question, answer and note table, with no click', { options: { expand_live: false } }, async ($, on) => {
   const mount = await open($, on)
-  const ask = await mount('ToolUse', 'toolu_ask', {
-    tool_use_id: 'toolu_ask',
-    tool: 'AskUserQuestion',
-    input: { questions: [{ question: 'Which db?' }, { question: 'Ship now?' }] },
-    isRunning: false,
-    isErrored: false,
-    isInterrupted: false,
-    output: { questions: [], answers: { 'Which db?': 'Postgres' } },
+  const ask = await mount('ToolUse', 'toolu_ask', ASK)
+  const drawn = textOf(await ask.drawn())
+  for (const shown of ['Asked 2 questions', 'QUESTION', 'ANSWER', 'NOTE', 'Which db?', 'Postgres', 'the managed one', 'Ship now?', 'no answer']) expect(drawn).toContain(shown)
+  expect(drawn).not.toContain('Database')
+})
+
+test('in the live turn AskUserQuestion draws the same table, drops the note column with no note, and its result row draws nothing', { options: { expand_live: true } }, async ($, on) => {
+  const mount = await open($, on)
+  const ask = await mount('ToolUse', 'toolu_ask', { ...ASK, input: { questions: [{ question: 'Which db?' }] }, output: { answers: { 'Which db?': 'Postgres' } } })
+  const drawn = textOf(await ask.drawn())
+  expect(drawn).toContain('Asked 1 question')
+  expect(drawn).not.toContain('NOTE')
+  const result = await mount('ToolResult', 'toolu_ask_result', { tool_use_id: 'toolu_ask', tool: 'AskUserQuestion', isErrored: false, output: { answers: { 'Which db?': 'Postgres' } } })
+  expect(await result.find({ type: 'Text' })).toBeUndefined()
+})
+
+for (const [icons, mark] of [['safe', '?'], ['nerd', String.fromCodePoint(0xf002)]] as const) {
+  test(`icons=${icons}: the AskUserQuestion count line leads with the search mark`, { options: { expand_live: false, icons } }, async ($, on) => {
+    const mount = await open($, on)
+    const ask = await mount('ToolUse', 'toolu_ask', ASK)
+    expect(await ask.find({ type: 'Text', text: `${mark} Asked 2 questions` })).toBeDefined()
   })
-  expect(await ask.find({ type: 'Text', text: /Which db\? .* Postgres/ })).toBeDefined()
-  expect(await ask.find({ type: 'Text', text: /Asked you: Ship now\?/ })).toBeDefined()
-})
-
-test('AskUserQuestion draws its question lines with the safe mark in safe mode', { options: { expand_live: false, icons: 'safe' } }, async ($, on) => {
-  const mount = await open($, on)
-  const ask = await mount('ToolUse', 'toolu_ask', { tool_use_id: 'toolu_ask', tool: 'AskUserQuestion', input: { questions: [{ question: 'Which db?' }] }, isRunning: false, isErrored: false, isInterrupted: false, output: { answers: { 'Which db?': 'Postgres' } } })
-  expect(await ask.find({ type: 'Text', text: '? Which db? ▸ Postgres' })).toBeDefined()
-})
-
-test('AskUserQuestion draws its question lines with the Nerd search glyph in Nerd mode', { options: { expand_live: false, icons: 'nerd' } }, async ($, on) => {
-  const mount = await open($, on)
-  const ask = await mount('ToolUse', 'toolu_ask', { tool_use_id: 'toolu_ask', tool: 'AskUserQuestion', input: { questions: [{ question: 'Which db?' }] }, isRunning: false, isErrored: false, isInterrupted: false, output: { answers: { 'Which db?': 'Postgres' } } })
-  expect(JSON.stringify(await ask.drawn())).toContain(String.fromCodePoint(0xf002))
-})
+}
 
 test('an API error the engine retries ends the reply as one muted line, not a warning', async ($, on) => {
   const mount = await open($, on)
@@ -1200,6 +1209,23 @@ const openCall = async ($: any, on: any, tool: string, input: object, output: ob
   return head
 }
 const CALL_CARD = 'toggle-call-card'
+
+test('an opened AskUserQuestion call in a finished turn draws the question, answer and note table, not "No output"', { options: { expand_live: false } }, async ($, on) => {
+  const head = await openCall($, on, 'AskUserQuestion', ASK.input, ASK.output)
+  const drawn = textOf(await head.find({ key: 'toggle-call-0-asked' }))
+  for (const shown of ['QUESTION', 'Which db?', 'Postgres', 'the managed one', 'Ship now?', 'no answer']) expect(drawn).toContain(shown)
+  const bold = ((await head.findAll({ type: 'Text' })) as any[]).filter(node => node.props.bold === true).map(textOf)
+  expect(bold.some(cell => cell.includes('Postgres'))).toBe(true)
+  expect(bold.some(cell => cell.includes('Which db?'))).toBe(false)
+})
+
+test('an answered AskUserQuestion under the chips shows the count line and its table whether the call is open or not', { options: { expand_live: false } }, async ($, on) => {
+  const head = await openCall($, on, 'AskUserQuestion', ASK.input, ASK.output)
+  expect(await labelText(head, 'toggle-call-0-colored')).toBe('Asked 2 questions')
+  expect(await head.find({ key: 'toggle-call-0-asked' })).toBeDefined()
+  await clickLabel(head, 'toggle-call-0-colored')
+  expect(await head.find({ key: 'toggle-call-0-asked' })).toBeDefined()
+})
 
 for (const icons of ['safe', 'nerd'] as const) {
   test(`icons=${icons}: an opened Edit call in a finished turn draws the card with its link, copy pill and numbered rows`, { options: { expand_live: false, icons } }, async ($, on) => {

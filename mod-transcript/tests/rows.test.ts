@@ -17,11 +17,11 @@ test('the status words keep their order: timed out, interrupted, background, dec
   expect(statusesOf({ isInterrupted: true, isDeclined: true, output: { timedOutAfterMs: 1, backgroundedByUser: true } })).toEqual(['timedOut', 'interrupted', 'background', 'declined'])
 })
 
-test('AskUserQuestion lists each question with the answer its result holds, or none', () => {
-  const input = { questions: [{ question: 'Which db?' }, { question: 'Ship now?' }] }
-  expect(questionsOf(input, { answers: { 'Which db?': 'Postgres' } })).toEqual([
-    { question: 'Which db?', answer: 'Postgres' },
-    { question: 'Ship now?', answer: undefined },
+test('AskUserQuestion lists each question with the answer and the note its result holds, or none', () => {
+  const input = { questions: [{ header: 'Database', question: 'Which db?' }, { question: 'Ship now?' }] }
+  expect(questionsOf(input, { answers: { 'Which db?': 'Postgres' }, annotations: { 'Which db?': { notes: 'managed' } } })).toEqual([
+    { question: 'Which db?', answer: 'Postgres', note: 'managed' },
+    { question: 'Ship now?', answer: undefined, note: undefined },
   ])
   expect(questionsOf({}, undefined)).toEqual([])
 })

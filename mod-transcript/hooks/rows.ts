@@ -19,16 +19,18 @@ export function statusesOf(call: { isInterrupted: boolean; isDeclined: boolean; 
   ]
 }
 
-export type Question = { question: string; answer: string | undefined }
+export type Question = { question: string; answer: string | undefined; note: string | undefined }
 
+const filled = (value: unknown) => (typeof value === 'string' && value.trim() ? value : undefined)
+
+// The note is what the person typed beside a pick, kept in the result's annotations under the question's text.
 export function questionsOf(input: unknown, output: unknown): Question[] {
   const questions = (input as { questions?: unknown } | undefined)?.questions
-  const answers = ((output as { answers?: Record<string, unknown> } | undefined)?.answers ?? {}) as Record<string, unknown>
+  const result = (output ?? {}) as { answers?: Record<string, unknown>; annotations?: Record<string, { notes?: unknown } | undefined> }
   if (!Array.isArray(questions)) return []
   return questions.map((each: { question?: unknown }) => {
     const question = typeof each?.question === 'string' ? each.question : ''
-    const answer = answers[question]
-    return { question, answer: typeof answer === 'string' && answer.trim() ? answer : undefined }
+    return { question, answer: filled(result.answers?.[question]), note: filled(result.annotations?.[question]?.notes) }
   })
 }
 

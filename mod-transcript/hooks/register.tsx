@@ -31,9 +31,9 @@ import { CAPS, fill, MARK, mix, statusColor, SYNTAX, THEME, WASH } from './theme
 import { copyChoices, copyText, type CopyChoice } from './clip'
 import { markPieces, paintOf, type Piece } from './mark'
 import { proseBlock, type Inline } from './prose'
-import { richBlocks, tableBlock, tableMinWidth, unsupported, type Block } from './table'
+import { richBlocks, tableBlock, tableMinWidth, unsupported, type Block, type Table } from './table'
 import { callTime, commandOf, diffStat, elapsed, isPrompt, rowKey, timeOfDay, toolLabel, turnKinds, turnLine, turnThoughts, TurnLog, type Turn } from './turns'
-import { apiErrorAction, completeLines, hexColors, questionsOf, reportOf, senderTaskOf, statusesOf, withNotice, type Notice, type Report } from './rows'
+import { apiErrorAction, completeLines, hexColors, questionsOf, reportOf, senderTaskOf, statusesOf, withNotice, type Notice, type Question, type Report } from './rows'
 import { bridgeOn, endBridge, startBridge, type BridgeRecord } from './bridge'
 import { bytesOf, CHUNK_BYTES, chunkArgv, utf8Length } from './tail'
 
@@ -671,14 +671,26 @@ function countsPill({ Box, Text }: Pick<Rows, 'Box' | 'Text'>, key: string, adde
   )
 }
 
-function questionRows({ Box, Text }: Pick<Rows, 'Box' | 'Text'>, input: unknown, output: unknown, width: number) {
+const askedCount = (questions: Question[]) => fill(questions.length === 1 ? text.asked.one : text.asked.many, { n: questions.length })
+
+// An answered AskUserQuestion draws as a table of question, answer and note, folded or not: an answer means nothing without its question.
+function answersTable({ Box, Text }: Pick<Rows, 'Box' | 'Text'>, questions: Question[], key: string, room: number) {
+  const hasNotes = questions.some(each => each.note)
+  const table: Table = {
+    head: [text.askHead.question, text.askHead.answer, ...(hasNotes ? [text.askHead.note] : [])],
+    right: [false, false, false],
+    rows: questions.map(each => [each.question, each.answer ?? text.noAnswer, ...(hasNotes ? [each.note ?? ''] : [])]),
+  }
+  // The answer is what the person chose, so it carries the weight a reply table gives its first column.
+  return tableBlock({ Box, Text }, table, { colors: new Map(), nerd: look.nerd }, key, room, 1)
+}
+
+function questionTable(parts: Pick<Rows, 'Box' | 'Text'>, questions: Question[], width: number) {
+  const { Box, Text } = parts
   return (
-    <Box key="toggle-questions" flexDirection="column">
-      {questionsOf(input, output).map((each, n) => (
-        <Text key={`toggle-question-${n}`} color={each.answer ? THEME.onSurface : THEME.muted} wrap="truncate-end">
-          {cut(each.answer ? `${look.glyph.mark.search} ${each.question} ${MARK.stage} ${each.answer}` : `${MARK.stop} ${fill(text.askedYou, { question: each.question })}`, width)}
-        </Text>
-      ))}
+    <Box key="toggle-asked" flexDirection="column" rowGap={1}>
+      <Text key="toggle-asked-head" color={THEME.onSurface}>{`${look.glyph.mark.search} ${askedCount(questions)}`}</Text>
+      {answersTable(parts, questions, 'toggle-asked-table', width - TABLE_INDENT)}
     </Box>
   )
 }
@@ -862,6 +874,14 @@ function chipSection({ Box, Client, Link, Text }: Rows & { Link: (props: any) =>
         </Box>
       )
     }
+    const questions = call.name === 'AskUserQuestion' && call.asked ? questionsOf(call.input, call.asked) : []
+    if (questions.length) {
+      return (
+        <Box key={`toggle-call-${n}-preview`} flexDirection="column" paddingLeft={3}>
+          {answersTable({ Box, Text }, questions, `toggle-call-${n}-asked`, width - 8)}
+        </Box>
+      )
+    }
     const more = call.preview?.more ?? 0
     const moreId = `preview:${call.id}`
     const lineOf = (previewLine: { kind: string; text: string }) => `${previewLine.kind === 'add' ? '+ ' : previewLine.kind === 'del' ? '- ' : previewLine.kind === 'same' ? '  ' : ''}${previewLine.text}`
@@ -907,30 +927,36 @@ function chipSection({ Box, Client, Link, Text }: Rows & { Link: (props: any) =>
     )
   }
   const calls = (kind: string) =>
-    kinds.find(group => group.kind === kind)?.calls.flatMap((call, n) => [
-      line(
-        `toggle-call-${n}`,
-        [
-          // The open call is a selected pill whose ends take the spaces around the label, so lines keep one width; the others stay dim until the pointer lights them.
-          <Box key={`toggle-call-${n}-line`} flexDirection="row" flexShrink={1}>
-            {look.nerd && openTools.includes(call.id) ? <Text color={OPEN_CALL}>{CAPS.left}</Text> : null}
-            <Box key={`toggle-call-${n}-pick`} flexShrink={1} {...(openTools.includes(call.id) ? { backgroundColor: OPEN_CALL } : {})}>
-              <Client
-                key={`toggle-call-${n}-colored`}
-                module="./label.tsx"
-                height={1}
-                width={partsWidth(callParts(call, openTools.includes(call.id), width))}
-                props={{ kind: 'tools', id: call.id, parts: callParts(call, openTools.includes(call.id), width), isDim: !openTools.includes(call.id), hover: THEME.accent } satisfies LabelProps}
-              />
-            </Box>
-            {look.nerd && openTools.includes(call.id) ? <Text color={OPEN_CALL}>{CAPS.right}</Text> : null}
-          </Box>,
-          countsPill({ Box, Text }, `toggle-call-${n}-counts`, call.added, call.removed),
-        ],
-        call.startedAt !== undefined && call.endedAt !== undefined ? elapsed(call.endedAt - call.startedAt) : '',
-      ),
-      ...(openTools.includes(call.id) ? [preview(call, n)] : []),
-    ]) ?? []
+    kinds.find(group => group.kind === kind)?.calls.flatMap((call, n) => {
+      const time = call.startedAt !== undefined && call.endedAt !== undefined ? elapsed(call.endedAt - call.startedAt) : ''
+      const questions = call.name === 'AskUserQuestion' && call.asked ? questionsOf(call.input, call.asked) : []
+      const shown = questions.length ? [{ text: askedCount(questions) }] : callParts(call, openTools.includes(call.id), width)
+      return [
+        line(
+          `toggle-call-${n}`,
+          [
+            // The open call is a selected pill whose ends take the spaces around the label, so lines keep one width; the others stay dim until the pointer lights them.
+            <Box key={`toggle-call-${n}-line`} flexDirection="row" flexShrink={1}>
+              {look.nerd && openTools.includes(call.id) ? <Text color={OPEN_CALL}>{CAPS.left}</Text> : null}
+              <Box key={`toggle-call-${n}-pick`} flexShrink={1} {...(openTools.includes(call.id) ? { backgroundColor: OPEN_CALL } : {})}>
+                <Client
+                  key={`toggle-call-${n}-colored`}
+                  module="./label.tsx"
+                  height={1}
+                  width={partsWidth(shown)}
+                  props={{ kind: 'tools', id: call.id, parts: shown, isDim: !openTools.includes(call.id), hover: THEME.accent } satisfies LabelProps}
+                />
+              </Box>
+              {look.nerd && openTools.includes(call.id) ? <Text color={OPEN_CALL}>{CAPS.right}</Text> : null}
+            </Box>,
+            countsPill({ Box, Text }, `toggle-call-${n}-counts`, call.added, call.removed),
+          ],
+          time,
+        ),
+        // The answers mean nothing without their questions, so an AskUserQuestion shows its table without a click.
+        ...(openTools.includes(call.id) || questions.length ? [preview(call, n)] : []),
+      ]
+    }) ?? []
   const body = !picked
     ? null
     : picked.kind === 'thinking'
@@ -1605,12 +1631,16 @@ export const register: Register = (on, options) => {
     // A call a hook or the person refused is an error they chose, so it draws neutral.
     const isDeclined = e.props.isErrored && declined.has(e.props.tool_use_id)
     const isRed = isFailed && !isDeclined
+    const questions = e.props.tool === 'AskUserQuestion' && !e.props.isRunning ? questionsOf(e.props.input, e.props.output) : []
+    if (questions.length) {
+      const body = questionTable({ Box, Text }, questions, widthOf(e))
+      return place === 'card' ? cardRow({ Box, Client }, body, { kind: 'turns', id: turn!.prompt }) : inBubble(body)
+    }
     if (e.props.isRunning || !foldTools || isLive(turn)) {
       const row = e.props.tool === 'Bash' ? bashRow({ Box, Client, Text }, e.props.input, e.props.isRunning, isRed) : await next(e)
       return place === 'card' ? cardRow({ Box, Client }, row, { kind: 'turns', id: turn!.prompt }) : inBubble(row)
     }
 
-    if (e.props.tool === 'AskUserQuestion') return inBubble(questionRows({ Box, Text }, e.props.input, e.props.output, widthOf(e)))
     const { added, removed } = diffStat(e.props.tool, e.props.input, e.props.output, isFailed)
     const isOpen = flips.tools.includes(e.props.tool_use_id)
     const when = showTimes ? callTime(log.callOf(e.props.tool_use_id)) : ''
@@ -1656,7 +1686,9 @@ export const register: Register = (on, options) => {
     seen.set(`ToolResult ${e.requestId}`, Boolean(turn))
     const { Box, Client, Link, Text } = $.ui.resolve(e)
     const place = await placeOf($, turn, e.requestId)
-    if (place === 'hidden' || (place === 'card' && foldTools) || (foldTools && !isLive(turn) && !flips.tools.includes(e.props.tool_use_id))) return <Box key="toggle-hidden" />
+    // The question table already shows the answers, so a result that holds them would draw them twice.
+    const isAnswered = e.props.tool === 'AskUserQuestion' && !e.props.isErrored && Boolean((e.props.output as { answers?: unknown } | undefined)?.answers)
+    if (isAnswered || place === 'hidden' || (place === 'card' && foldTools) || (foldTools && !isLive(turn) && !flips.tools.includes(e.props.tool_use_id))) return <Box key="toggle-hidden" />
 
     // An errored result, or a record the card does not know, stays Claude Code's.
     const result = e.props.isErrored ? null : fileResult(e.props.tool, e.props.output)

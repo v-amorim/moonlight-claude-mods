@@ -84,8 +84,9 @@ export default {
     "background": "background",
     "declined": "declined"
   },
-  "askedYou": "Asked you: {question}",
-  "apiWhat": {
+  "asked": { "one": "Asked {n} question", "many": "Asked {n} questions" },
+  "askHead": { "question": "Question", "answer": "Answer", "note": "Note" },
+  "noAnswer": "no answer",  "apiWhat": {
     "rate_limit": "rate limit reached",
     "overloaded": "API overloaded",
     "server_error": "server error",

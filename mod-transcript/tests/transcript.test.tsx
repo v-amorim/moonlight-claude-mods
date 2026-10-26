@@ -115,6 +115,13 @@ test('an opened call previews its diff, a new file, or the start of its result',
   expect(previewOf('Bash', {}, { stdout: 'built\n', stderr: '' }, '').lines).toEqual([{ text: 'built', kind: 'out' }])
 })
 
+test('a preview drops terminal escape codes and control characters, since a row holding one is refused', () => {
+  const esc = String.fromCharCode(27)
+  const colored = `${esc}[48;2;13;14;23m${esc}[38;2;36;40;57m▎${esc}[39m built${esc}[0m\r${String.fromCharCode(7)}`
+  expect(previewOf('Bash', {}, {}, colored).lines).toEqual([{ text: '▎ built', kind: 'out' }])
+  expect(previewOf('Edit', {}, { structuredPatch: [{ lines: [`+${esc}[31mred${esc}[0m`] }] }, '').lines).toEqual([{ text: 'red', kind: 'add' }])
+})
+
 test('a drawn call whose output has none of the usual fields previews its own text fields', () => {
   const texts = (output: unknown) => previewOf('X', {}, output, '').lines.map(line => line.text)
   expect(texts({ listing: 'This session is claude-67\n\nPeer sessions (1)' })).toEqual(['This session is claude-67', '', 'Peer sessions (1)'])

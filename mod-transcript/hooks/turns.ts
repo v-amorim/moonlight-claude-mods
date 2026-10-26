@@ -32,7 +32,10 @@ export type Turn = {
 type MessageRow = { role: 'user' | 'assistant'; text: string; toolUses: readonly { tool_use_id: string; tool: string; input: any; result?: unknown; isError?: true }[]; toolResults?: readonly unknown[] }
 
 // Times in epoch ms; thought is the thinking just before the call, empty when it kept no text.
-export type ToolCall = { id: string; name: string; input: any; added: number; removed: number; startedAt?: number; endedAt?: number; thought?: string; preview?: Preview; file?: unknown }
+export type ToolCall = { id: string; name: string; input: any; added: number; removed: number; startedAt?: number; endedAt?: number; thought?: string; preview?: Preview; file?: unknown; asked?: unknown }
+
+// An AskUserQuestion result's answers and notes, which an opened call draws as its table.
+const askedRecord = (name: string, output: any) => (name === 'AskUserQuestion' && typeof output === 'object' && output?.answers ? { answers: output.answers, annotations: output.annotations } : undefined)
 
 const FILE_RESULT_TOOLS = new Set(['Read', 'Write', 'Edit', 'MultiEdit'])
 
@@ -128,8 +131,22 @@ const outputText = (output: any) => {
   return joinText(Object.values(output).map(value => (Array.isArray(value) ? joinText(value) : value)))
 }
 
+const ESC = String.fromCharCode(27)
+const BELL = String.fromCharCode(7)
+// Color codes (CSI) and title or link codes (OSC) a shell prints.
+const ESCAPES = new RegExp(`${ESC}\\[[0-?]*[ -/]*[@-~]|${ESC}\\][^${BELL}${ESC}]*(?:${BELL}|${ESC}\\\\)`, 'g')
+
+// The engine refuses a row whose text holds a control character, so a preview keeps tabs and drops the rest.
+const printable = (line: string) => [...line.replace(ESCAPES, '')].filter(char => char === '\t' || (char >= ' ' && char !== String.fromCharCode(127))).join('')
+
 // An edit shows its patch, a new file its content as added lines; any other call the start of its result.
 export function previewOf(name: string, input: any, output: any, result: string): Preview {
+  const preview = draftPreview(name, input, output, result)
+  const clean = (lines: PreviewLine[]) => lines.map(line => ({ ...line, text: printable(line.text) }))
+  return { ...preview, lines: clean(preview.lines), rest: clean(preview.rest) }
+}
+
+function draftPreview(name: string, input: any, output: any, result: string): Preview {
   const patch = Array.isArray(output?.structuredPatch) ? output.structuredPatch : []
   const diff: PreviewLine[] = patch.flatMap((hunk: any) =>
     (Array.isArray(hunk?.lines) ? hunk.lines : []).filter((line: unknown) => typeof line === 'string').map((line: string) => ({
@@ -216,7 +233,7 @@ export class TurnLog {
       this.thinking = undefined
       for (const block of content) {
         const call = block?.type === 'tool_result' ? this.calls.get(block.tool_use_id) : undefined
-        if (call) Object.assign(call, diffStat(call.name, call.input, row.toolUseResult, block.is_error === true), { endedAt: timeOf(row), preview: previewOf(call.name, call.input, row.toolUseResult, resultText(block.content)), file: fileRecord(call.name, row.toolUseResult, block.is_error === true) })
+        if (call) Object.assign(call, diffStat(call.name, call.input, row.toolUseResult, block.is_error === true), { endedAt: timeOf(row), preview: previewOf(call.name, call.input, row.toolUseResult, resultText(block.content)), file: fileRecord(call.name, row.toolUseResult, block.is_error === true), asked: askedRecord(call.name, row.toolUseResult) })
       }
       return
     }
@@ -285,6 +302,7 @@ export class TurnLog {
     if (stat.added || stat.removed || isFailed) Object.assign(call, stat)
     if (!call.preview?.lines.length) call.preview = previewOf(name, call.input, output, '')
     call.file ??= fileRecord(name, output, isFailed)
+    call.asked ??= askedRecord(name, output)
   }
 
   // Calls claimed as they drew have no thought yet; the session's own messages, read once a turn ends, carry the thinking before each.
