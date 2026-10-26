@@ -41,7 +41,8 @@ const splitLines = (text: string | undefined) => {
 // Keeps one line of context around each change, so a long file shows only what moved.
 function trimContext(lines: Line[]): Line[] {
   if (!lines.some(line => line.op !== ' ')) return lines.slice(0, 6)
-  const keep = lines.map((line, at) => line.op !== ' ' || (lines[at - 1] && lines[at - 1]!.op !== ' ') || (lines[at + 1] && lines[at + 1]!.op !== ' '))
+  const isChange = (at: number) => (lines[at] ? lines[at].op !== ' ' : false)
+  const keep = lines.map((_, at) => isChange(at) || isChange(at - 1) || isChange(at + 1))
   const out: Line[] = []
   let skipped = false
   lines.forEach((line, at) => {
@@ -180,7 +181,7 @@ export function rowsOf(log: Log, collapsed: string[], showReads: boolean): Row[]
   const walk = (node: Node, depth: number) => {
     for (const first of [...node.dirs.values()].sort((x, y) => x.name.localeCompare(y.name))) {
       let dir = first
-      let name = dir.name
+      let { name } = dir
       while (dir.files.length === 0 && dir.dirs.size === 1) {
         dir = [...dir.dirs.values()][0]!
         name = `${name}/${dir.name}`

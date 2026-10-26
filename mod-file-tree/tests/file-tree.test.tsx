@@ -44,7 +44,7 @@ const stubs = (on: Parameters<TestBody>[1], opened: string[] = [], transcript = 
   on('session.cwd', () => ({ value: '/w' }))
   on('session.id', () => ({ value: 's1' }))
   on('env.get', (_$, e) => ({ value: seen.env ? seen.env(e.name) : e.name === 'USERPROFILE' ? '/h' : undefined }))
-  const store = seen.store
+  const { store } = seen
   on('store.get', (_$, e) => ({ value: store?.get(e.key) }))
   on('store.set', (_$, e) => {
     store?.set(e.key, e.value)
@@ -247,7 +247,7 @@ test('a read-only file has no diff to replay', async ($, on) => {
 const launches = (on: Parameters<TestBody>[1]) => {
   const ran: string[] = []
   on('process.run', (_$, e) => {
-    const argv = (e as unknown as { argv: string[] }).argv
+    const { argv } = e as unknown as { argv: string[] }
     ran.push(argv.join(' '))
     return { value: { exitCode: argv[0] === 'code' ? 1 : 0, stdout: '', stderr: '', isStdoutTruncated: false, isStderrTruncated: false } } as never
   })
@@ -597,7 +597,7 @@ test('a prompt sent mid-turn with an image, stored as content blocks, opens a tu
 test('the transcript rebuilds every file and edit: the stored patch, a new file, and no step for a failed edit', () => {
   const parsed = new TranscriptFiles('C:\\repo')
   for (const line of SESSION.split('\n')) if (line) parsed.feed(line)
-  const log = parsed.log
+  const { log } = parsed
   expect(log.turn).toBe(2)
   expect(log.files.map(file => `${file.path}:${file.kind}:+${file.add}-${file.del}`)).toEqual(['src/a.ts:edit:+2-1', 'src/b.ts:edit:+0-0', 'docs/new.md:new:+2-0'])
   expect(log.steps.map(step => `${step.turn} ${step.tool} ${step.path} ${step.note}`)).toEqual(['1 Edit src/a.ts ', '2 Write docs/new.md new file'])
@@ -632,7 +632,7 @@ test('transcript paths untouched for 30 days are deleted at session start, a bar
   ])
   stubs(on, [], undefined, [], { store, now })
   on('session.start', () => ({ cwd: '/w' }))
-  on('command.register', () => ({ value: undefined }))
+  on('command.register', () => ({ value: { command: 'mod-file-tree' } }))
   await $.session.start({ cwd: '/w', surface: 'terminal', isInteractive: true } as never)
   expect(store.has('transcript:stale')).toBe(false)
   expect(store.get('transcript:fresh')).toEqual({ path: '/t/new.jsonl', at: now - 29 * day })
@@ -1069,7 +1069,7 @@ test('the legend draws no rule of its own above the footer, and the footer space
 const recorded = (on: Parameters<TestBody>[1], codeOf: (program: string) => number = () => 0) => {
   const ran: string[][] = []
   on('process.run', (_$, e) => {
-    const argv = (e as unknown as { argv: string[] }).argv
+    const { argv } = e as unknown as { argv: string[] }
     ran.push(argv)
     return { value: { exitCode: codeOf(argv[0]!), stdout: '', stderr: '', isStdoutTruncated: false, isStderrTruncated: false } } as never
   })

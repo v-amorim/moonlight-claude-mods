@@ -143,7 +143,7 @@ const FileList: ClientModule<ListProps, State> = (props, surface) => {
   if (!surface.state) surface.setState({ hovered: -1, phase: 0, levels: {} })
   if (!props.still && isMoving(rows)) {
     run(surface, 'move', TICK_MS, () => {
-      const state = surface.state
+      const { state } = surface
       if (!state || latest.get(surface)?.still || !isMoving(latest.get(surface)?.rows ?? [])) return false
       surface.setState({ ...state, phase: state.phase + 1 })
       return true
@@ -153,7 +153,7 @@ const FileList: ClientModule<ListProps, State> = (props, surface) => {
   const hasLive = (list: ListProps['rows']) => list.some(row => row.tone === 'live')
   if (!props.still && hasLive(rows)) {
     run(surface, 'spin', SPIN_MS, () => {
-      const state = surface.state
+      const { state } = surface
       if (!state || latest.get(surface)?.still || !hasLive(latest.get(surface)?.rows ?? [])) return false
       surface.setState({ ...state, spin: (state.spin ?? 0) + 1 })
       return true
@@ -164,7 +164,7 @@ const FileList: ClientModule<ListProps, State> = (props, surface) => {
     // The hover fade runs on its own, faster timer.
     if (!props.still) {
       run(surface, 'fade', HOVER_TICK_MS, () => {
-        const state = surface.state
+        const { state } = surface
         if (!state || latest.get(surface)?.still) return false
         const markRow = state.onMark ? state.hovered : -1
         if (!isFading(state.levels ?? {}, state.hovered) && !isFading(state.marks ?? {}, markRow)) return false

@@ -14,6 +14,6 @@ declare module 'claude-code' {
       cleared: { seq: number; step: number }
       session: string
     }
-    'mod-menu': { hidden: boolean }
+    'mod-menu': { hidden: boolean; labels: 'auto' | 'always' | 'never' }
   }
 }

@@ -77,7 +77,8 @@ async function followSession($: EngineInterface) {
 }
 
 // The transcript read in flight, one per session; changes made meanwhile replay onto what it builds, so a live edit is never lost.
-let loading: { session: string; done: Promise<void> } | null = null
+type Loading = { session: string; done: Promise<void> }
+let loading: Loading | null = null
 let changes: ((current: Log) => Log)[] = []
 // A read that failed leaves the log partial, so the next hydrate reads again, keeping the changes made since.
 let loadFailed = false
@@ -104,7 +105,7 @@ async function hydrate($: EngineInterface) {
   }
   if (!loading) {
     loadFailed = false
-    const started: NonNullable<typeof loading> = {
+    const started: Loading = {
       session,
       done: load($, session).catch(error => {
         if (loading !== started) return
@@ -202,7 +203,7 @@ async function load($: EngineInterface, session: string) {
   const parsed = new TranscriptFiles(String((await $.session.cwd().catch(() => '')) ?? ''))
   for (const line of raw.split('\n')) if (line.trim()) parsed.feed(line)
   if (session !== logSession) return
-  log = changes.reduce((current, change) => change(current), { ...parsed.log, working: false })
+  log = changes.reduce<Log>((current, change) => change(current), { ...parsed.log, working: false })
   changes = []
   loading = null
   loadError = ''
