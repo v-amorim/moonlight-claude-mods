@@ -1,12 +1,12 @@
 // mod-next-steps / tests/next-steps.test.tsx, by v-amorim
 // Tests the suggestion band: generation after a turn, filling the prompt, clearing and failures.
-import { expect, mock, test as kitTest } from 'claude-code/testing'
+import { expect, mock, test as kitTest, type TestRest } from 'claude-code/testing'
 
 // The side check is opt-in, so these tests turn it on unless a test sets its own value.
-const test = ((name: string, first: any, second?: any) => {
-  const [settings, body] = typeof first === 'function' ? [{}, first] : [first, second]
+const test = (name: string, ...rest: TestRest) => {
+  const [settings, body] = rest.length === 1 ? [{}, rest[0]] : rest
   return kitTest(name, { ...settings, options: { enabled: true, ...settings.options } }, body)
-}) as typeof kitTest
+}
 
 const BAND = {
   component: 'AbovePrompt',
@@ -242,7 +242,7 @@ test('a failed side call raises one "Side check unavailable" toast per session, 
   const notes: string[] = []
   on('ui.toast', (_$: unknown, e: { text: string }) => {
     notes.push(e.text)
-    return { value: {} }
+    return { value: undefined }
   })
   const { clock } = setup(on, () => {
     if (mode === 'throw') throw new Error('blocked by your organization')
@@ -260,7 +260,7 @@ test('an empty reply or an abort raises no toast', async ($, on) => {
   const notes: string[] = []
   on('ui.toast', (_$: unknown, e: { text: string }) => {
     notes.push(e.text)
-    return { value: {} }
+    return { value: undefined }
   })
   const { clock } = setup(on, () => ({ isAnswered: false, reason: 'empty-reply' }))
   await $.turn.complete(DONE as never)

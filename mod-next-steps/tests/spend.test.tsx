@@ -1,12 +1,12 @@
 // mod-next-steps / tests/spend.test.tsx, by v-amorim
 // Tests that a model result's usage lands in spend.json and that a failed write never reaches the mod.
-import { expect, mock, test as kitTest } from 'claude-code/testing'
+import { expect, mock, test as kitTest, type TestRest } from 'claude-code/testing'
 
 // The side check is opt-in, so these tests turn it on unless a test sets its own value.
-const test = ((name: string, first: any, second?: any) => {
-  const [settings, body] = typeof first === 'function' ? [{}, first] : [first, second]
+const test = (name: string, ...rest: TestRest) => {
+  const [settings, body] = rest.length === 1 ? [{}, rest[0]] : rest
   return kitTest(name, { ...settings, options: { enabled: true, ...settings.options } }, body)
-}) as typeof kitTest
+}
 
 const DONE = { answer: 'All done.', durationMs: 5, isAborted: false, turnId: 't1', reason: 'answer' } as const
 const PATH = 'C:/cfg/mods-data/mod-next-steps/spend.json'
@@ -41,8 +41,8 @@ test('a fork result adds its usage to spend.json under today and the session mod
   await $.turn.complete(DONE as never)
   await clock.settle()
   expect(writes.length).toBe(1)
-  expect(writes[0].path).toBe(PATH)
-  const day = Object.values(JSON.parse(writes[0].text).days)[0] as Record<string, unknown>
+  expect(writes[0]!.path).toBe(PATH)
+  const day = Object.values(JSON.parse(writes[0]!.text).days)[0] as Record<string, unknown>
   expect(day['claude-sonnet-5-5']).toEqual({ calls: 1, input: 100, output: 20, cacheRead: 5, cacheWrite: 7 })
 })
 
@@ -51,7 +51,7 @@ test('a second call adds to the counts already on disk and drops days older than
   const { clock, writes } = world(on, { existing: JSON.stringify({ days: { '1900-01-01': { haiku: old } } }) })
   await $.turn.complete(DONE as never)
   await clock.settle()
-  const days = JSON.parse(writes[0].text).days
+  const { days } = JSON.parse(writes[0]!.text)
   expect(Object.keys(days).length).toBe(1)
   expect(days['1900-01-01']).toBeUndefined()
 })

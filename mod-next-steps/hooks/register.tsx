@@ -151,7 +151,7 @@ async function suggest($: EngineInterface, mine: number) {
   $.ui.invalidate('ui.render')
   try {
     const reply = await $.model.fork({ prompt: question(count) })
-    recordSpend($, await $.session.model().catch(() => ''), reply)
+    recordSpend($, await $.session.model().catch(() => ''), !reply.isAnswered && reply.reason === 'nothing-to-fork' ? null : reply)
     if (!reply.isAnswered && reply.reason === 'api-error') await sideUnavailable($, [reply.error, reply.status ? String(reply.status) : ''].filter(Boolean).join(' '))
     if (mine !== epoch || !reply.isAnswered) return
     const found = parseSteps(reply.text, count)
