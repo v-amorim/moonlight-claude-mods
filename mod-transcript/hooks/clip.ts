@@ -138,4 +138,4 @@ export function copyText(reply: string, what: CopyChoice) {
 
 // The choices a reply offers: text only when it differs from the markdown, the rest only when the reply holds some.
 export const copyChoices = (reply: string | undefined): CopyChoice[] =>
-  !reply?.trim() ? [] : (['reply', 'code', 'text', 'table', 'links'] as const).filter(what => what === 'reply' || (what === 'text' ? textOf(reply) !== reply.trim() : Boolean(copyText(reply, what))))
+  reply?.trim() ? (['reply', 'code', 'text', 'table', 'links'] as const).filter(what => what === 'reply' || (what === 'text' ? textOf(reply) !== reply.trim() : Boolean(copyText(reply, what)))) : []

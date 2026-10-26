@@ -23,7 +23,7 @@ const timers = new WeakMap<object, () => void>()
 const wake = (surface: Parameters<ClientModule<FoldProps, State>>[1]) => {
   if (timers.has(surface)) return
   const stop = surface.every(HOVER_TICK_MS, () => {
-    const state = surface.state
+    const { state } = surface
     if (!state) return
     if (state.level !== (state.isOver ? HOVER_STEPS : 0)) surface.setState({ ...state, level: stepToward(state.level, state.isOver) })
     else if (state.isOver && Date.now() - state.at >= QUIET_MS) surface.setState({ ...state, isOver: false })

@@ -494,6 +494,7 @@ test('turn.complete hands the turn on before it reads the session messages', asy
 test('a transcript read that failed is read again on the next turn', async ($, on) => {
   let reads = 0
   on('turn.complete', () => ({ text: '' }))
+  // sourcery skip: generators-should-yield
   on('process.spawn', async function* () {
     throw new Error('cat failed')
   })
@@ -623,10 +624,10 @@ test('with animations off a kind chip, the fold chip and the running dot switch 
   expect(JSON.stringify(Fold(foldProps, fold.surface))).not.toContain(`"color":"${THEME.accent}"`)
 
   const dot = fakeSurface()
-  Dot({ color: THEME.accent, dim: THEME.border, still: true }, dot.surface)
+  Dot({ color: THEME.accent, still: true }, dot.surface)
   expect(dot.running.size).toBe(0)
   const blinking = fakeSurface()
-  Dot({ color: THEME.accent, dim: THEME.border, still: false }, blinking.surface)
+  Dot({ color: THEME.accent, still: false }, blinking.surface)
   expect(blinking.running.size).toBe(1)
 })
 
@@ -802,6 +803,9 @@ for (const icons of ['safe', 'nerd'] as const) {
     expect(pill.props.props).toMatchObject({ label: 'copy', bg: THEME.surface3, lead: icons === 'safe' ? '⧉' : String.fromCodePoint(0xf018f), tip: { label: 'Copy code' } })
     await clickLabel(reply, `toggle-copy-code-pill-${CODE_ID}`)
     expect(copied).toEqual(['export function total(items) {\n  return items.length\n}'])
+    // The pill itself says it copied: a toast would add a band card and push the prompt down.
+    const after = await reply.find({ type: 'Client', key: `toggle-copy-code-pill-${CODE_ID}` })
+    expect(after.props.props).toMatchObject({ label: 'copied code', idle: THEME.muted })
   })
 }
 
@@ -853,8 +857,7 @@ const NIGHT: Record<string, string> = {
 // The first mount draws the palette and starts the theme search; the second finds the theme in.
 const secondReply = async (mount: any, ids: string[]) => {
   await mount('AssistantMessage', ids[0], { text: CODE_REPLY, isFirstOfReply: true })
-  const reply = await mount('AssistantMessage', ids[1], { text: CODE_REPLY, isFirstOfReply: true })
-  return reply
+  return mount('AssistantMessage', ids[1], { text: CODE_REPLY, isFirstOfReply: true })
 }
 
 test('a ts fence takes its colors from the VS Code theme named in the editor settings', async ($, on) => {

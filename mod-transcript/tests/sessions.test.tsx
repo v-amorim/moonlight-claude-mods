@@ -5,6 +5,9 @@ import { expect, mock, test } from 'claude-code/testing'
 import { TurnLog } from '../hooks/turns'
 import { reading, sessionStarted } from './bridge-feed'
 
+// The kit's types declare no timer globals, yet the runtime has them.
+declare const setTimeout: (handler: (value: unknown) => void, ms: number) => unknown
+
 const ID = (n: number) => `${String(n).padStart(8, '0')}-0000-4000-8000-000000000000`
 const row = (n: number, type: string, extra: object, parent: string | null = ID(n - 1)) => JSON.stringify({ type, uuid: ID(n), parentUuid: parent, ...extra })
 const asked = (n: number, text: string, parent: string | null = ID(n - 1)) => row(n, 'user', { message: { role: 'user', content: text } }, parent)

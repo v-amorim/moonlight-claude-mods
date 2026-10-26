@@ -54,7 +54,7 @@ const Themes: ClientModule<ThemesProps, State> = (props, surface) => {
   surface.onPointer(event => {
     if (!still && !fades.has(surface)) {
       const stop = surface.every(HOVER_TICK_MS, () => {
-        const state = surface.state
+        const { state } = surface
         if (state && isFading(state.levels, state.row)) {
           surface.setState({ ...state, levels: fadeLevels(state.levels, state.row) })
           return

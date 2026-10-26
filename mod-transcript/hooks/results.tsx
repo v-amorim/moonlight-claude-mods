@@ -36,7 +36,7 @@ function hunksOf(patch: unknown): Hunk[] | null {
 export function fileResult(tool: string, output: unknown): FileResult | null {
   if (!isObject(output)) return null
   if (tool === 'Read') {
-    const file = output.file
+    const { file } = output
     if (output.type !== 'text' || !isObject(file) || typeof file.filePath !== 'string' || typeof file.content !== 'string' || !file.content.trim()) return null
     const start = typeof file.startLine === 'number' ? file.startLine : 1
     const rows = linesOf(file.content).map((line, at): ResultRow => ({ kind: 'same', n: start + at, text: line, hunk: 0 }))
@@ -88,7 +88,7 @@ const COPY_PILL = 10
 
 export function resultCard({ Box, Text }: Elements, result: FileResult, parts: ResultParts, width: number, key: string) {
   const dim = style.colors.pills.readout
-  const rows = result.rows
+  const { rows } = result
   const isCapped = rows.length > CODE_CAP
   const shown = isCapped && !parts.isOpen ? rows.slice(0, CODE_CAP) : rows
   const digits = String(Math.max(...rows.map(row => ('n' in row ? row.n : 0)))).length

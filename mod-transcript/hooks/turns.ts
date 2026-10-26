@@ -40,7 +40,7 @@ const FILE_RESULT_TOOLS = new Set(['Read', 'Write', 'Edit', 'MultiEdit'])
 export function fileRecord(name: string, output: any, isFailed: boolean): unknown {
   if (isFailed || !FILE_RESULT_TOOLS.has(name) || typeof output !== 'object' || output === null) return undefined
   if (name === 'Read') {
-    const file = output.file
+    const { file } = output
     return typeof file === 'object' && file !== null ? { type: output.type, file: { filePath: file.filePath, content: file.content, startLine: file.startLine } } : undefined
   }
   return { filePath: output.filePath, staged: output.staged, type: output.type, content: output.type === 'create' ? output.content : undefined, structuredPatch: output.structuredPatch }

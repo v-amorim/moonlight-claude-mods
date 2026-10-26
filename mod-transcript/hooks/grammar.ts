@@ -62,7 +62,7 @@ export function tokenize(grammar: Grammar, code: string): Token[][] {
       if (hit.to) stack[stack.length - 1] = hit.to
       const own = typeof hit.scope === 'function' ? hit.scope(match) : hit.scope
       if (hit.parts) {
-        const indices = (match as RegExpExecArray & { indices: [number, number][] }).indices
+        const { indices } = match as RegExpExecArray & { indices: [number, number][] }
         let cursor = match.index
         hit.parts.forEach((part, group) => {
           const span = indices[group + 1]
@@ -77,7 +77,7 @@ export function tokenize(grammar: Grammar, code: string): Token[][] {
       at += match[0].length
     }
     while (stack.length > 1 && states[stack[stack.length - 1]!]!.eol) stack.pop()
-    const onEol = states[stack[stack.length - 1]!]!.onEol
+    const { onEol } = states[stack[stack.length - 1]!]!
     if (onEol) stack[stack.length - 1] = onEol
     lines.push(tokens)
   }

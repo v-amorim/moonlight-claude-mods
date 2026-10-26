@@ -12,7 +12,7 @@ import type { FoldProps } from './fold'
 import type { LabelPart, LabelProps } from './label'
 import { pillWidth, type NumberProps } from './number'
 import { codeCard, calloutCard, headingRow } from './blocks'
-import { cutPieces, languageForPath, previewPieces, useTheme, type Piece } from './hilite'
+import { cutPieces, languageForPath, previewPieces, useTheme, type Piece as TokenPiece } from './hilite'
 import { PathLinks, pathTokens } from './links'
 import { fileResult, resultCard } from './results'
 import { activeLabel, listThemes, loadTheme, type ThemeHost } from './vstheme'
@@ -555,11 +555,15 @@ const TABLE_INDENT = 6
 // The code each code block's copy pill copies, by block id; set as the block draws.
 const codes = new Map<string, string>()
 const COPY_CODE = 'copy-code:'
+// Blocks whose pill says "copied code" for a moment, in place of a toast that would push the prompt down.
+const justCopied = new Set<string>()
+const COPIED_MS = 1500
 
 // The pill pinned on a code card's top edge, rounded where the font has caps.
 function copyBlock({ Box, Client, Text }: Rows, id: string, code: string) {
   codes.set(id, code)
-  const props: EntryProps = { id: `${COPY_CODE}${id}`, label: text.codeCopy, lead: look.glyph.copy, leadColor: THEME.secondary, isOpen: false, bg: THEME.surface3, idle: THEME.secondary, nerd: look.nerd, still, tip: { glyph: look.glyph.copy, label: text.tipCodeCopyLabel, text: text.tipCodeCopy } }
+  const isCopied = justCopied.has(id)
+  const props: EntryProps = { id: `${COPY_CODE}${id}`, label: isCopied ? fill(text.copied, { what: text.copyChoice.code }) : text.codeCopy, lead: look.glyph.copy, leadColor: THEME.secondary, isOpen: false, bg: THEME.surface3, idle: isCopied ? THEME.muted : THEME.secondary, nerd: look.nerd, still, tip: { glyph: look.glyph.copy, label: text.tipCodeCopyLabel, text: text.tipCodeCopy } }
   return (
     <Box key={`toggle-copy-code-${id}`} flexDirection="row" flexShrink={0}>
       {look.nerd ? <Text color={THEME.surface3}>{CAPS.left}</Text> : null}
@@ -886,7 +890,7 @@ function chipSection({ Box, Client, Link, Text }: Rows & { Link: (props: any) =>
         {shown.map((previewLine, at) => {
           const background = previewLine.kind === 'add' ? { backgroundColor: THEME.addBg } : previewLine.kind === 'del' ? { backgroundColor: THEME.delBg } : {}
           const parts = colored?.[at]
-          const row: Piece[] = parts ? [{ text: parts.lead, color: previewLine.kind === 'out' ? THEME.muted : THEME.onSurface }, ...parts.code] : []
+          const row: TokenPiece[] = parts ? [{ text: parts.lead, color: previewLine.kind === 'out' ? THEME.muted : THEME.onSurface }, ...parts.code] : []
           const body = (
             <Text key={`line-${at}`} color={previewLine.kind === 'out' ? THEME.muted : THEME.onSurface} wrap={isAll ? 'wrap' : 'truncate-end'} {...background}>
               {parts
@@ -1233,7 +1237,7 @@ export const register: Register = (on, options) => {
         return
       }
       if (isTipMessage(e.data)) {
-        const mark = (e.data as CopyTipMessage).mark
+        const { mark } = e.data as CopyTipMessage
         if (mark) await markCopy($, mark.id, mark.what)
         hovered = e.data
         $.ui.invalidate('ui.render')
@@ -1261,10 +1265,18 @@ export const register: Register = (on, options) => {
       const message = e.data as BarMessage
       if (message?.type === 'fold') await flip($, message.kind, message.id)
       if (clicked?.type === 'menu-entry' && clicked.id.startsWith(MORE)) await flip($, 'tools', clicked.id.slice(MORE.length))
-      const code = clicked?.type === 'menu-entry' && clicked.id.startsWith(COPY_CODE) ? codes.get(clicked.id.slice(COPY_CODE.length)) : undefined
+      const block = clicked?.type === 'menu-entry' && clicked.id.startsWith(COPY_CODE) ? clicked.id.slice(COPY_CODE.length) : ''
+      const code = block ? codes.get(block) : undefined
       if (code !== undefined) {
         const result = await $.ui.copy({ text: code, surface: e.surface })
-        $.ui.toast(result.isCopied ? fill(text.copied, { what: text.copyChoice.code }) : fill(text.copyFailed, { reason: String('reason' in result ? result.reason : '') }))
+        if (result.isCopied) {
+          justCopied.add(block)
+          $.ui.invalidate('ui.render')
+          $.clock.after(COPIED_MS, () => {
+            justCopied.delete(block)
+            $.ui.invalidate('ui.render')
+          })
+        } else $.ui.toast(fill(text.copyFailed, { reason: String('reason' in result ? result.reason : '') }))
       }
       const picked = e.data as ChipsMessage
       if (picked?.type === 'chip') await pickChip($, picked.id, picked.kind)
@@ -1533,7 +1545,7 @@ export const register: Register = (on, options) => {
     const hovered = turn && hover.startsWith(`${turn.prompt}\n`) ? hover.slice(turn.prompt.length + 1) : ''
     const found = failure ? [] : hexColors(e.props.text, THEME.surface2)
     // A paragraph that names a path known to exist is the mod's to draw, since Claude Code's markdown has no link for it.
-    const blocks = !failure ? richBlocks(e.props.text.trim(), paragraph => hexColors(paragraph, THEME.surface2).length > 0 || (!unsupported(paragraph) && pathTokens(paragraph).some(token => paths.href(token)))) : null
+    const blocks = failure ? null : richBlocks(e.props.text.trim(), paragraph => hexColors(paragraph, THEME.surface2).length > 0 || (!unsupported(paragraph) && pathTokens(paragraph).some(token => paths.href(token))))
     // Claude Code's own table takes over when one is wider than the bubble's text column; with nothing of the mod's to draw, the reply stays Claude Code's.
     const inlineLook: Inline = { colors: new Map(found.map(color => [color.code.toUpperCase(), color])), nerd: look.nerd, links: { Link, open: token => paths.href(token) }, paint: hovered ? paintOf(hovered as CopyChoice) : undefined }
     const own = blocks?.some(block => block.kind !== 'markdown') && blocks.every(block => block.kind !== 'table' || tableWidth(block.table, inlineLook) <= widthOf(e) - TABLE_INDENT) ? blocks : null

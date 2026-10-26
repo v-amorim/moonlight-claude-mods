@@ -38,7 +38,7 @@ type Surface = Parameters<ClientModule<ChipsProps, State>>[1]
 const wake = (surface: Surface) => {
   if (timers.has(surface)) return
   const stop = surface.every(HOVER_TICK_MS, () => {
-    const state = surface.state
+    const { state } = surface
     if (!state) return
     const levels = { ...state.levels }
     let isMoving = false

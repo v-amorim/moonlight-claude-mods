@@ -5,10 +5,10 @@
 export const viewing: { agent: string | undefined } = { agent: undefined }
 
 // A plugin's switch is announced here before it lands, so the rows already draw the new view; a refused switch puts the old one back.
-export async function announceView<R extends { value: { deny?: string } }>(e: { agentId?: string }, next: (e: { agentId?: string }) => Promise<R>) {
+export async function announceView<E extends { agentId?: string }, R extends { value?: { deny?: string } }>(e: E, next: (e: E) => Promise<R>) {
   const before = viewing.agent
   viewing.agent = e.agentId
   const shown = await next(e)
-  if (shown.value.deny) viewing.agent = before
+  if (shown.value?.deny) viewing.agent = before
   return shown
 }
