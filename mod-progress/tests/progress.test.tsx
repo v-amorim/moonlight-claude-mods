@@ -167,6 +167,7 @@ test('rows: main first, agents in order, task list stands in for missing gates, 
   expect(snap.agents.a1).toEqual({ model: 'claude-haiku-4-5', tokens: 7, context: 20001 })
 
   const list = [{ ...AGENT }, { id: 'a2', description: 'two', type: 'Explore', status: 'failed' }]
+  snap.agents.a2 = { tokens: 0, context: 0, spawnedAt: 0 }
   const rows = buildRows(snap, list, { window: 200000, startedAt: 0 }, 60000, 'main', 'this session', undefined)
   expect(rows.map(row => [row.name, row.status])).toEqual([['main', 'done'], ['leaf-1.1.1', 'running'], ['Explore', 'failed']])
   expect(rows[0]!.gates.map(gate => gate.state)).toEqual(['met', 'open'])
@@ -182,6 +183,19 @@ test('rows: main first, agents in order, task list stands in for missing gates, 
   expect(settle(snap, list, 99)).toBe(true)
   expect(snap.agents.a2!.endedAt).toBe(99)
   expect(snap.agents.a1!.endedAt).toBeUndefined()
+})
+
+test('an agent from before a /clear or resume, finished and never spawned in this session, gets no empty row', () => {
+  const snap = emptySnap('s')
+  snap.agents.here = { tokens: 0, context: 0, spawnedAt: 5 }
+  const list = [
+    { id: 'old', description: '(resumed)', type: 'general-purpose', status: 'completed' },
+    { id: 'here', description: 'failed at once', type: 'general-purpose', status: 'failed' },
+    { id: 'carried', description: 'still going', type: 'general-purpose', status: 'running' },
+  ]
+  settle(snap, list, 9)
+  const rows = buildRows(snap, list, undefined, 10, 'main', 'x', undefined)
+  expect(rows.map(row => row.id)).toEqual(['main', 'here', 'carried'])
 })
 
 const MET = (id: string) => [`- [x] ${id}: done`, '      EVIDENCE: ok 1 passed', ''].join('\n')
@@ -597,7 +611,7 @@ test('a call reads as a step: the base name of its file, its search, its command
 test('a call sets the step of the loop it runs in, and a finished agent drops its step', () => {
   const snap = emptySnap('s')
   snap.busy = true
-  snap.agents.a1 = { tokens: 0, context: 0 }
+  snap.agents.a1 = { tokens: 0, context: 0, spawnedAt: 0 }
   applyCall(snap, undefined, 'Read', { file_path: '/w/a.ts' })
   applyCall(snap, 'a1', 'Grep', { pattern: 'fitFor' })
   applyCall(snap, 'ghost', 'Read', { file_path: '/w/b.ts' })
