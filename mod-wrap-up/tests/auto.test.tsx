@@ -1306,6 +1306,11 @@ test('pending paths: a clear, a glob, a dotted parent and a single folder name a
   expect(pendingCandidates(ledger, 'C:/home')).toEqual({ sure: [], maybe: ['/usr/bin'] })
 })
 
+test('pending paths: home, anything above it and a drive root are never published, since each would cover every file', () => {
+  const ledger = mergeDelta(emptyLedger(1, 's1'), { ...NONE, opened: ['Clean ~ and ~/ and $HOME and C:/ and C:/Users and /c/ later, but keep ~/notes/plan.md'], decisions: [] }, 2)
+  expect(pendingCandidates(ledger, 'C:/Users/home')).toEqual({ sure: ['C:/Users/home/notes/plan.md'], maybe: [] })
+})
+
 test('pending paths: the list is capped', () => {
   const opened = Array.from({ length: MAX_PENDING + 50 }, (_, at) => `Edit C:/p/f${at}.txt`)
   expect(pendingCandidates(mergeDelta(emptyLedger(1, 's1'), { ...NONE, opened }, 2), 'C:/home').sure).toHaveLength(MAX_PENDING)

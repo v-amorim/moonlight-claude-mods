@@ -312,8 +312,8 @@ function absolutePath(token: string, home: string): { path: string; isFolder: bo
   path = path.replace(/\\/g, '/').replace(/\/{2,}/g, '/')
   if (!/^[A-Za-z]:\//.test(path) && !path.startsWith('/')) return null
   // Git Bash spells C:/x as /c/x.
-  const bash = /^\/([a-zA-Z])\/(.+)$/.exec(path)
-  if (bash && /^[A-Za-z]:/.test(home)) path = `${bash[1]!.toUpperCase()}:/${bash[2]}`
+  const bash = /^\/([a-zA-Z])(?:\/(.*))?$/.exec(path)
+  if (bash && /^[A-Za-z]:/.test(home)) path = `${bash[1]!.toUpperCase()}:/${bash[2] ?? ''}`
   if (path.replace(/^[A-Za-z]:/, '').split('/').filter(Boolean).length < (isFolder ? 1 : 2)) return null
   return { path: path.replace(/\/+$/, ''), isFolder }
 }
@@ -324,11 +324,13 @@ export function pendingCandidates(ledger: Ledger | null, home: string): { sure: 
   const maybe = new Set<string>()
   if (!ledger) return { sure: [], maybe: [] }
   const root = home.replace(/\\/g, '/').replace(/\/+$/, '')
+  // Home or a folder above it would mark every file the person has as pending.
+  const covers = (path: string) => `${root.toLowerCase()}/`.startsWith(`${path.toLowerCase()}/`)
   const lines = [...ledger.tasks.filter(item => item.status === 'open'), ...liveDecisions(ledger)].map(item => item.text)
   for (const line of lines) {
     for (const token of line.split(/\s+/)) {
       const found = absolutePath(token, root)
-      if (!found) continue
+      if (!found || covers(found.path)) continue
       const hasExtension = /\.[A-Za-z0-9]{1,8}$/.test(found.path.slice(found.path.lastIndexOf('/') + 1))
       ;(hasExtension || found.isFolder ? sure : maybe).add(found.path)
     }
