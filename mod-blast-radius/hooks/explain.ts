@@ -259,7 +259,7 @@ export const DOES_ROWS_OPEN = 12
 
 export function cardRows(plain: Plain, report: Report, width: number, bodyRows: number, isOpen = false): CardRow[] {
   const wrapped = wrapRows(plain.does, width, isOpen ? Math.min(DOES_ROWS_OPEN, Math.max(2, bodyRows - 1)) : 2)
-  const facts = report.facts
+  const { facts } = report
   const items = facts?.items ?? []
   const candidates: { order: number; priority: number; row: CardRow }[] = [{ order: 0, priority: 0, row: { kind: 'head', text: fitHeading(plain, width - 3) } }]
   if (items.length) {

@@ -82,7 +82,7 @@ test('iTerm2 with no readable plist throws, so the saved answer stays', async ()
 test('iTerm2 retries a lookup that fails by chance', async () => {
   let calls = 0
   const flaky = iterm({})
-  const run = flaky.run
+  const { run } = flaky
   flaky.run = async argv => ((calls += 1) <= 2 ? Promise.reject(new Error('busy')) : run(argv))
 
   expect(await detectNerd({ TERM_PROGRAM: 'iTerm.app', ITERM_PROFILE: 'Fira' }, flaky)).toBe(true)

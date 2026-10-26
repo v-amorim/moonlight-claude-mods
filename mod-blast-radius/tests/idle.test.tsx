@@ -348,6 +348,23 @@ test('with the idle timeout Off, a Bash permission ask stays Claude Code\'s own 
   await band.unmount()
 })
 
+// The approval lives only in memory: a file any tool can write must never vouch for a Run.
+test('a Run pressed on the card writes no file', async ($, on) => {
+  const { seen } = world(on)
+  const writes: string[] = []
+  on('fs.write', (_$: unknown, e: { path: string }) => {
+    writes.push(asGiven(e.path))
+    return { value: undefined }
+  })
+  const band = await $.ui.mount({ plugin: PLUGIN, surface: 'terminal', ...BAND })
+  const ran = $.tool.call({ tool: 'Bash', command: COMMAND })
+  await holding(seen)
+  await click(band, 'blast-run')
+  await ran
+  await band.unmount()
+  expect(writes).toEqual([])
+})
+
 test('the chip goes when the session ends', IDLE, async ($, on) => {
   const { seen, clock } = world(on)
   await timeOut($, clock, seen)

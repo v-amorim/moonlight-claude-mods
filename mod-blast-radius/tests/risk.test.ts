@@ -169,6 +169,13 @@ const TABLE: Row[] = [
   ['psql <<EOF\nDROP DATABASE x;\nEOF', 'sql', DB],
   ['psql -c "DELETE FROM users WHERE id = 1"', null],
   ['psql -c "SELECT 1"', null],
+  ['snowsql -q "DROP TABLE x"', 'sql', DB],
+  ['beeline -e "DROP TABLE x"', 'sql', DB],
+  ['trino --execute "TRUNCATE TABLE x"', 'sql', DB],
+  ['dbt run-operation "DROP TABLE x"', 'sql', DB],
+  ['python3 -c "cur.execute(\'DROP SCHEMA s\')"', 'sql', DB],
+  ['uv run python run.py "DROP TABLE x"', 'sql', DB],
+  ['python3 -c "print(1)"', null],
   ['psql -c "ALTER TABLE a ADD COLUMN b int"', null],
   // SQL text matters only when a SQL client reads it
   ['echo "DROP TABLE users"', null],
@@ -224,6 +231,10 @@ const TABLE: Row[] = [
   ['git clean -d', 'rule', GIT],
   ['git checkout .', 'git-checkout', GIT],
   ['git restore .', 'git-checkout', GIT],
+  ['git checkout ./', 'rule', GIT],
+  ['git checkout ./src', 'rule', GIT],
+  ['git restore ./src', 'git-checkout', GIT],
+  ['git checkout .gitignore', null],
   ['git branch -D old', 'git-branch-delete', GIT],
   ['git branch -d merged', null],
   ['git branch', null],
@@ -263,6 +274,10 @@ const TABLE: Row[] = [
   ['gcloud composer environments delete e', 'rule', 'Destructive cloud operation (GCP bucket or resource deletion)'],
   ['gcloud sql instances delete i', 'rule', 'Destructive cloud operation (GCP bucket or resource deletion)'],
   ['gcloud projects delete p', 'rule', 'Destructive cloud operation (GCP bucket or resource deletion)'],
+  ['gsutil -m rm -r gs://bucket', 'rule', 'Destructive cloud operation (GCP bucket or resource deletion)'],
+  ['gsutil rm gs://bucket/object', 'rule', 'Destructive cloud operation (GCP bucket or resource deletion)'],
+  ['gcloud storage rm -r gs://bucket', 'rule', 'Destructive cloud operation (GCP bucket or resource deletion)'],
+  ['gsutil -m cp a gs://bucket', null],
   ['gsutil ls gs://bucket', null],
   ['gsutil cp a gs://bucket', null],
   ['gcloud projects list', null],
@@ -300,6 +315,11 @@ const TABLE: Row[] = [
   ['source .env', 'rule', 'Sensitive file access through the shell (possible credential exposure)'],
   ['cat .mcp.json', 'rule', 'Sensitive file access through the shell (possible credential exposure)'],
   ['echo $(cat .env)', 'rule', 'Sensitive file access through the shell (possible credential exposure)'],
+  ['echo $(grep KEY .env)', 'rule', 'Sensitive file access through the shell (possible credential exposure)'],
+  ['echo "key=$(awk 1 .env)"', 'rule', 'Sensitive file access through the shell (possible credential exposure)'],
+  ['echo $(<.env)', 'rule', 'Sensitive file access through the shell (possible credential exposure)'],
+  ['echo $(date)', null],
+  ['echo ".env is ignored"', null],
   ['cat .env.example', 'rule', 'Sensitive file access through the shell (possible credential exposure)'],
   ['cat README.md', null],
   // credential files
@@ -384,7 +404,7 @@ test('check table: every check holds what it should, with its reason, and lets t
 test('every check is covered by a table row that names its reason', () => {
   const named = new Set(TABLE.map(([, , reason]) => reason))
   for (const check of CHECKS) expect(named.has(check.reason), check.reason).toBe(true)
-  expect(CHECKS).toHaveLength(22)
+  expect(CHECKS).toHaveLength(23)
 })
 
 test('the order of the checks decides: the sharper reason wins', () => {
@@ -496,6 +516,57 @@ test('a pass entry lets a matching plain rm through, and an rm it does not match
   expect(classify('rm -rf build', rules)!.reason).toBe(RECURSIVE)
   expect(classify('rm --recursive build', rules)!.reason).toBe(RECURSIVE)
   expect(classify('rm a.txt', [])!.reason).toBe(FILE)
+})
+
+const ALONE_RM = String.raw`^\s*rm(?!.*\s(-[a-zA-Z]*[rR][a-zA-Z]*|--recursive)(\s|$))(?:\s+(?:-[a-zA-Z]+|--))*(?:\s+(?![/~]|[A-Za-z]:)(?!\S*\.\.)[^\s$` + '`' + String.raw`(){}<>~|&;]+)+\s*$`
+const ALONE_CD = String.raw`^\s*cd\s+(?![/~-]|[A-Za-z]:)(?!\S*\.\.)[^\s$` + '`' + String.raw`(){}<>~|&;]+\s*$`
+const aloneRules = () => compileRules(JSON.stringify([{ pattern: ALONE_RM, reason: 'Decided elsewhere', action: 'pass', alone: true }, { pattern: ALONE_CD, reason: 'cd below', action: 'pass', alone: true }]))
+
+test('an alone pass lets a plain rm of a relative path through, with cd below the folder and other passed rm beside it', () => {
+  const { rules, notes } = aloneRules()
+  expect(notes).toEqual([])
+  expect(rules.every(rule => rule.alone === true && rule.action === 'pass')).toBe(true)
+  for (const command of ['rm a.txt', 'rm -f a.txt b.txt', 'rm *.log', 'rm ./a.txt', 'rm -- a.txt', 'cd out && rm a.txt', 'rm a.txt && rm b.txt', 'cd out']) expect(classify(command, rules), command).toBe(null)
+})
+
+test('an alone pass never covers an rm that has company, leaves the folder, or is not plainly a path', () => {
+  const { rules } = aloneRules()
+  const held: [string, string][] = [
+    ['rm sub/../x', ROOT],
+    ['rm a.txt && npm run render', FILE],
+    ['echo hi && rm a.txt', FILE],
+    ['rm a.txt; python deploy.py', FILE],
+    ['rm a.txt | tee log', FILE],
+    ['rm a.txt || true', FILE],
+    ['rm a.txt > log.txt', FILE],
+    ['(cd .. && rm a.txt)', FILE],
+    ['cd .. && rm a.txt', FILE],
+    ['cd /etc && rm hosts', FILE],
+    ['pushd .. && rm a.txt', FILE],
+    ['cd - && rm a.txt', FILE],
+    ['rm /etc/hosts', FILE],
+    ['rm C:/x', FILE],
+    ['rm ~/x', FILE],
+    ['rm $F', FILE],
+    ['rm "$HOME/x"', FILE],
+    ['rm a.txt ${B}', FILE],
+    ['sudo rm a.txt', FILE],
+    ['bash -c "rm a.txt"', FILE],
+    ['bash -c "rm a.txt && rm b.txt"', FILE],
+  ]
+  for (const [command, reason] of held) expect(classify(command, rules)?.reason, command).toBe(reason)
+})
+
+test('an alone cd does not hide the folder a held command runs in', () => {
+  const { rules } = aloneRules()
+  expect(classify('cd out && rm -rf look', rules)).toMatchObject({ reason: RECURSIVE, dir: 'out' })
+})
+
+test('a pass without alone still judges the rest of the command, and alone must be the boolean true', () => {
+  const plain = passing()
+  expect(classify('rm a.txt && git reset --hard', plain.rules)!.reason).toBe(FORCE)
+  const odd = compileRules(JSON.stringify([{ pattern: PLAIN_RM, reason: 'x', action: 'pass', alone: 'yes' }, { pattern: 'terraform', reason: 'r', alone: true }]))
+  expect(odd.rules.map(rule => rule.alone)).toEqual([undefined, undefined])
 })
 
 test('a pass never lets through a step the built-in checks mark critical', () => {

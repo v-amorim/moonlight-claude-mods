@@ -1,6 +1,6 @@
 {
   "name": "mod-blast-radius",
-  "version": "1.4.0",
+  "version": "1.5.0",
   "description": "Holds a risky Bash command (rm, git reset --hard, force push, SQL DROP and more) before it runs, shows what it would change, and lets you Run or Cancel",
   "license": "MIT",
   "author": {
@@ -38,6 +38,28 @@
         "30 min"
       ],
       "default": "Off"
+    },
+    "onError": {
+      "type": "string",
+      "title": "On check error",
+      "description": "What happens to a command when Blast radius cannot check it: a check that throws, or a rules.json that cannot be read. Hold (the default) holds it on the card, or asks the permission system where no card can draw. Run lets it through",
+      "options": [
+        "Hold",
+        "Run"
+      ],
+      "default": "Hold"
+    },
+    "recycle": {
+      "type": "boolean",
+      "title": "Send rm to the bin",
+      "description": "A plain rm whose every target is inside the session folder goes to the OS bin instead of deleting, and runs with no card. Windows uses the Recycle Bin through PowerShell, macOS uses trash or Finder, Linux uses gio trash. Where no bin is available the card holds it as before. Outside that folder only files this session made, that your keep file and mod-wrap-up do not keep, go to the bin too. Off (the default), an rm is held",
+      "default": false
+    },
+    "alwaysCard": {
+      "type": "boolean",
+      "title": "Always show the card",
+      "description": "A command judged risky but measured harmless (a file that does not exist, nothing to overwrite) passes silently. On, it still shows the card. Off (the default), it runs at once",
+      "default": false
     },
     "icons": {
       "type": "string",

@@ -198,7 +198,8 @@ export default {
     "kindFindExec": "find -exec rm (can be as destructive as rm -rf)",
     "kindRedirect": "Truncating an existing file with > redirection",
     "kindRule": "Matched a rule",
-    "evaluateError": "Blast radius could not evaluate this command ({why})"
+    "evaluateError": "Blast radius could not evaluate this command ({why})",
+    "checkFailed": "The check failed ({why}), so Blast radius holds this command"
   },
   "labels": {
     "yourRule": "your rule",
@@ -322,6 +323,7 @@ export default {
     "tipShowAll": "shows every line",
     "tipShowLess": "shows the first lines only",
     "andMoreNotShown": "and {n} more not shown",
+    "sectionDoes": "What it does",
     "sectionTouches": "What it touches",
     "sectionUndo": "Can it be undone",
     "sectionFull": "Full command",
@@ -351,5 +353,5 @@ export default {
   "tipTabDetails": "shows the command held right now",
   "tipTabSettings": "shows this mod's settings",
   "tipToast": {"label":"Dismiss","text":"hides this message"},
-  "settingTips": {"enabled":"risky Bash waits for your choice","explain":"Haiku words the card; off, no call","idle":"a card nobody answers stops blocking Claude after this long"}
+  "settingTips": {"enabled":"risky Bash waits for your choice","explain":"Haiku words the card; off, no call","idle":"a card nobody answers stops blocking Claude after this long","onError":"a failed check holds the command on the card, or lets it run","recycle":"a plain rm inside the session folder goes to the bin","alwaysCard":"a risky command measured harmless still shows the card"}
 }

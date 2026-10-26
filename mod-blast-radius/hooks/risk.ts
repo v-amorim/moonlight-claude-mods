@@ -1,5 +1,6 @@
 // mod-blast-radius / hooks/risk.ts, by v-amorim
 // Pure matcher: which Bash commands are risky. No engine calls, so tests feed it plain strings.
+import { isDrivePath, native } from './paths'
 import words from './text'
 import { fill } from './theme'
 
@@ -39,8 +40,22 @@ export type Risk = {
   source?: 'hook' | 'blast' | 'rules' | 'error'
 }
 
-// action pass: a matching step skips the checks and the hold rules, unless a critical check marks it.
-export type UserRule = { re: RegExp; reason: string; action?: 'pass' }
+// action pass: a matching step skips the checks, unless a critical check marks it; alone: only when every step passes, as typed.
+export type UserRule = { re: RegExp; reason: string; action?: 'pass'; alone?: true }
+
+// Where the session runs: its folder (null when unknown) and the person's home folder.
+export type Session = { cwd: string | null; home: string }
+
+// Home, a whole drive, the root or an unknown folder: a relative path there says nothing about the project, so no pass rule lets an rm through.
+export function isBroadFolder(session: Session) {
+  const cwd = (session.cwd ?? '').trim()
+  if (!cwd) return true
+  const isWindows = isDrivePath(session.home) || isDrivePath(cwd)
+  const folder = native(cwd, isWindows)
+  if (folder === '/' || /^[A-Za-z]:\/$/.test(folder)) return true
+  const home = native(session.home, isWindows)
+  return home !== '.' && (isWindows ? folder.toLowerCase() === home.toLowerCase() : folder === home)
+}
 
 type Redirect = { target: string; append: boolean }
 type Segment = { words: string[]; redirects: Redirect[] }
@@ -482,7 +497,7 @@ const CRITICAL_DIR_NAMES = [
   String.raw`\.git`, String.raw`\.github`, String.raw`\.claude`, String.raw`\.vscode`,
   'src', 'helpers', 'resources', 'tests', 'scripts', 'fixtures',
 ]
-const CRITICAL_DIRS = CRITICAL_DIR_NAMES.join('|')
+export const CRITICAL_DIRS = CRITICAL_DIR_NAMES.join('|')
 
 // Top-level system folders whose wipe is critical; anything deeper is an ordinary recursive delete.
 const SYSTEM_DIRS = 'bin|boot|dev|etc|lib64|lib|opt|proc|root|sbin|srv|sys|usr|var|home|Users|System|Library|Applications'
@@ -503,7 +518,8 @@ export const CHECKS: Check[] = [
     label: 'rm -r',
     cmd: /^rm$/,
     unmasked: true,
-    pattern: new RegExp(String.raw`\brm\s+.*(-r|-R|--recursive).*\s+(${CRITICAL_DIRS})(/|$|\s)`),
+    // macOS and Windows disks ignore case, so Tests is the tests folder.
+    pattern: new RegExp(String.raw`\brm\s+.*(-r|-R|--recursive).*\s+(${CRITICAL_DIRS})(/|$|\s)`, 'i'),
     reason: words.reasons.criticalDelete,
     critical: true,
     source: 'temp',
@@ -549,7 +565,8 @@ export const CHECKS: Check[] = [
   {
     label: 'git destructive',
     cmd: /^git$/,
-    pattern: /\bgit\s+(clean\s+-[a-zA-Z]*[fd]|checkout\s+\.|restore\s+\.|branch\s+-D)\b/,
+    // A trailing \b never matches after ".", so the lookahead ends the match instead: `checkout ./src` holds, `checkout .gitignore` does not.
+    pattern: /\bgit\s+(clean\s+-[a-zA-Z]*[fd][a-zA-Z]*|checkout\s+\.|restore\s+\.|branch\s+-D)(?![\w.-])/,
     reason: words.reasons.gitDestructive,
     source: 'normalized',
     kinds: ['git-clean', 'git-checkout', 'git-branch-delete'],
@@ -597,7 +614,8 @@ export const CHECKS: Check[] = [
   {
     label: 'gcloud delete',
     cmd: /^(gcloud|gsutil)$/,
-    pattern: /\bgsutil\s+(rm|del|delete).*-r\b|\bgcloud\s+(dataproc|composer|sql).*delete\b|\bgcloud\s+projects\s+delete\b/i,
+    // gsutil takes options before the verb (`gsutil -m rm -r`), and removing one object is still a deletion.
+    pattern: /\bgsutil\s+(?:-\S+\s+)*(rm|del|delete)\b|\bgcloud\s+storage\s+rm\b|\bgcloud\s+(dataproc|composer|sql).*delete\b|\bgcloud\s+projects\s+delete\b/i,
     reason: words.reasons.gcloudDelete,
     source: 'normalized',
     kinds: [],
@@ -640,6 +658,16 @@ export const CHECKS: Check[] = [
     pattern: /\b(cat|less|head|tail|more|source|grep|sed|awk|bat)\s+(\.env\b|\.databrickscfg\b|\.mcp\.json\b)|\becho.*\$\(.*\.env/,
     reason: words.reasons.secretRead,
     source: 'normalized',
+    kinds: [],
+  },
+  {
+    // Quoted or not, an echoed substitution that reads .env prints the secret; the substitution is split out of the normalized steps, so only the raw text still shows it.
+    label: 'secret read',
+    cmd: /^echo$/,
+    unmasked: true,
+    pattern: /\becho\b.*\$\(.*\.env\b/,
+    reason: words.reasons.secretRead,
+    source: 'raw',
     kinds: [],
   },
   {
@@ -722,7 +750,7 @@ const RULE: Omit<Risk, 'label' | 'reason'> = { kind: 'rule', targets: [], args: 
 
 // ---- Steps: a rule applies to the command a step runs, not to words that merely appear in it ----
 
-const SQL_CLIENTS = new Set(['psql', 'mysql', 'mariadb', 'sqlite3', 'sqlcmd', 'usql', 'pgcli', 'mycli', 'sqlplus', 'duckdb', 'clickhouse-client', 'mongosh', 'cockroach', 'databricks', 'bq', 'spark-sql'])
+const SQL_CLIENTS = new Set(['psql', 'mysql', 'mariadb', 'sqlite3', 'sqlcmd', 'usql', 'pgcli', 'mycli', 'sqlplus', 'duckdb', 'clickhouse-client', 'mongosh', 'cockroach', 'databricks', 'bq', 'spark-sql', 'snowsql', 'beeline', 'trino', 'presto', 'impala-shell', 'isql', 'cqlsh', 'dbt', 'python', 'python3', 'py', 'uv'])
 const XARGS_VALUE_FLAGS = new Set(['-I', '-n', '-P', '-L', '-d', '-E', '-s', '-a', '-i'])
 
 export type Step = { line: string; words: string[]; cmd: string; args: string[]; viaXargs: boolean }
@@ -865,25 +893,32 @@ function passes(rule: UserRule, text: string) {
 }
 
 // The command without the steps a pass rule matches, or null when none matches. A step a critical check marks, one that hands text to a shell, and one with a substitution always stay.
-function withoutPassed(command: string, rules: UserRule[]) {
+function withoutPassed(command: string, rules: UserRule[], depth: number, session?: Session) {
   const passRules = rules.filter(rule => rule.action === 'pass')
   if (!passRules.length) return null
+  const all = normalizeSteps(command, false).split(/\r\n|\r|\n/)
+  // In a broad folder an rm is held whatever a pass rule says, since the rule's regex cannot see the folder.
+  const isBroad = session !== undefined && isBroadFolder(session)
+  const canPass = (line: string, alone: boolean) => {
+    const step = stepsOf(line)[0]
+    return Boolean(step && !innerOf(step) && !/\$\(|`/.test(step.line) && !isCriticalStep(step) && !(isBroad && step.cmd === 'rm') && passRules.some(rule => (!rule.alone || alone) && passes(rule, step.line.trim())))
+  }
+  // An alone rule counts toward "everything passes" here, and only applies when that holds.
+  const isAlone = depth === 0 && all.every(line => !stepsOf(line)[0] || canPass(line, true))
   const kept: string[] = []
   let dropped = false
-  for (const line of normalizeSteps(command, false).split(/\r\n|\r|\n/)) {
-    const step = stepsOf(line)[0]
-    const isPassed = step && !innerOf(step) && !/\$\(|`/.test(step.line) && !isCriticalStep(step) && passRules.some(rule => passes(rule, step.line.trim()))
-    if (isPassed) dropped = true
+  for (const line of all) {
+    if (canPass(line, isAlone)) dropped = true
     else kept.push(line)
   }
   return dropped ? kept.join('\n') : null
 }
 
 // The first risky thing in a command line, or null: the built-in checks, then what shells run, then this mod's extras, then the person's rules.
-export function classify(original: string, rules: UserRule[] = [], depth = 0): Risk | null {
+export function classify(original: string, rules: UserRule[] = [], depth = 0, session?: Session): Risk | null {
   const command = stripHeredocs(original)
-  const rest = withoutPassed(command, rules)
-  if (rest !== null) return classify(rest, rules.filter(rule => rule.action !== 'pass'), depth)
+  const rest = withoutPassed(command, rules, depth, session)
+  if (rest !== null) return classify(rest, rules.filter(rule => rule.action !== 'pass'), depth, session)
   // Temp logic reads whole lines, so `$(mktemp -d)` stays in one piece; the checks read the steps with substitutions split out.
   const lineText = normalizeSteps(command, false)
   const normalized = normalizeSteps(command)
@@ -896,7 +931,7 @@ export function classify(original: string, rules: UserRule[] = [], depth = 0): R
   const applies = (check: Check, step: Step) => (!check.cmd || check.cmd.test(step.cmd)) && (!check.viaXargs || step.viaXargs)
   const isHit = (check: Check) => {
     if (check.kind === 'sql') return hasClient && check.pattern.test(normalized)
-    if (check.source === 'raw') return steps.some(step => applies(check, step)) && check.pattern.test(maskQuoted(command))
+    if (check.source === 'raw') return steps.some(step => applies(check, step)) && check.pattern.test(check.unmasked ? command : maskQuoted(command))
     return (check.source === 'temp' ? tempSteps : steps).some(step => applies(check, step) && check.pattern.test(check.unmasked ? step.line : maskQuoted(step.line)))
   }
 
@@ -913,7 +948,7 @@ export function classify(original: string, rules: UserRule[] = [], depth = 0): R
   if (depth < 3) {
     for (const step of steps) {
       const inner = innerOf(step)
-      const risk = inner ? classify(inner, rules, depth + 1) : null
+      const risk = inner ? classify(inner, rules, depth + 1, session) : null
       if (risk) return risk
     }
   }
@@ -935,34 +970,38 @@ export function classify(original: string, rules: UserRule[] = [], depth = 0): R
   return null
 }
 
+// The hold a failed check puts on a command: no verdict, only the reason it failed.
+export const errorRisk = (reason: string): Risk => ({ kind: 'rule', label: words.labels.couldNotEvaluate, reason, targets: [], args: [], dir: null, isError: true, source: 'error' })
+
 // A matcher that throws holds the command anyway: an error never lets one through.
-export function evaluate(value: unknown, rules: UserRule[] = []): { risk: Risk | null; command: string } {
+export function evaluate(value: unknown, rules: UserRule[] = [], session?: Session): { risk: Risk | null; command: string } {
   let command = '(unreadable command)'
   try {
     command = typeof value === 'string' ? value : String(value ?? '')
-    return { risk: classify(command, rules), command }
+    return { risk: classify(command, rules, 0, session), command }
   } catch (error) {
     const why = String((error as Error)?.message ?? error).slice(0, 80)
-    return { risk: { kind: 'rule', label: words.labels.couldNotEvaluate, reason: fill(words.reasons.evaluateError, { why }), targets: [], args: [], dir: null, isError: true, source: 'error' }, command }
+    return { risk: errorRisk(fill(words.reasons.evaluateError, { why })), command }
   }
 }
 
 // A longer pattern is skipped: it runs on every Bash call, and a huge one can stall the hook.
 const MAX_PATTERN = 500
 
-// rules.json: an array of { pattern, reason, flags?, action? }, where action is "pass" or the default "hold". A bad entry is skipped with a note; the built-in checks never depend on it.
-export function compileRules(text: string): { rules: UserRule[]; notes: string[] } {
+// rules.json: an array of { pattern, reason, flags?, action?, alone? }, where action is "pass" or the default "hold", and alone (pass only) makes a step pass only when nothing else but passed steps runs beside it. A bad entry is skipped with a note; the built-in checks never depend on it.
+// isBroken: the file as a whole could not be used, as opposed to one entry skipped.
+export function compileRules(text: string): { rules: UserRule[]; notes: string[]; isBroken?: true } {
   let data: unknown
   try {
     data = JSON.parse(text)
   } catch (error) {
-    return { rules: [], notes: [fill(words.rulesNotes.notJson, { why: String((error as Error).message).slice(0, 60) })] }
+    return { rules: [], notes: [fill(words.rulesNotes.notJson, { why: String((error as Error).message).slice(0, 60) })], isBroken: true }
   }
-  if (!Array.isArray(data)) return { rules: [], notes: [words.rulesNotes.notArray] }
+  if (!Array.isArray(data)) return { rules: [], notes: [words.rulesNotes.notArray], isBroken: true }
   const rules: UserRule[] = []
   const notes: string[] = []
   data.forEach((entry, index) => {
-    const item = entry as { pattern?: unknown; reason?: unknown; flags?: unknown; action?: unknown } | null
+    const item = entry as { pattern?: unknown; reason?: unknown; flags?: unknown; action?: unknown; alone?: unknown } | null
     if (!item || typeof item.pattern !== 'string' || typeof item.reason !== 'string' || (item.flags !== undefined && typeof item.flags !== 'string') || (item.action !== undefined && typeof item.action !== 'string')) {
       notes.push(fill(words.rulesNotes.needsFields, { n: index + 1 }))
       return
@@ -972,7 +1011,7 @@ export function compileRules(text: string): { rules: UserRule[]; notes: string[]
       return
     }
     try {
-      rules.push({ re: new RegExp(item.pattern, (item.flags ?? '').replace(/[gy]/g, '')), reason: item.reason, ...(item.action === 'pass' ? { action: 'pass' as const } : {}) })
+      rules.push({ re: new RegExp(item.pattern, (item.flags ?? '').replace(/[gy]/g, '')), reason: item.reason, ...(item.action === 'pass' ? { action: 'pass' as const, ...(item.alone === true ? { alone: true as const } : {}) } : {}) })
     } catch (error) {
       notes.push(fill(words.rulesNotes.skipped, { n: index + 1, why: String((error as Error).message).slice(0, 60) }))
     }

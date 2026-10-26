@@ -10,7 +10,10 @@ import { ACTION_EXTRA, ACTION_GAP, actionLabels, canOpenDoes, cardRows, HOTKEY, 
 import { describePrompt, parseDescribed, SYSTEM, verdictOf, type Described } from './haiku'
 import { colorLines, colorStep, LEGEND, wrapSpans, type Role, type Span } from './syntax'
 import { measure, tilde, type Io, type Report } from './preview'
-import { CHECKS, compileRules, evaluate, type Risk, type UserRule } from './risk'
+import { CHECKS, compileRules, errorRisk, evaluate, type Risk, type Session, type UserRule } from './risk'
+import { outsideTargets, planRecycle, sessionRoot } from './recycle'
+import { approvalKey, approveOutside, birthArgv, compileKeep, parseBirths, type Keep, type OutsideFs } from './outside'
+import { native } from './paths'
 import { actionReveals, settingChoice, settingsBody, type Action, type Previews } from './settings'
 import { recordSpend } from './spend'
 import style from './style'
@@ -24,6 +27,7 @@ const LIST_PANE = 'blast-radius-list'
 const DETAILS_TAB = 'mod-blast-radius-details-tab'
 const SETTINGS_TAB = 'mod-blast-radius-settings-tab'
 const RULES_FILE = '.claude/mods-data/mod-blast-radius/rules.json'
+const KEEP_FILE = 'mods-data/mod-blast-radius/keep.json'
 const BUILT_IN = [...new Set(CHECKS.map(check => check.reason))]
 
 type Unit = { one: string; many: string }
@@ -56,6 +60,12 @@ let isEnabled = true
 let isExplaining = false
 // Opt-in: ms a card waits with no answer before its call is refused; 0 never.
 let idleMs = 0
+// On check error: Hold (the default) holds a command whose check failed; Run lets it through.
+let isFailClosed = true
+// Opt-in: a plain rm inside the session folder goes to the OS bin, with no card.
+let isBinning = false
+// Opt-in: a risky command measured harmless still shows the card.
+let isAlwaysCard = false
 let iconMode: IconMode = 'auto'
 let look: Look = lookFor(false)
 
@@ -173,7 +183,8 @@ function loadLook($: EngineInterface) {
   return lookLoad
 }
 
-type Rules = { path: string; mtimeMs: number; rules: UserRule[]; notes: string[] }
+// error: the file as a whole could not be used, so the person's rules are missing from every verdict.
+type Rules = { path: string; mtimeMs: number; rules: UserRule[]; notes: string[]; error?: string }
 let rulesCache: Rules | null = null
 
 // Claude's config folder: CLAUDE_CONFIG_DIR when set, else ~/.claude. The literal name is for the host's static scan.
@@ -190,21 +201,114 @@ async function loadRules($: EngineInterface): Promise<Rules> {
     const stat = await $.fs.stat(path).catch(() => null)
     if (!stat) return (rulesCache = { path, mtimeMs: -1, rules: [], notes: [] })
     if (rulesCache?.path === path && rulesCache.mtimeMs === stat.mtimeMs) return rulesCache
-    const compiled = compileRules(String(await $.fs.read(path)))
-    return (rulesCache = { path, mtimeMs: stat.mtimeMs, ...compiled })
+    const { rules, notes, isBroken } = compileRules(String(await $.fs.read(path)))
+    return (rulesCache = { path, mtimeMs: stat.mtimeMs, rules, notes, ...(isBroken ? { error: notes[0]! } : {}) })
   } catch (error) {
-    return { path, mtimeMs: -1, rules: [], notes: [fill(text.rulesNotes.unreadable, { why: String((error as Error)?.message ?? error).slice(0, 60) })] }
+    const note = fill(text.rulesNotes.unreadable, { why: String((error as Error)?.message ?? error).slice(0, 60) })
+    return { path, mtimeMs: -1, rules: [], notes: [note], error: note }
   }
 }
 
-const judge = async ($: EngineInterface, value: unknown) => evaluate(value, (await loadRules($)).rules)
+// keep.json, re-read only when its mtime moves. A missing file keeps nothing; a broken or unreadable one is null, which keeps everything outside the session folder.
+let keepCache: { path: string; mtimeMs: number; keep: Keep } | null = null
+
+async function loadKeep($: EngineInterface, home: string, isWindows: boolean): Promise<Keep | null> {
+  try {
+    const path = `${await configDir($)}/${KEEP_FILE}`
+    const stat = await $.fs.stat(path).catch(() => null)
+    if (!stat) return { entries: [] }
+    if (keepCache?.path === path && keepCache.mtimeMs === stat.mtimeMs) return keepCache.keep
+    const keep = compileKeep(String(await $.fs.read(path)), home, isWindows)
+    keepCache = { path, mtimeMs: stat.mtimeMs, keep }
+    return keep
+  } catch {
+    return null
+  }
+}
+
+// When this mod first saw the session; a /clear or a resume is a new session id, so it starts a new time. Null when it cannot be known.
+let seenSession: { id: string; at: number } | null = null
+
+async function noteSession($: EngineInterface): Promise<number | null> {
+  try {
+    const id = String(await $.session.id())
+    if (seenSession?.id === id) return seenSession.at
+    const saved = (await $.store.get('session-start').catch(() => undefined)) as { id?: unknown; at?: unknown } | undefined
+    const isSaved = saved?.id === id && typeof saved.at === 'number'
+    const at = isSaved ? (saved.at as number) : await $.clock.now()
+    seenSession = { id, at }
+    if (!isSaved) await $.store.set('session-start', { id, at }).catch(() => undefined)
+    return at
+  } catch {
+    return null
+  }
+}
+
+// The delete targets outside the session folder that may go to the bin with no card (see outside.ts); a check that throws approves nothing.
+async function approveTargets($: EngineInterface, targets: string[], session: Session, isWindows: boolean) {
+  try {
+    const root = sessionRoot(session, isWindows)
+    if (root === null) return new Set<string>()
+    const pending = (await $.state.get({ plugin: 'mod-wrap-up', key: 'pending' })).value
+    const io: OutsideFs = {
+      stat: async path => {
+        const stat = await $.fs.stat(path)
+        return { kind: stat.kind, isLink: stat.isLink }
+      },
+      exists: path => $.fs.stat(path).then(() => true, () => false),
+      list: async path => (await $.fs.list(path)).map(entry => ({ name: entry.name, kind: entry.kind, isLink: entry.isLink })),
+      births: async paths => {
+        const ran = await $.process.run(birthArgv(paths, isWindows), { timeoutMs: 15000 })
+        return ran.exitCode === 0 ? parseBirths(ran.stdout, paths.length) : paths.map(() => null)
+      },
+    }
+    const standing = { startedAt: await noteSession($), keep: await loadKeep($, session.home, isWindows), pending: Array.isArray(pending) ? pending.filter(item => typeof item === 'string') : undefined, isWindows, home: native(session.home, isWindows), root }
+    return await approveOutside(targets, standing, io)
+  } catch {
+    return new Set<string>()
+  }
+}
+
+async function sessionOf($: EngineInterface): Promise<Session> {
+  const cwd = String((await $.session.cwd().catch(() => '')) ?? '')
+  return { cwd: cwd || null, home: (await $.env.get('USERPROFILE')) ?? (await $.env.get('HOME')) ?? '' }
+}
+
+// failed: why the check could not finish; isPartial: only rules.json was lost, so the built-in checks still ran.
+type Judged = { risk: Risk | null; command: string; session?: Session; rules?: UserRule[]; failed?: string; isPartial?: true }
+
+const failure = (why: unknown) => fill(text.reasons.checkFailed, { why: String((why as Error)?.message ?? why).slice(0, 80) })
+
+async function judge($: EngineInterface, value: unknown): Promise<Judged> {
+  const session = await sessionOf($)
+  const { rules, error } = await loadRules($)
+  return { ...evaluate(value, rules, session), session, rules, ...(error ? { failed: failure(error), isPartial: true as const } : {}) }
+}
+
+// A judge that throws is a failed check, never an exception.
+async function judgeSafely($: EngineInterface, value: unknown): Promise<Judged> {
+  try {
+    return await judge($, value)
+  } catch (error) {
+    return { risk: null, command: typeof value === 'string' ? value : String(value ?? ''), failed: failure(error) }
+  }
+}
+
+// The check could not tell: it threw, or the matcher itself failed. A lost rules.json alone is not this, since the built-in checks held.
+const isCheckBroken = (judged: Judged) => (judged.failed !== undefined && !judged.isPartial) || judged.risk?.isError === true
+
+// On check error: Hold keeps a failed check on the card, Run lets the command through.
+function applyOnError(judged: Judged): Judged {
+  if (isFailClosed) return judged.failed === undefined ? judged : { ...judged, risk: judged.risk ?? errorRisk(judged.failed) }
+  return isCheckBroken(judged) ? { ...judged, risk: null } : judged
+}
 
 // Haiku rewrites the card's words once per command; the rule's own text shows until it answers, and stays when it fails.
 const describedCache = new Map<string, Described>()
 
 async function describe($: EngineInterface, mine: Held) {
   if (!isExplaining) return
-  const rules = (await loadRules($)).rules
+  const { rules } = await loadRules($)
   const risky = segmentsOf(mine.command, rules).filter(step => step.risk)
   let found = describedCache.get(mine.command)
   if (!found) {
@@ -275,9 +379,31 @@ const PAUSES = {
 let pauseAt = 0
 let isWindows: boolean | undefined
 
+async function isWindowsHost($: EngineInterface) {
+  isWindows ??= (await $.env.get('OS')) === 'Windows_NT'
+  return isWindows
+}
+
+// The helper that sends paths to this machine's bin, or null where there is none; settled once per activation.
+let binScript: Promise<string | null> | null = null
+
+function prepareBin($: EngineInterface) {
+  binScript ??= (async () => {
+    try {
+      const run = async (argv: string[]) => (await $.process.run(argv, { timeoutMs: 15000 })).exitCode === 0
+      const hasBin = (await isWindowsHost($))
+        ? await run(['powershell', '-NoProfile', '-NonInteractive', '-Command', 'Add-Type -AssemblyName Microsoft.VisualBasic'])
+        : await run(['sh', '-c', (await $.process.run(['uname', '-s'], { timeoutMs: 5000 })).stdout.trim() === 'Darwin' ? 'command -v trash || command -v osascript' : 'command -v gio'])
+      return hasBin ? `${$.plugin.root.replace(/\\/g, '/').replace(/\/+$/, '')}/bin/recycle.sh` : null
+    } catch {
+      return null
+    }
+  })()
+  return binScript
+}
+
 async function pause($: EngineInterface) {
-  if (isWindows === undefined) isWindows = (await $.env.get('OS')) === 'Windows_NT'
-  const choices = isWindows ? PAUSES.windows : PAUSES.other
+  const choices = (await isWindowsHost($)) ? PAUSES.windows : PAUSES.other
   // The last waiter that worked goes first, yet every one is tried before giving up, so one slow run never sticks.
   for (let tried = 0; tried < choices.length; tried++) {
     const at = (pauseAt + tried) % choices.length
@@ -724,7 +850,7 @@ async function holdRisky($: EngineInterface, next:{ signal: AbortSignal }, risk:
   try {
     mine.report = await measure(ioOf($), risk)
     mine.plain = plainFor(risk, mine.report)
-    if (mine.report.isHarmless) {
+    if (mine.report.isHarmless && !isAlwaysCard) {
       isSilent = true
       mine.decision = 'run'
     } else {
@@ -837,6 +963,10 @@ export const register: Register = (on, options) => {
   isEnabled = options.enabled !== false
   isExplaining = options.explain === true
   idleMs = idleOf(options.idle)
+  isFailClosed = options.onError !== 'Run'
+  isBinning = options.recycle === true
+  isAlwaysCard = options.alwaysCard === true
+  binScript = null
   waiting.clear()
   iconMode = (options.icons as IconMode | undefined) ?? 'auto'
   // A forced mode needs no detection; auto loads the saved answer, then checks the terminal font beside the hooks.
@@ -850,6 +980,7 @@ export const register: Register = (on, options) => {
       argumentHint: '[settings]',
     })
     await $.state.set({ plugin: 'mod-blast-radius', key: 'pane' }, await isSettingsOpen($))
+    if (isBinning) await noteSession($)
     $.ui.invalidate('ui.render')
 
     return next(e)
@@ -857,13 +988,22 @@ export const register: Register = (on, options) => {
 
   on('tool.call', { tool: 'Bash' }, async ($, e, next) => {
     if (!isEnabled) return next(e)
-    let judged: Awaited<ReturnType<typeof judge>>
-    try {
-      judged = await judge($, e.command)
-    } catch (error) {
-      // A broken check must not block every command; only a command judged risky fails closed.
-      warnOnce($, error)
-      return next(e)
+    const seen = await judgeSafely($, e.command)
+    // With On check error set to Run, a check that failed lets the command through and says so once.
+    if (!isFailClosed && isCheckBroken(seen)) warnOnce($, seen.failed ?? seen.risk?.reason)
+    const judged = applyOnError(seen)
+    // A plain rm inside the session folder goes to the bin, with no card; the person's passed rules and holds are no reason to delete for good.
+    if (isBinning && judged.failed === undefined) {
+      const recycling = { session: judged.session!, isWindows: await isWindowsHost($), rules: judged.rules! }
+      let plan = planRecycle(e.command, recycling)
+      // Outside that folder only a target this session made, that nothing keeps and the ledger does not name, goes with no card.
+      const outside = plan ? [] : outsideTargets(e.command, recycling)
+      if (outside.length > 0) {
+        const approved = await approveTargets($, outside, recycling.session, recycling.isWindows)
+        plan = planRecycle(e.command, { ...recycling, outside: path => approved.has(approvalKey(path, recycling.isWindows)) })
+      }
+      const script = plan ? await prepareBin($) : null
+      if (plan && script) return next({ ...e, command: plan(script) })
     }
     if (!judged.risk) return next(e)
     let outcome: 'run' | { deny: string }
@@ -890,7 +1030,7 @@ export const register: Register = (on, options) => {
   on('tool.check', async ($, e, next) => {
     let verdict = await next(e)
     if (e.tool === 'Bash' && isEnabled && verdict.decision !== 'deny' && !(await canDraw($))) {
-      const { risk } = await judge($, (e.input as { command?: unknown } | null)?.command)
+      const { risk } = applyOnError(await judgeSafely($, (e.input as { command?: unknown } | null)?.command))
       if (risk) verdict = { decision: 'ask', reason: fill(text.ui.askReason, { reason: risk.reason }) }
     }
     await noteCheck($, e, verdictOfCheck(verdict.decision))
@@ -927,6 +1067,8 @@ export const register: Register = (on, options) => {
   on('turn.start', async ($, e, next) => {
     if (!(e as { agentId?: string }).agentId) {
       working = true
+      // session.start does not fire again after /clear, so each turn start settles the new session's time before its tools run.
+      if (isBinning) await noteSession($)
       $.ui.invalidate('ui.render')
     }
 
@@ -955,7 +1097,7 @@ export const register: Register = (on, options) => {
       const { source } = whyOf(risk)
       const home = (await $.env.get('USERPROFILE')) ?? (await $.env.get('HOME')) ?? ''
       const plainText = (key: string, value: string, color: string, extra: Record<string, unknown> = {}) => <Text key={key} color={color} wrap="wrap" {...extra}>{value}</Text>
-      const rules = (await loadRules($)).rules
+      const { rules } = await loadRules($)
       const { shown, rest } = stepsView(segmentsOf(command, rules))
       // Haiku's step sentences line up with the risky steps only, so a shown step maps to its place among them.
       const riskyIndex = (index: number) => shown.slice(0, index).filter(step => step.risk).length
@@ -1028,7 +1170,7 @@ export const register: Register = (on, options) => {
         <Box flexDirection="column" backgroundColor={THEME.bg} paddingX={1} minHeight={e.props.scroll.bodyRows}>
           {tabRow({ Box, Client, Text }, look.nerd, tabs(false), still)}
           <Text color={THEME.muted} wrap="truncate-end">{`${text.ui.readOnly} ${MARK.sep} ${text.ui.answerOnCard}`}</Text>
-          {section({ Box, Text }, look, 'does', '', '', [...does, plainText('why-source', fill(text.ui.heldBy, { source: source.replace(/\.$/, '') }), THEME.muted, { key: 'why-source' })])}
+          {section({ Box, Text }, look, 'does', 'menu-headsup', text.ui.sectionDoes, [...does, plainText('why-source', fill(text.ui.heldBy, { source: source.replace(/\.$/, '') }), THEME.muted, { key: 'why-source' })])}
           {section({ Box, Text }, look, 'touches', 'tool', text.ui.sectionTouches, touches)}
           {section({ Box, Text }, look, 'undo', 'actions', text.ui.sectionUndo, [plainText('undo-text', plain.undo, THEME.onSurface)])}
           {section({ Box, Text }, look, 'full', 'prompt', text.ui.sectionFull, fullRows)}
@@ -1120,7 +1262,7 @@ export const register: Register = (on, options) => {
     // The waiting chip ends the pill row; with labels off, or a row too narrow for the words, it shows the icon and the count only.
     const chips = [...waiting.values()]
     const drawRow = async (group: unknown[], row: unknown[], rest: unknown[], tip: unknown) => {
-      const labels = labelsOf(((await $.state.get({ plugin: 'mod-menu', key: 'labels' }).catch(() => undefined)) as { value?: unknown } | undefined)?.value)
+      const labels = labelsOf((await $.state.get({ plugin: 'mod-menu', key: 'labels' }).catch(() => undefined))?.value)
       const draw = (mode: 'full' | 'count') => pillRow({ Box, Client, Text }, look.nerd, group, [...row, waitChip({ Box, Client, Text }, mode, chips.length, (chips.find(each => !each.answer) ?? chips[0]!).held.command)], rest, tip, e.props.bodyColumns)
       const full = draw(labels === 'never' ? 'count' : 'full')
       return labels !== 'never' && isChipCut(full) ? draw('count') : full

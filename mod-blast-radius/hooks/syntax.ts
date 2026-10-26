@@ -167,7 +167,7 @@ export function wrapSpans(lines: Span[][], width: number, maxRows: number) {
       space = null
       // Only a word longer than the whole row is cut.
       for (const piece of token.pieces) {
-        let text = piece.text
+        let { text } = piece
         while (text.length) {
           if (used === width) breakRow()
           const take = text.slice(0, width - used)

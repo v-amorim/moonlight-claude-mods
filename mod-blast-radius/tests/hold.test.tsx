@@ -53,6 +53,10 @@ type World = {
   failsOnce?: string[]
   rules?: { text: string; mtimeMs: number }
   noCwd?: boolean
+  // The session folder, in place of C:/w.
+  cwd?: string
+  // The machine has no recycle bin: the probe for one fails.
+  noBin?: boolean
   // What the engine's own tool.check says beneath the mod.
   verdict?: string
   verdictReason?: string
@@ -68,16 +72,26 @@ type World = {
   callThrows?: boolean
   // The mod's own /config rows, as the engine lists them.
   configRows?: Record<string, unknown>[]
+  // Outside the session folder: extra files and folders, the session's first-seen time, the birth time of each path in ms (null or missing: unreadable), keep.json, and what mod-wrap-up publishes.
+  files?: Record<string, { kind: 'file' | 'dir'; size: number }>
+  startedAt?: number
+  born?: Record<string, number | null>
+  keep?: { text: string; mtimeMs: number }
+  pending?: string[]
+  noSession?: boolean
+  birthFails?: boolean
 }
 
 // Everything the engine would answer, plus a record of what the hold did.
 function world(on: (event: string, handler: (...args: any[]) => unknown) => void, setup: World = {}) {
-  const seen = { ran: 0, toasts: [] as string[], argv: [] as string[], reads: 0, stats: 0, panes: new Set<string>(), opened: [] as string[], failed: new Set<string>() }
+  const seen = { ran: 0, commands: [] as string[], toasts: [] as string[], argv: [] as string[], births: [] as string[][], reads: 0, stats: 0, panes: new Set<string>(), opened: [] as string[], failed: new Set<string>() }
+  const files = { ...FILES, ...setup.files }
+  const keepPath = `${setup.configDir ? setup.configDir.replace(/\\/g, '/').replace(/\/$/, '') : 'C:/Users/me/.claude'}/mods-data/mod-blast-radius/keep.json`
   const rules = { current: setup.rules }
   const clock = mock.clock(on as never)
   on('session.cwd', () => {
     if (setup.noCwd) throw new Error('no cwd')
-    return { value: 'C:/w' }
+    return { value: setup.cwd ?? 'C:/w' }
   })
   on('session.surfaces', () => ({ value: setup.surfaces ?? ['terminal'] }))
   on('env.get', (_$: unknown, e: { name: string }) => {
@@ -92,12 +106,24 @@ function world(on: (event: string, handler: (...args: any[]) => unknown) => void
       if (!rules.current) throw new Error('ENOENT')
       return { value: { kind: 'file', size: 1, mtimeMs: rules.current.mtimeMs, isLink: false } }
     }
-    const node = FILES[path]
+    if (path === keepPath) {
+      if (!setup.keep) throw new Error('ENOENT')
+      return { value: { kind: 'file', size: 1, mtimeMs: setup.keep.mtimeMs, isLink: false } }
+    }
+    const node = files[path]
     if (!node) throw new Error('ENOENT')
     return { value: { ...node, mtimeMs: 0, isLink: false } }
   })
+  on('session.id', () => {
+    if (setup.noSession) throw new Error('gone')
+    return { value: 's1' }
+  })
+  on('store.get', (_$: unknown, e: { key: string }) => ({ value: e.key === 'session-start' && setup.startedAt !== undefined ? { id: 's1', at: setup.startedAt } : undefined }))
+  on('store.set', () => ({ value: undefined }))
+  on('state.get', () => ({ value: { value: setup.pending } }))
   on('fs.read', (_$: unknown, e: { path: string }) => {
     const path = asGiven(e.path)
+    if (path === keepPath && setup.keep) return { value: setup.keep.text }
     if (path === rulesPath && rules.current) {
       seen.reads++
       return { value: rules.current.text }
@@ -106,10 +132,18 @@ function world(on: (event: string, handler: (...args: any[]) => unknown) => void
   })
   on('fs.list', (_$: unknown, e: { path: string }) => {
     const prefix = `${asGiven(e.path).replace(/\/$/, '')}/`
-    const names = Object.entries(FILES).filter(([path]) => path.startsWith(prefix) && !path.slice(prefix.length).includes('/'))
+    const names = Object.entries(files).filter(([path]) => path.startsWith(prefix) && !path.slice(prefix.length).includes('/'))
     return { value: names.map(([path, node]) => ({ name: path.slice(prefix.length), kind: node.kind, size: node.size, mtimeMs: 0, isLink: false })) }
   })
   on('process.run', async (_$: unknown, e: { argv: string[] }) => {
+    if (setup.noBin && e.argv.join(' ').includes('Microsoft.VisualBasic')) return { value: { exitCode: 1, stdout: '', stderr: 'no bin' } }
+    // The one process that reads birth times: its paths sit in the script's list, and each answers a line.
+    if (e.argv.some(part => part.includes('CreationTimeUtc'))) {
+      const list = /foreach \(\$p in @\((.*?)\)\) \{/.exec(e.argv.join(' '))?.[1] ?? ''
+      const paths = [...list.matchAll(/'([^']*)'/g)].map(match => match[1]!)
+      seen.births.push(paths)
+      return { value: { exitCode: setup.birthFails ? 1 : 0, stdout: setup.birthFails ? '' : paths.map(path => setup.born?.[path] ?? 'ERR').join('\r\n'), stderr: '' } }
+    }
     seen.argv.push(e.argv.join(' '))
     if (setup.missing?.includes(e.argv[0]!)) throw new Error('cannot start')
     if (setup.failsOnce?.includes(e.argv[0]!) && !seen.failed.has(e.argv[0]!)) {
@@ -145,8 +179,9 @@ function world(on: (event: string, handler: (...args: any[]) => unknown) => void
   on('state.set', () => ({ value: { isSet: true, version: 1 } }))
   on('config.list', () => ({ value: setup.configRows ?? [] }))
   on('tool.check', () => ({ decision: setup.verdict ?? 'allow', ...(setup.verdictReason ? { reason: setup.verdictReason } : {}) }))
-  on('tool.call', () => {
+  on('tool.call', (_$: unknown, e: { command?: string }) => {
     seen.ran++
+    seen.commands.push(String(e.command ?? ''))
     if (setup.callThrows) throw new Error('disk full')
     return { result: { text: 'ran' } }
   })
@@ -681,9 +716,7 @@ test('Details is on every card, even a short one, and opens the read-only pane; 
   expect(await labelOf(pane, 'mod-blast-radius-details-tab')).toBe(' Details ')
   expect(await labelOf(pane, 'mod-blast-radius-settings-tab')).toBe(' Settings ')
   expect(await textOf(pane, /^Read only/)).toBe('Read only · answer on the card above the prompt')
-  // The command's own card carries no heading.
-  expect(await textOf(pane, /What this command does/)).toBeUndefined()
-  for (const title of ['What it touches', 'Can it be undone', 'Full command']) expect(await textOf(pane, new RegExp(title))).toBeDefined()
+  for (const title of ['What it does', 'What it touches', 'Can it be undone', 'Full command']) expect(await textOf(pane, new RegExp(title))).toBeDefined()
   expect(seen.ran).toBe(0)
   await pane.unmount()
 
@@ -723,7 +756,32 @@ test('Details sections: each piece of the command, why it was held, what it touc
   await band.unmount()
 })
 
-test('Details: a long script is one step, the full command is capped at twelve rows, and the card never shows it', { options: { icons: 'safe' } }, async ($, on) => {
+for (const mode of ['nerd', 'safe'] as const) {
+  test(`Details: the first card has its What it does header, drawn before the sibling headers, with its own icon only in Nerd mode (icons ${mode})`, { options: { icons: mode } }, async ($, on) => {
+    const { seen } = world(on)
+    const call = $.tool.call({ tool: 'Bash', command: 'cd ~ && rm -r blast-radius-demo' })
+    await holding(seen)
+    const band = await $.ui.mount({ plugin: PLUGIN, surface: 'terminal', ...BAND })
+    await click(band, 'blast-details')
+    const pane = await $.ui.mount({ plugin: PLUGIN, surface: 'terminal', ...DETAILS })
+
+    const tree = JSON.stringify(await pane.drawn())
+    expect(await textOf(pane, /What it does/)).toBe('What it does')
+    expect(tree.indexOf('What it does')).toBeGreaterThan(-1)
+    expect(tree.indexOf('What it does')).toBeLessThan(tree.indexOf('What it touches'))
+    // The header sits on the card's own top edge, so it adds no row; its icon is the alert glyph (U+EA6C), and safe mode draws none, as the sibling headers do.
+    const alert = String.fromCodePoint(0xea6c)
+    const iconOf = (edge: string, title: string) => tree.slice(tree.indexOf(edge), tree.indexOf(title)).includes(alert)
+    expect(iconOf('does-edge', 'What it does')).toBe(mode === 'nerd')
+    for (const [edge, title] of [['touches-edge', 'What it touches'], ['undo-edge', 'Can it be undone'], ['full-edge', 'Full command']]) expect(iconOf(edge!, title!)).toBe(false)
+    await pane.unmount()
+    await endHold(band)
+    await call
+    await band.unmount()
+  })
+}
+
+test('Details: a long script is one step, the full command is capped at twelve rows, and the card never shows it',{ options: { icons: 'safe' } }, async ($, on) => {
   const script = Array.from({ length: 40 }, (_, index) => `console.log("line ${index}")`).join('\n')
   const command = `cd ~ && node - <<'EOF'\n${script}\nEOF\n && rm -r blast-radius-demo`
   const { seen } = world(on)
@@ -1199,7 +1257,7 @@ test('every git call of the preview turns off the repo\u2019s fsmonitor and hook
   })
 })
 
-test('a check that throws lets the command run and toasts once, so one broken rule never blocks every command', async ($, on) => {
+test('On check error = Run: a check that throws lets the command run and toasts once', { options: { onError: 'Run' } }, async ($, on) => {
   const { seen } = world(on, { envThrows: true })
   const first = JSON.stringify(await $.tool.call({ tool: 'Bash', command: 'ls' }))
   await sleep(20)
@@ -1501,4 +1559,377 @@ test('Show all: hovering the control posts its tip', async ($, on) => {
     await band.pointer({ type: 'move', x: 1, y: 0, in: MORE_KEY })
     expect(await band.find({ type: 'Text', text: /shows the whole sentence/ })).toBeDefined()
   }, bandOf(24, 120))
+})
+
+// ---- On check error: Hold fails closed, Run lets the command through ----
+
+const BROKEN_RULES = { text: 'not json', mtimeMs: 1 }
+
+// A command that must not be held ends at once; a hold that wrongly starts is cut short here instead of hanging the test.
+const settles = async (call: Promise<unknown>) => Promise.race([call, sleep(1500).then(() => 'still held')])
+
+test('On check error = Hold (the default): a broken rules.json holds even a harmless command on the card, with a reason saying the check failed', async ($, on) => {
+  const { seen } = world(on, { rules: BROKEN_RULES })
+  const call = $.tool.call({ tool: 'Bash', command: 'ls' })
+  await holding(seen)
+  const band = await $.ui.mount({ plugin: PLUGIN, surface: 'terminal', ...BAND })
+  expect(await band.find({ key: 'blast-run' })).toBeDefined()
+  expect(seen.ran).toBe(0)
+  await endHold(band)
+  const result = JSON.stringify(await call)
+  await band.unmount()
+
+  expect(result).toContain('The check failed (rules.json is not valid JSON')
+  expect(seen.ran).toBe(0)
+})
+
+test('On check error = Hold: Run on the card of a failed check runs the command', async ($, on) => {
+  const { seen } = world(on, { rules: BROKEN_RULES })
+  const call = $.tool.call({ tool: 'Bash', command: 'ls' })
+  await holding(seen)
+  const band = await $.ui.mount({ plugin: PLUGIN, surface: 'terminal', ...BAND })
+  await click(band, 'blast-run')
+  await call
+  await band.unmount()
+  expect(seen.commands).toEqual(['ls'])
+})
+
+test('On check error = Hold: a check that throws is refused, never run unchecked', async ($, on) => {
+  const { seen } = world(on, { envThrows: true })
+  const result = JSON.stringify(await settles($.tool.call({ tool: 'Bash', command: 'ls' })))
+
+  expect(seen.ran).toBe(0)
+  expect(result).toContain('did not run it')
+})
+
+test('On check error = Run: a broken rules.json lets a harmless command run with no card, and the built-in checks still hold rm -rf', { options: { onError: 'Run' } }, async ($, on) => {
+  const { seen } = world(on, { rules: BROKEN_RULES })
+  await settles($.tool.call({ tool: 'Bash', command: 'ls' }))
+  expect(seen.commands).toEqual(['ls'])
+
+  const call = $.tool.call({ tool: 'Bash', command: 'rm -rf build' })
+  await holding(seen)
+  await cancel($)
+  await call
+  expect(seen.ran).toBe(1)
+})
+
+test('with no surface that draws, a failed check asks through tool.check on Hold and leaves the verdict on Run', async ($, on) => {
+  world(on, { surfaces: [], rules: BROKEN_RULES })
+  const held = await $.tool.check({ tool: 'Bash', input: { command: 'ls' } })
+  expect(held).toMatchObject({ decision: 'ask' })
+  expect((held as { reason?: string }).reason).toContain('The check failed')
+})
+
+test('with no surface that draws, a failed check leaves the verdict alone when On check error is Run', { options: { onError: 'Run' } }, async ($, on) => {
+  world(on, { surfaces: [], rules: BROKEN_RULES, envThrows: false })
+  expect((await $.tool.check({ tool: 'Bash', input: { command: 'ls' } })).decision).toBe('allow')
+})
+
+test('with no surface that draws, a throwing check asks on Hold', async ($, on) => {
+  world(on, { surfaces: [], envThrows: true })
+  expect((await $.tool.check({ tool: 'Bash', input: { command: 'ls' } })).decision).toBe('ask')
+})
+
+// ---- Send rm to the bin ----
+
+const SHOP = 'C:/Users/me/work/shop'
+const RECYCLE = { options: { recycle: true } }
+
+test('Send rm to the bin: a plain rm inside the session folder is rewritten to the bin helper, runs with no card, and never runs as rm', RECYCLE, async ($, on) => {
+  const { seen } = world(on, { cwd: SHOP })
+  const result = JSON.stringify(await settles($.tool.call({ tool: 'Bash', command: 'rm -rf build' })))
+
+  expect(result).not.toContain('still held')
+  expect(seen.commands).toHaveLength(1)
+  expect(seen.commands[0]).toMatch(/^sh '.*\/bin\/recycle\.sh' -rf build$/)
+  expect(` ${seen.commands[0]} `).not.toContain(' rm ')
+})
+
+test('Send rm to the bin: the bin probe runs once, and the helper sits in the plugin folder, so nothing is written', RECYCLE, async ($, on) => {
+  const { seen } = world(on, { cwd: SHOP })
+  await $.tool.call({ tool: 'Bash', command: 'rm a.txt' })
+  await $.tool.call({ tool: 'Bash', command: 'rm -f b.txt' })
+  expect(seen.commands).toHaveLength(2)
+  expect(seen.argv.filter(line => line.includes('Microsoft.VisualBasic'))).toHaveLength(1)
+})
+
+test('Send rm to the bin: off by default, the same rm is held on the card', async ($, on) => {
+  const { seen } = world(on, { cwd: SHOP })
+  const call = $.tool.call({ tool: 'Bash', command: 'rm -rf build' })
+  await holding(seen)
+  await cancel($)
+  await call
+  expect(seen.ran).toBe(0)
+})
+
+test('Send rm to the bin: with no bin on the machine the card holds it, and nothing runs as a plain delete', { options: { recycle: true } }, async ($, on) => {
+  const { seen } = world(on, { cwd: SHOP, noBin: true })
+  const call = $.tool.call({ tool: 'Bash', command: 'rm -rf build' })
+  await holding(seen)
+  expect(seen.commands).toEqual([])
+  await cancel($)
+  await call
+  expect(seen.ran).toBe(0)
+})
+
+for (const [where, setup] of [['the home folder', { cwd: 'C:/Users/me' }], ['a drive root', { cwd: 'C:/' }], ['an unknown folder', { noCwd: true }]] as const) {
+  test(`Send rm to the bin: in ${where} the rm is held`, RECYCLE, async ($, on) => {
+    const { seen } = world(on, setup)
+    const call = $.tool.call({ tool: 'Bash', command: 'rm x' })
+    await holding(seen)
+    expect(seen.commands).toEqual([])
+    await cancel($)
+    await call
+    expect(seen.ran).toBe(0)
+  })
+}
+
+// The user's own shape: an absolute target inside the session folder, other safe steps before and after, a cd after the rm.
+test('Send rm to the bin: an absolute target inside the session folder in a compound command, rewriting only the rm step', RECYCLE, async ($, on) => {
+  const { seen } = world(on, { cwd: 'C:/Users/me/.claude' })
+  const command = 'mkdir -p C:/Users/me/.claude/scratch/yasb-cards/motion && cd C:/Users/me/.claude/scratch/yasb-cards/motion && rm -rf C:/Users/me/.claude/scratch/yasb-cards/motion/out && cd C:/Users/me/Documents/GitHub/yasb && QT_QPA_PLATFORM=offscreen timeout 300 .venv/Scripts/python.exe render.py 2>&1 | tail -60'
+  const result = JSON.stringify(await settles($.tool.call({ tool: 'Bash', command })))
+
+  expect(result).not.toContain('still held')
+  expect(seen.commands).toHaveLength(1)
+  expect(seen.commands[0]).toBe(command.replace('rm -rf', `sh '${seen.commands[0]!.match(/sh '([^']+)'/)![1]}' -rf`))
+  expect(seen.commands[0]).toContain("recycle.sh' -rf C:/Users/me/.claude/scratch/yasb-cards/motion/out && cd C:/Users/me/Documents/GitHub/yasb && QT_QPA_PLATFORM=offscreen")
+})
+
+test('Send rm to the bin: a risky step beside the rm keeps the card', RECYCLE, async ($, on) => {
+  const { seen } = world(on, { cwd: SHOP })
+  const call = $.tool.call({ tool: 'Bash', command: 'rm -rf build && git push --force' })
+  await holding(seen)
+  expect(seen.commands).toEqual([])
+  await cancel($)
+  await call
+  expect(seen.ran).toBe(0)
+})
+
+test('Send rm to the bin: a pass rule for plain rm does not stop the bin, and the rm still never runs as rm', { options: { recycle: true } }, async ($, on) => {
+  const { seen } = world(on, { cwd: SHOP, rules: { text: PASS_PLAIN_RM, mtimeMs: 1 } })
+  await $.tool.call({ tool: 'Bash', command: 'rm a.txt' })
+  expect(seen.commands[0]).toContain("recycle.sh' a.txt")
+})
+
+test('Send rm to the bin: a hold rule of the person naming the command keeps the card', RECYCLE, async ($, on) => {
+  const { seen } = world(on, { cwd: SHOP, rules: { text: JSON.stringify([{ pattern: 'a\\.txt', reason: 'Mine' }]), mtimeMs: 1 } })
+  const call = $.tool.call({ tool: 'Bash', command: 'rm a.txt' })
+  await holding(seen)
+  expect(seen.commands).toEqual([])
+  await cancel($)
+  await call
+})
+
+test('Send rm to the bin: with Hold risky commands off nothing is rewritten', { options: { recycle: true, enabled: false } }, async ($, on) => {
+  const { seen } = world(on, { cwd: SHOP })
+  await $.tool.call({ tool: 'Bash', command: 'rm a.txt' })
+  expect(seen.commands).toEqual(['rm a.txt'])
+})
+
+// ---- Send rm to the bin: targets outside the session folder ----
+
+const SCRATCH = 'C:/Users/me/.claude/scratch/motion'
+const DBG = `${SCRATCH}/dbg8.txt`
+const BORN_NEW = 2000
+const BORN_OLD = 500
+const OUTSIDE = (extra: World = {}): World => ({ cwd: 'C:/Users/me/Documents/GitHub/app', startedAt: 1000, files: { [SCRATCH]: { kind: 'dir', size: 0 }, [DBG]: { kind: 'file', size: 5 } }, born: { [DBG]: BORN_NEW }, ...extra })
+const keepOf = (entries: object[]) => ({ text: JSON.stringify(entries), mtimeMs: 1 })
+
+// The rm goes to the bin with no card, and never runs as rm.
+const binned = async ($: any, on: any, setup: World, command: string) => {
+  const { seen } = world(on, setup)
+  const result = JSON.stringify(await settles($.tool.call({ tool: 'Bash', command })))
+  expect(result).not.toContain('still held')
+  expect(seen.commands).toHaveLength(1)
+  expect(seen.commands[0]).toMatch(/sh '.*\/bin\/recycle\.sh' /)
+  expect(` ${seen.commands[0]} `).not.toContain(' rm ')
+  return seen
+}
+
+// The card holds the command: nothing ran until the person cancels.
+const carded = async ($: any, on: any, setup: World, command: string) => {
+  const { seen } = world(on, setup)
+  const call = $.tool.call({ tool: 'Bash', command })
+  await holding(seen)
+  expect(seen.commands).toEqual([])
+  await cancel($)
+  await call
+  expect(seen.ran).toBe(0)
+  return seen
+}
+
+test('outside bin: a file this session made, outside the session folder, goes to the bin with no card', RECYCLE, async ($, on) => {
+  const seen = await binned($, on, OUTSIDE(), `rm ${DBG}`)
+  expect(seen.commands[0]).toContain(`recycle.sh' ${DBG}`)
+  expect(seen.births).toEqual([[DBG]])
+})
+
+test('outside bin: the target spelled with ~ is found, and a compound command keeps its other steps', RECYCLE, async ($, on) => {
+  const seen = await binned($, on, OUTSIDE(), `cd C:/Users/me/Documents/GitHub/app && rm ~/.claude/scratch/motion/dbg8.txt && ls`)
+  expect(seen.commands[0]).toMatch(/dbg8\.txt && ls$/)
+})
+
+test('outside bin: a file older than the session keeps the card', RECYCLE, async ($, on) => {
+  await carded($, on, OUTSIDE({ born: { [DBG]: BORN_OLD } }), `rm ${DBG}`)
+})
+
+test('outside bin: a birth time that cannot be read keeps the card', RECYCLE, async ($, on) => {
+  await carded($, on, OUTSIDE({ born: { [DBG]: null } }), `rm ${DBG}`)
+})
+
+test('outside bin: a session start that cannot be known keeps the card', RECYCLE, async ($, on) => {
+  const setup = OUTSIDE({ noSession: true })
+  delete setup.startedAt
+  await carded($, on, setup, `rm ${DBG}`)
+})
+
+test('outside bin: a target that is not there keeps the card', RECYCLE, async ($, on) => {
+  await carded($, on, OUTSIDE(), `rm ${SCRATCH}/ghost.txt`)
+})
+
+test('outside bin: a keep.json glob that matches keeps the card', RECYCLE, async ($, on) => {
+  await carded($, on, OUTSIDE({ keep: keepOf([{ glob: '~/.claude/scratch/**', reason: 'Mine' }]) }), `rm ${DBG}`)
+})
+
+test('outside bin: a keep.json glob that matches nothing here leaves the bin open', RECYCLE, async ($, on) => {
+  await binned($, on, OUTSIDE({ keep: keepOf([{ glob: '~/.claude/other/**', reason: 'Mine' }]) }), `rm ${DBG}`)
+})
+
+test('outside bin: an open board (marker, no unless file) keeps the card', RECYCLE, async ($, on) => {
+  const files = { [SCRATCH]: { kind: 'dir' as const, size: 0 }, [DBG]: { kind: 'file' as const, size: 5 }, [`${SCRATCH}/board.json`]: { kind: 'file' as const, size: 1 } }
+  await carded($, on, OUTSIDE({ files, keep: keepOf([{ marker: 'board.json', unless: 'picks.json', reason: 'Open board' }]) }), `rm ${DBG}`)
+})
+
+test('outside bin: a board with its unless file goes to the bin', RECYCLE, async ($, on) => {
+  const files = { [SCRATCH]: { kind: 'dir' as const, size: 0 }, [DBG]: { kind: 'file' as const, size: 5 }, [`${SCRATCH}/board.json`]: { kind: 'file' as const, size: 1 }, [`${SCRATCH}/picks.json`]: { kind: 'file' as const, size: 1 } }
+  await binned($, on, OUTSIDE({ files, keep: keepOf([{ marker: 'board.json', unless: 'picks.json', reason: 'Open board' }]) }), `rm ${DBG}`)
+})
+
+test('outside bin: a broken keep.json keeps everything outside the session folder', RECYCLE, async ($, on) => {
+  await carded($, on, OUTSIDE({ keep: { text: '{ nope', mtimeMs: 1 } }), `rm ${DBG}`)
+})
+
+test('outside bin: a path the ledger names as pending keeps the card', RECYCLE, async ($, on) => {
+  await carded($, on, OUTSIDE({ pending: [DBG] }), `rm ${DBG}`)
+})
+
+test('outside bin: a folder holding a pending path keeps the card', RECYCLE, async ($, on) => {
+  await carded($, on, OUTSIDE({ pending: [`${SCRATCH}/deeper/plan.md`], born: { [SCRATCH]: BORN_NEW } }), `rm -rf ${SCRATCH}`)
+})
+
+test('outside bin: a pending list that names other paths, or no wrap-up state at all, leaves the bin open', RECYCLE, async ($, on) => {
+  await binned($, on, OUTSIDE({ pending: ['C:/Users/me/elsewhere/notes.md'] }), `rm ${DBG}`)
+})
+
+test('outside bin: a folder is binned only when its oldest entry is newer than the session', RECYCLE, async ($, on) => {
+  await carded($, on, OUTSIDE({ born: { [SCRATCH]: BORN_OLD } }), `rm -rf ${SCRATCH}`)
+})
+
+test('outside bin: a folder whose oldest entry is new goes to the bin, and every target shares one birth read', RECYCLE, async ($, on) => {
+  const other = `${SCRATCH}/other.txt`
+  const files = { [SCRATCH]: { kind: 'dir' as const, size: 0 }, [DBG]: { kind: 'file' as const, size: 5 }, [other]: { kind: 'file' as const, size: 5 } }
+  const seen = await binned($, on, OUTSIDE({ files, born: { [DBG]: BORN_NEW, [other]: BORN_NEW } }), `rm ${DBG} ${other}`)
+  expect(seen.births).toEqual([[DBG, other]])
+})
+
+test('outside bin: one old target among new ones keeps the card for the whole command', RECYCLE, async ($, on) => {
+  const other = `${SCRATCH}/other.txt`
+  const files = { [SCRATCH]: { kind: 'dir' as const, size: 0 }, [DBG]: { kind: 'file' as const, size: 5 }, [other]: { kind: 'file' as const, size: 5 } }
+  await carded($, on, OUTSIDE({ files, born: { [DBG]: BORN_NEW, [other]: BORN_OLD } }), `rm ${DBG} ${other}`)
+})
+
+test('outside bin: the home folder and the session folder are never approved, whatever their age', RECYCLE, async ($, on) => {
+  await carded($, on, OUTSIDE({ files: { 'C:/Users/me': { kind: 'dir', size: 0 } }, born: { 'C:/Users/me': BORN_NEW } }), 'rm -rf C:/Users/me')
+})
+
+test('outside bin: a hold rule of the person naming the command still wins', RECYCLE, async ($, on) => {
+  await carded($, on, OUTSIDE({ rules: { text: JSON.stringify([{ pattern: 'dbg8', reason: 'Mine' }]), mtimeMs: 1 } }), `rm ${DBG}`)
+})
+
+test('outside bin: with the option off the same rm keeps the card', async ($, on) => {
+  await carded($, on, OUTSIDE(), `rm ${DBG}`)
+})
+
+test('outside bin: a glob outside the session folder keeps the card', RECYCLE, async ($, on) => {
+  await carded($, on, OUTSIDE(), `rm ${SCRATCH}/*.txt`)
+})
+
+test('outside bin: a risky step beside an approved rm keeps the card', RECYCLE, async ($, on) => {
+  await carded($, on, OUTSIDE(), `rm ${DBG} && git push --force`)
+})
+
+test('outside bin: a failing birth process keeps the card', RECYCLE, async ($, on) => {
+  await carded($, on, OUTSIDE({ birthFails: true }), `rm ${DBG}`)
+})
+
+// ---- A plain rm in a broad folder is held whatever the pass rule says ----
+
+test('session folder: a pass rule lets a plain rm through in a project folder', async ($, on) => {
+  const { seen } = world(on, { cwd: SHOP, rules: { text: PASS_PLAIN_RM, mtimeMs: 1 } })
+  await $.tool.call({ tool: 'Bash', command: 'rm a.txt' })
+  expect(seen.commands).toEqual(['rm a.txt'])
+})
+
+for (const [where, setup] of [['the home folder', { cwd: 'C:/Users/me' }], ['the home folder spelled with backslashes', { cwd: 'C:\\Users\\me\\' }], ['a drive root', { cwd: 'C:/' }], ['an unknown folder', { noCwd: true }]] as const) {
+  test(`session folder: in ${where} a plain rm is held whatever the pass rule says`, async ($, on) => {
+    const { seen } = world(on, { ...setup, rules: { text: PASS_PLAIN_RM, mtimeMs: 1 } })
+    const call = $.tool.call({ tool: 'Bash', command: 'rm a.txt' })
+    await holding(seen)
+    expect(seen.commands).toEqual([])
+    await cancel($)
+    await call
+    expect(seen.ran).toBe(0)
+  })
+}
+
+// ---- Always show the card ----
+
+test('Always show the card off: a risky command measured harmless runs at once', async ($, on) => {
+  const { seen } = world(on)
+  await settles($.tool.call({ tool: 'Bash', command: 'mv a.txt b.txt' }))
+  expect(seen.commands).toEqual(['mv a.txt b.txt'])
+})
+
+test('Always show the card on: the same command still shows the card', { options: { alwaysCard: true } }, async ($, on) => {
+  const { seen } = world(on)
+  const call = $.tool.call({ tool: 'Bash', command: 'mv a.txt b.txt' })
+  await holding(seen)
+  expect(seen.commands).toEqual([])
+  const band = await $.ui.mount({ plugin: PLUGIN, surface: 'terminal', ...BAND })
+  expect(await band.find({ key: 'blast-run' })).toBeDefined()
+  await click(band, 'blast-run')
+  await call
+  await band.unmount()
+  expect(seen.commands).toEqual(['mv a.txt b.txt'])
+})
+
+// ---- The new settings show in the pane, each with a tip ----
+
+const ROW = { provider: 'plugin', isLocked: false } as const
+const NEW_ROWS = [
+  { ...ROW, key: 'mod-blast-radius.onError', label: 'On check error', kind: 'choice', value: 'Hold', options: ['Hold', 'Run'], description: 'What happens to a command when Blast radius cannot check it' },
+  { ...ROW, key: 'mod-blast-radius.recycle', label: 'Send rm to the bin', kind: 'boolean', value: false, description: 'A plain rm inside the session folder goes to the OS bin' },
+  { ...ROW, key: 'mod-blast-radius.alwaysCard', label: 'Always show the card', kind: 'boolean', value: false, description: 'A risky command measured harmless still shows the card' },
+]
+
+test('the settings pane lists On check error, Send rm to the bin and Always show the card, and hovering each control shows its tip', async ($, on) => {
+  world(on, { configRows: NEW_ROWS })
+  await $.command.run({ command: 'mod-blast-radius', args: 'settings' } as never)
+  const settings = await $.ui.mount({ plugin: PLUGIN, surface: 'terminal', ...SETTINGS })
+  for (const label of ['On check error', 'Send rm to the bin', 'Always show the card']) expect(await textOf(settings, new RegExp(`^${label}$`))).toBe(label)
+  expect(await labelOf(settings, 'setting-0-option-0')).toBe(' Hold ')
+  expect(await labelOf(settings, 'setting-0-option-1')).toBe(' Run ')
+
+  const tips: [string, RegExp][] = [
+    ['setting-0-option-1', /a failed check holds the command on the card, or lets it run/],
+    ['setting-1-flip', /a plain rm inside the session folder goes to the bin/],
+    ['setting-2-flip', /a risky command measured harmless still shows the card/],
+  ]
+  for (const [key, tip] of tips) {
+    await settings.pointer({ type: 'move', x: 1, y: 0, in: key })
+    expect(await textOf(settings, tip), key).toBeDefined()
+  }
+  await settings.unmount()
 })
