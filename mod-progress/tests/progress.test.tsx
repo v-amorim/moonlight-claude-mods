@@ -151,7 +151,7 @@ test('figures: model names, context colors, tokens and time', () => {
   expect(modelInfo('sonnet').name).toBe('Sonnet')
   expect(modelInfo('gpt-x').family).toBe('inherit')
   expect(modelInfo('claude-opus-5-5').hue).toBe('#C3A6FF')
-  expect([5, 10, 39, 59, 79, 90].map(gaugeColor)).toEqual(['#CED9FF', '#ACB9E6', '#CDBBE5', '#EA98EE', '#F883C9', '#FF6F7A'])
+  expect([5, 10, 39, 59, 79, 90].map(gaugeColor)).toEqual(['#B9C6F5', '#ACB9E6', '#A5A1E9', '#CF95CA', '#CA5FA6', '#CA5F71'])
   expect([999, 46800, 312000, 1500000].map(formatTokens)).toEqual(['999', '46.8k', '312k', '1.5M'])
   expect([5000, 14 * 60000, 65 * 60000].map(formatElapsed)).toEqual(['5s', '14m', '1h05m'])
 })
