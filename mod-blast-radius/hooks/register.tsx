@@ -1295,7 +1295,9 @@ export const register: Register = (on, options) => {
       const full = draw(labels === 'never' ? 'count' : 'full')
       return labels !== 'never' && isChipCut(full) ? draw('count') : full
     }
-    if (!held || !held.report || !held.plain || held.decision !== null) {
+    // The hold can end while next(e) is awaited, which nulls `held`; this render draws the card it started with.
+    const shown = held
+    if (!shown || !shown.report || !shown.plain || shown.decision !== null) {
       if (toasts.items.length === 0 && chips.length === 0) return next(e)
       const others = await next(e)
       const { group, row, rest, tip } = splitRow(others)
@@ -1314,7 +1316,7 @@ export const register: Register = (on, options) => {
     const tip = hovered?.id && hovered !== bandExpired ? tipLine({ Box, Text }, tipText(hovered)) : menuTip
 
     // While a call is held only the card and the pill row draw, so other rows cannot fill the band and cut the card off.
-    const card = holdCard({ Box, Button, Client, Input, Text }, held, e.props.bodyColumns, e.props.maxRows, id => choose($, id), value => typeReason($, value), value => sendReason($, value), sessionCount(checks))
+    const card = holdCard({ Box, Button, Client, Input, Text }, shown, e.props.bodyColumns, e.props.maxRows, id => choose($, id), value => typeReason($, value), value => sendReason($, value), sessionCount(checks))
     if (chips.length > 0) return drawRow(group, row, [...cards, card], tip)
     return pillRow({ Box, Client, Text }, look.nerd, group, row, [...cards, card], tip, e.props.bodyColumns)
   })
