@@ -59,7 +59,7 @@ test('a handoff fork adds its usage to spend.json under today and the session mo
   expect(filled).toEqual(['Goal: ship it.'])
   const mine = writes.filter(write => write.path === PATH)
   expect(mine.length).toBe(1)
-  const day = Object.values(JSON.parse(mine[0].text).days)[0] as Record<string, unknown>
+  const day = Object.values(JSON.parse(mine[0]!.text).days)[0] as Record<string, unknown>
   expect(day['claude-sonnet-5-5']).toEqual({ calls: 1, input: 100, output: 20, cacheRead: 5, cacheWrite: 7 })
   await band.unmount()
 })

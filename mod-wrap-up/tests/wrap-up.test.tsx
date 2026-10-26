@@ -457,7 +457,7 @@ test('on auto the saved icons draw while the font is read beside session.start, 
 test('icons=nerd cuts the pill to its archive icon when the row is wider than the band', { options: { icons: 'nerd' } }, async ($, on) => {
   world(on, answered)
   const narrow = BAND()
-  const band = await $.ui.mount({ ...narrow, props: { ...narrow.props, bodyColumns: 6 } } as never)
+  const band = await $.ui.mount({ ...narrow, props: { ...narrow.props, bodyColumns: 6 } })
   expect(await label(band, 'wrap-up-entry')).toContain(`" ${String.fromCodePoint(0xf187)} "`)
   await band.unmount()
 })
@@ -551,13 +551,13 @@ test('with full labels a click on the head and hover still expand inline, never 
 test('labels never draws the archive icon alone, and labels always keeps the label however narrow', { options: { icons: 'nerd' } }, async ($, on) => {
   world(on, answered)
   let labels = 'never'
-  on('state.get', (_$: unknown, e: { plugin: string; key: string }) => ({ value: { value: e.plugin === 'mod-menu' && e.key === 'labels' ? labels : undefined } }))
+  on('state.get', (_$, e) => ({ value: { value: e.plugin === 'mod-menu' && e.key === 'labels' ? labels : undefined, version: 0 } }))
   const band = await $.ui.mount(BAND())
   expect(await label(band, 'wrap-up-entry')).toContain(`" ${String.fromCodePoint(0xf187)} "`)
   await band.unmount()
   labels = 'always'
   const narrow = BAND()
-  const wide = await $.ui.mount({ ...narrow, props: { ...narrow.props, bodyColumns: 6 } } as never)
+  const wide = await $.ui.mount({ ...narrow, props: { ...narrow.props, bodyColumns: 6 } })
   expect(await label(wide, 'wrap-up-entry')).toContain('" Wrap up "')
   await wide.unmount()
 })
@@ -614,7 +614,7 @@ test('the settings pane draws its title, status line and settings', { options: {
 test('number settings read with their unit, and a click moves them by a useful step', { options: { icons: 'safe' } }, async ($, on) => {
   world(on, answered)
   // As plugin.json declares them; a test cannot import the manifest.
-  const fields = {
+  const fields: Record<'max_words' | 'auto_every' | 'compact_at' | 'compact_at_tokens', { title: string; min?: number; max?: number }> = {
     max_words: { title: 'Handoff length (words)' },
     auto_every: { title: 'Update every (turns)', min: 1, max: 50 },
     compact_at: { title: 'Hand off at (%)', min: 50, max: 95 },
@@ -637,7 +637,7 @@ test('number settings read with their unit, and a click moves them by a useful s
 test('the pill offers Auto with an off switch, its tip says what is set now, and a click turns auto compact on', { options: { icons: 'safe', auto_handoff: true } }, async ($, on) => {
   world(on, answered)
   const saved: unknown[] = []
-  on('config.set', (_$: unknown, e: { key: string; value: unknown }) => {
+  on('config.set', (_$, e) => {
     saved.push([e.key, e.value])
     return { value: e.value }
   })
@@ -829,7 +829,7 @@ test('the card is one card: Threads and Also keep are flat groups, each toggle a
 
 test('with the menu hidden the open card still draws above the rest', async ($, on) => {
   world(on, answered)
-  on('state.get', (_$: unknown, e: { plugin: string }) => ({ value: { value: e.plugin === 'mod-menu' ? true : undefined } }))
+  on('state.get', (_$, e) => ({ value: { value: e.plugin === 'mod-menu' ? true : undefined, version: 0 } }))
   await $.command.run({ command: 'mod-wrap-up', args: 'compact' } as never)
   const band = await $.ui.mount(BAND())
   expect(await band.find({ key: 'wrap-up-card' })).toBeDefined()

@@ -221,8 +221,9 @@ export function gatherFragments(found: Fragment[], ids: string[]): { chain: stri
   for (const id of ids.filter(Boolean)) {
     // A chain named after the session itself is the one a cwd move started by mistake, so a chain it joined wins.
     const holders = found.filter(item => item.ledger.sessions.includes(id)).sort((a, b) => Number(a.chain === id) - Number(b.chain === id) || b.ledger.updatedAt - a.ledger.updatedAt)
-    if (!holders.length) continue
-    const chain = holders[0].chain
+    const [first] = holders
+    if (!first) continue
+    const { chain } = first
     return { chain, fragments: found.filter(item => item.chain === chain || item.ledger.sessions.includes(id)).map(item => item.ledger) }
   }
   return null
@@ -293,6 +294,46 @@ export function ledgerMarkdown(ledger: Ledger) {
     `## Done tasks\n${lines(ledger.tasks.filter(item => item.status === 'done').map(item => `${item.id} ${item.text}`))}`,
     `## Sessions\n${ledger.sessions.join(', ') || 'none'}`,
   ].join('\n\n') + '\n'
+}
+
+// The most paths published to other mods; the rest are dropped, newest ledger lines last.
+export const MAX_PENDING = 3000
+
+const HOME_PREFIX = /^(?:~|\$HOME|\$\{HOME\})(?=\/|\\|$)/
+const WRAPPERS = /^[\s"'`([{<]+|[\s"'`)\]}>,;:.!?]+$/g
+
+// Absolute and forward-slashed with no trailing slash, and whether it was spelled as a folder; null when the token is not a path this ledger could mean.
+function absolutePath(token: string, home: string): { path: string; isFolder: boolean } | null {
+  let path = token.replace(WRAPPERS, '')
+  const isFolder = /[\\/]$/.test(path)
+  if (!path || path.includes('://') || /[*?<>|]/.test(path) || path.split(/[\\/]/).includes('..')) return null
+  const at = HOME_PREFIX.exec(path)
+  if (at) path = `${home}${path.slice(at[0].length)}`
+  path = path.replace(/\\/g, '/').replace(/\/{2,}/g, '/')
+  if (!/^[A-Za-z]:\//.test(path) && !path.startsWith('/')) return null
+  // Git Bash spells C:/x as /c/x.
+  const bash = /^\/([a-zA-Z])\/(.+)$/.exec(path)
+  if (bash && /^[A-Za-z]:/.test(home)) path = `${bash[1]!.toUpperCase()}:/${bash[2]}`
+  if (path.replace(/^[A-Za-z]:/, '').split('/').filter(Boolean).length < (isFolder ? 1 : 2)) return null
+  return { path: path.replace(/\/+$/, ''), isFolder }
+}
+
+// The paths the open tasks and the decisions in force name: `sure` look like a file or a folder (an extension or a trailing slash), `maybe` are bare folder-like paths that count only if they exist.
+export function pendingCandidates(ledger: Ledger | null, home: string): { sure: string[]; maybe: string[] } {
+  const sure = new Set<string>()
+  const maybe = new Set<string>()
+  if (!ledger) return { sure: [], maybe: [] }
+  const root = home.replace(/\\/g, '/').replace(/\/+$/, '')
+  const lines = [...ledger.tasks.filter(item => item.status === 'open'), ...liveDecisions(ledger)].map(item => item.text)
+  for (const line of lines) {
+    for (const token of line.split(/\s+/)) {
+      const found = absolutePath(token, root)
+      if (!found) continue
+      const hasExtension = /\.[A-Za-z0-9]{1,8}$/.test(found.path.slice(found.path.lastIndexOf('/') + 1))
+      ;(hasExtension || found.isFolder ? sure : maybe).add(found.path)
+    }
+  }
+  return { sure: [...sure].slice(0, MAX_PENDING), maybe: [...maybe] }
 }
 
 export const RESTORE_WORDS = 700

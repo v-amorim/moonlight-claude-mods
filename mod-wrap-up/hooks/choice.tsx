@@ -32,7 +32,7 @@ const timers = new WeakMap<object, () => void>()
 const watch = (surface: Parameters<ClientModule<ChoiceProps, Hover>>[1], id: string) => {
   if (timers.has(surface)) return
   const stop = surface.every(TICK_MS, () => {
-    const state = surface.state
+    const { state } = surface
     if (state && state.over !== -2 && Date.now() - state.at < HOVER_QUIET_MS) return
     if (state && state.over !== -2) {
       surface.setState({ over: -2, at: Date.now(), tipId: null })
@@ -49,7 +49,7 @@ const fades = new WeakMap<object, () => void>()
 const startFade = (surface: Parameters<ClientModule<ChoiceProps, Hover>>[1]) => {
   if (fades.has(surface)) return
   const stop = surface.every(HOVER_TICK_MS, () => {
-    const state = surface.state
+    const { state } = surface
     if (!state) return
     const before = state.levels ?? []
     const levels = before.map((level, index) => stepToward(level, index === state.over))
@@ -100,7 +100,7 @@ const Choice: ClientModule<ChoiceProps, Hover> = (props, surface) => {
   const option = (index: number) => {
     const { id, label, isOn } = props.options[index]!
     const isActive = props.isIdle && (id === props.mode || isOn === true)
-    const color = !props.isIdle ? THEME.muted : hoverMix(isActive ? THEME.ok : THEME.muted, THEME.accent, surface.state?.levels?.[index] ?? 0)
+    const color = props.isIdle ? hoverMix(isActive ? THEME.ok : THEME.muted, THEME.accent, surface.state?.levels?.[index] ?? 0) : THEME.muted
     const caps = isActive && props.nerd
     return (
       <Box key={id} flexDirection="row">

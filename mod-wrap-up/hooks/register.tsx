@@ -2,7 +2,7 @@
 // Registers the wrap-up pill, commands, settings pane and handoff or compact actions with the engine.
 import type { ConfigValue, EngineInterface, ModelCompleteRequest, ModelCompleteResult, ModelForkResult, Register, RenderElement } from 'claude-code'
 
-import { AUTO_SYSTEM, autoPrompt, capWords, clampCompactAt, clampCompactTokens, clampEvery, emptyLedger, flip, gatherFragments, isDue, ledgerMarkdown, mergeDelta, mergeFragments, parseRelated, parseUpdate, readLedger, RELATED_SYSTEM, relatedPrompt, restoreContext, shortGoal, shouldCompact, yieldsToManual, type Carry, type CompactMarks, type Fragment, type Ledger } from './ledger'
+import { AUTO_SYSTEM, autoPrompt, capWords, clampCompactAt, clampCompactTokens, clampEvery, emptyLedger, flip, gatherFragments, isDue, ledgerMarkdown, MAX_PENDING, mergeDelta, mergeFragments, parseRelated, pendingCandidates, parseUpdate, readLedger, RELATED_SYSTEM, relatedPrompt, restoreContext, shortGoal, shouldCompact, yieldsToManual, type Carry, type CompactMarks, type Fragment, type Ledger } from './ledger'
 import { ALSO_KEEP, buildPrompt, clampWords, compactNote, FORK_FAILURES, isFresh, parseNames, parseThreads, scopeNote, threadsPrompt, THREADS_SYSTEM, transcriptText, type AlsoId, type Names, type Thread } from './handoff'
 import { cardFill, detectNerd, FOOTER_ROWS, lookFor, paneFooter, sepText, subpill, titleEdge, type IconMode, withMark } from './look'
 import { isTipMessage, tipText, type EntryMessage, type EntryProps, type Tip, type TipMessage } from './entry'
@@ -377,7 +377,7 @@ async function startHandoff($: EngineInterface, scope: string, names: Names = NO
     const base = buildPrompt(skill, maxWords, autoOn ? await ledgerFile($) : '')
     const prompt = scope ? `${base}\n\n${scope}` : base
     let result = await $.model.fork({ prompt })
-    recordSpend($, await $.session.model().catch(() => ''), result)
+    recordSpend($, await $.session.model().catch(() => ''), result.isAnswered ? result : null)
     if (!result.isAnswered && result.reason === 'nothing-to-fork') result = await summarizeTranscript($, prompt)
     if (!result.isAnswered) {
       say($, `${MARK.warn} ${FORK_FAILURES[result.reason] ?? result.reason}`)
@@ -467,6 +467,24 @@ const mdOf = (dir: string, of = chain) => fileOf(dir, of).replace(/\.json$/, '.m
 async function saveLedger($: EngineInterface, dir: string, ledger: Ledger, of = chain) {
   await $.fs.write(fileOf(dir, of), JSON.stringify(ledger, null, 1))
   await $.fs.write(mdOf(dir, of), ledgerMarkdown(ledger))
+  if (of === chain) await publishPending($, ledger)
+}
+
+// The paths the chain's open tasks and decisions in force name, for mod-blast-radius to read; a bare folder-like path counts only when it exists.
+const MAYBE_CAP = 300
+
+async function publishPending($: EngineInterface, ledger: Ledger | null) {
+  try {
+    const home = (await $.env.get('USERPROFILE')) ?? (await $.env.get('HOME')) ?? ''
+    const { sure, maybe } = pendingCandidates(ledger, home)
+    const found = [...sure]
+    for (const path of maybe.slice(0, MAYBE_CAP)) {
+      if (await $.fs.stat(path).then(() => true, () => false)) found.push(path)
+    }
+    await $.state.set({ plugin: 'mod-wrap-up', key: 'pending' }, found.slice(0, MAX_PENDING))
+  } catch {
+    // Without the list the other mod sees no state and keeps its own checks.
+  }
 }
 
 const withSession = (ledger: Ledger, id: string) => ({ ...ledger, sessions: ledger.sessions.includes(id) ? ledger.sessions : [...ledger.sessions, id] })
@@ -520,7 +538,9 @@ async function openLedger($: EngineInterface) {
   const messages = await $.session.messages().catch(() => [])
   const isResume = Array.isArray(messages) && messages.length > 0
   chain = (await chainOf($, dir, id)) ?? (isResume ? await chainFor($, dir, [id]) : undefined) ?? id
-  if (!(await loadLedger($, dir))) await saveLedger($, dir, emptyLedger(await $.clock.now(), id))
+  const existing = await loadLedger($, dir)
+  if (existing) await publishPending($, existing)
+  else await saveLedger($, dir, emptyLedger(await $.clock.now(), id))
   await ledgerFile($)
 }
 
@@ -1054,9 +1074,8 @@ export const register: Register = (on, options) => {
     await loadLook($)
     const hidden = await $.state.get({ plugin: 'mod-menu', key: 'hidden' })
     if (e.surface !== 'terminal' || e.props.hasSurvey) return next(e)
-    // @ts-expect-error The host's types omit Button from the band's elements, yet it draws one.
     const { Box, Button, Client, Text } = $.ui.resolve(e)
-    const counting = countdown ? [countdownCard({ Box, Button, Text }, countdown, () => stopCountdown($))] : []
+    const counting = countdown ? [countdownCard({ Box, Button, Client, Text },countdown, () => stopCountdown($))] : []
     if (hidden.value === true) {
       const shown = [...toastCards({ Box, Client, Text }, toasts, look, text.tipToast), ...counting, ...(choice ? [choiceCard({ Box, Client, Text }, choice, e.props.bodyColumns)] : []), ...(card ? [cardBox({ Box, Client, Text }, card)] : [])]
       if (shown.length === 0) return next(e)

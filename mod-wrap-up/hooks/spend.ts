@@ -48,7 +48,7 @@ let queue: Promise<unknown> = Promise.resolve()
 // Records a finished call under the model that was asked for; a failed or missing read starts a fresh file, a failed write is dropped.
 export function recordSpend($: EngineInterface, model: string, result: { usage?: Partial<ModelUsage> } | null | undefined) {
   if (!result?.usage) return
-  const usage = result.usage
+  const { usage } = result
   if (!count(usage.input_tokens) && !count(usage.output_tokens) && !count(usage.cache_read_input_tokens) && !count(usage.cache_creation_input_tokens)) return
   queue = queue.then(async () => {
     try {
