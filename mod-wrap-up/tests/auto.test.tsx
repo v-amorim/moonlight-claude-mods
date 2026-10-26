@@ -4,7 +4,7 @@ import { expect, mock, test as kitTest, type TestRest } from 'claude-code/testin
 import { compactNote } from '../hooks/handoff'
 import { latestTitle, lateNext, planNames, remember } from '../hooks/titles'
 import { bytesOf, scanTail, textOf } from '../hooks/tail'
-import { MAX_PENDING, pendingCandidates } from '../hooks/ledger'
+import { countGates, MAX_PENDING, pendingCandidates } from '../hooks/ledger'
 import { autoPrompt, capWords, clampCompactAt, clampCompactTokens, clampEvery, digest, emptyLedger, flip, gatherFragments, type Delta, isDue, mergeDelta, mergeFragments, parseRelated, parseUpdate, ledgerMarkdown, readLedger, restoreContext, shouldCompact, yieldsToManual } from '../hooks/ledger'
 
 // Automatic handoff is opt-in, so these tests turn it on unless a test sets its own value.
@@ -255,6 +255,20 @@ test('the restore caps the inlined lists near 700 words and lists the rest by id
   expect(rest.split(', ').length + shown.length).toBe(24)
   expect(rest).toContain('d12')
   expect(restoreContext({ ...emptyLedger(1, 's1'), handoff: 'H' }, '/d/ledger.md')).not.toContain('By id only')
+})
+
+test('gates are counted from their checkboxes, open and total', () => {
+  expect(countGates('# Gates\n\n- [x] G1: a\n      CHECK: x\n- [ ] G2: b\n  - [X] G3: c\n- [ ]G4 not a box\ntext - [ ] inline')).toEqual({ open: 1, total: 3 })
+  expect(countGates('')).toEqual({ open: 0, total: 0 })
+})
+
+test('the restore tells the next session to adopt each unfinished gates run, right after the handoff', () => {
+  const run = { session: 'old-sid', dir: 'C:/h/.claude/gates/yasb/old-sid', open: 7, total: 58 }
+  const context = restoreContext(seeded(), '/d/ledger.md', undefined, [run])
+  expect(context).toContain('7 of 58 gates open in C:/h/.claude/gates/yasb/old-sid')
+  expect(context).toContain('gate-check.mjs --adopt old-sid')
+  expect(context.indexOf('--adopt')).toBeLessThan(context.indexOf('Open tasks, from the ledger'))
+  expect(restoreContext(seeded(), '/d/ledger.md')).not.toContain('--adopt')
 })
 
 test('the restore reads as facts with the ledger path', () => {

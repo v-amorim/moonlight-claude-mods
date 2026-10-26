@@ -2,7 +2,7 @@
 // Registers the wrap-up pill, commands, settings pane and handoff or compact actions with the engine.
 import type { ConfigValue, EngineInterface, ModelCompleteRequest, ModelCompleteResult, ModelForkResult, Register, RenderElement } from 'claude-code'
 
-import { AUTO_SYSTEM, autoPrompt, capWords, clampCompactAt, clampCompactTokens, clampEvery, emptyLedger, flip, gatherFragments, isDue, ledgerMarkdown, MAX_PENDING, mergeDelta, mergeFragments, parseRelated, pendingCandidates, parseUpdate, readLedger, RELATED_SYSTEM, relatedPrompt, restoreContext, shortGoal, shouldCompact, yieldsToManual, type Carry, type CompactMarks, type Fragment, type Ledger } from './ledger'
+import { AUTO_SYSTEM, autoPrompt, capWords, clampCompactAt, clampCompactTokens, clampEvery, emptyLedger, flip, gatherFragments, isDue, ledgerMarkdown, MAX_PENDING, mergeDelta, mergeFragments, parseRelated, pendingCandidates, parseUpdate, readLedger, RELATED_SYSTEM, relatedPrompt, restoreContext, shortGoal, shouldCompact, yieldsToManual, countGates, type Carry, type CompactMarks, type Fragment, type GatesRun, type Ledger } from './ledger'
 import { ALSO_KEEP, buildPrompt, clampWords, compactNote, FORK_FAILURES, isFresh, parseNames, parseThreads, scopeNote, threadsPrompt, THREADS_SYSTEM, transcriptText, type AlsoId, type Names, type Thread } from './handoff'
 import { cardFill, detectNerd, FOOTER_ROWS, lookFor, paneFooter, sepText, subpill, titleEdge, type IconMode, withMark } from './look'
 import { isTipMessage, tipText, type EntryMessage, type EntryProps, type Tip, type TipMessage } from './entry'
@@ -489,6 +489,29 @@ async function publishPending($: EngineInterface, ledger: Ledger | null) {
 
 const withSession = (ledger: Ledger, id: string) => ({ ...ledger, sessions: ledger.sessions.includes(id) ? ledger.sessions : [...ledger.sessions, id] })
 
+// The chain's gates runs with open boxes, under <GATES_HOME or ~/.claude/gates>/<repo>/<session>; `skip` is a session that already owns its run.
+async function unfinishedRuns($: EngineInterface, ledger: Ledger, skip = ''): Promise<GatesRun[]> {
+  try {
+    const home = ((await $.env.get('USERPROFILE')) ?? (await $.env.get('HOME')) ?? '').replace(/\\/g, '/')
+    const base = ((await $.env.get('GATES_HOME')) ?? `${home}/.claude/gates`).replace(/\\/g, '/')
+    const repos = (await $.fs.list(base).catch(() => [])).filter(entry => entry.kind === 'dir')
+    const runs: GatesRun[] = []
+    for (const repo of repos) {
+      for (const session of ledger.sessions.filter(id => id && id !== skip)) {
+        const dir = `${base}/${repo.name}/${session}`
+        const leaves = (await $.fs.list(`${dir}/gates`).catch(() => [])).filter(entry => entry.kind === 'file' && entry.name.toLowerCase().endsWith('.md'))
+        const files = [`${dir}/GATES.md`, ...leaves.map(entry => `${dir}/gates/${entry.name}`)]
+        const counts = await Promise.all(files.map(file => $.fs.read(file).then(body => countGates(String(body)), () => ({ open: 0, total: 0 }))))
+        const open = counts.reduce((sum, count) => sum + count.open, 0)
+        if (open > 0) runs.push({ session, dir, open, total: counts.reduce((sum, count) => sum + count.total, 0) })
+      }
+    }
+    return runs
+  } catch {
+    return []
+  }
+}
+
 // A resumed session's chain is the ledger that already lists it.
 async function chainOf($: EngineInterface, dir: string, id: string) {
   const entries = await $.fs.list(dir).catch(() => [])
@@ -619,7 +642,8 @@ async function handOffAtMark($: EngineInterface, token: number) {
       $.ui.toast(text.auto.noHandoff)
       return
     }
-    const carried = restoreContext(ledger, mdOf(dir))
+    // Read before the clear, so this session's own run counts: the session after the clear has a new id.
+    const carried = restoreContext(ledger, mdOf(dir), undefined, await unfinishedRuns($, ledger))
     const hasOpenTask = ledger.tasks.some(task => task.status === 'open')
     stopCountdown($)
     carriedAt = await $.clock.now()
@@ -673,7 +697,7 @@ async function runAuto($: EngineInterface) {
 async function restoreFrom($: EngineInterface) {
   const dir = await ledgerDir($)
   const ledger = dir ? await loadLedger($, dir) : null
-  return ledger?.handoff ? restoreContext(ledger, mdOf(dir)) : ''
+  return ledger?.handoff ? restoreContext(ledger, mdOf(dir), undefined, await unfinishedRuns($, ledger, await $.session.id())) : ''
 }
 
 function showChoice($: EngineInterface, carry: Carry, goal: string, link: Link = NO_LINK) {
@@ -702,7 +726,7 @@ async function decideAfterClear($: EngineInterface, prompt: string) {
     await keepApplied($, [plan.next])
     if (plan.next) $.clock.after(0, () => void rename($, plan.next, text.renameFailed))
     showChoice($, 'carried', ledger.goal, { previous: plan.oldOwn, current: plan.nextOwn })
-    return ledger.handoff ? restoreContext(ledger, mdOf(dir)) : ''
+    return ledger.handoff ? restoreContext(ledger, mdOf(dir), undefined, await unfinishedRuns($, ledger, id)) : ''
   }
   held = chain
   chain = id

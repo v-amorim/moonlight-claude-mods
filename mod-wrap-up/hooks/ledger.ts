@@ -349,8 +349,20 @@ const wordCount = (line: string) => line.split(/\s+/).filter(Boolean).length
 
 const plural = (count: number, noun: string) => `${count} ${noun}${count === 1 ? '' : 's'}`
 
+// An /execute gates run (GATES.md and gates/*.md under ~/.claude/gates/<repo>/<session>) that still has unchecked boxes.
+export type GatesRun = { session: string; dir: string; open: number; total: number }
+
+export function countGates(markdown: string) {
+  const boxes = markdown.match(/^\s*- \[[ xX]\] /gm) ?? []
+  return { open: boxes.filter(box => box.includes('[ ]')).length, total: boxes.length }
+}
+
+// A gates run belongs to the session id that wrote it, so a new session after /clear must adopt it before its checks and Stop hook see it.
+const adoptLine = (run: GatesRun) =>
+  `An /execute gates run from an earlier session is unfinished: ${run.open} of ${run.total} gates open in ${run.dir}. Before any gate work, adopt it into this session with the execute skill's checker: \`node <execute skill>/scripts/gate-check.mjs --adopt ${run.session}\`.`
+
 // What the next prompt carries after a compaction or a carried clear, stated as facts: the handoff, then open tasks and live decisions inlined up to a word cap.
-export function restoreContext(ledger: Ledger, mdPath: string, cap = RESTORE_WORDS) {
+export function restoreContext(ledger: Ledger, mdPath: string, cap = RESTORE_WORDS, runs: GatesRun[] = []) {
   const skipped: string[] = []
   let used = 0
   // Once one item misses the cap every later one goes by id, so the shown lines are always a prefix.
@@ -370,6 +382,7 @@ export function restoreContext(ledger: Ledger, mdPath: string, cap = RESTORE_WOR
   const decisionLines = take(liveDecisions(ledger))
   return [
     `Earlier in this work, a handoff was written:\n${ledger.handoff}`,
+    ...runs.map(adoptLine),
     `Open tasks, from the ledger:\n${taskLines}`,
     `Decisions in force, from the ledger:\n${decisionLines}`,
     skipped.length ? `By id only, text in ${mdPath}: ${skipped.slice(0, MAX_IDS).join(', ')}${skipped.length > MAX_IDS ? `, and ${skipped.length - MAX_IDS} more in the file` : ''}` : '',
