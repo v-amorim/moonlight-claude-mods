@@ -462,7 +462,7 @@ test('after Proceed, later edits of that file run without a hold', async ($, on)
   const { w, pending, ui } = await held($, on, OTHER)
   await click(ui, 'guard-proceed')
   await pending
-  const pauses = w.seen.pauses
+  const { pauses } = w.seen
   w.clock.advance(5 * MIN)
   await call($, 'Write')
   expect(w.seen.pauses).toBe(pauses)
@@ -789,7 +789,7 @@ const bandOf = async ($: any, on: any) => {
 
 test('a toast draws as a band card, shows its dismiss tip, and a click removes it', async ($, on) => {
   const { ui } = await bandOf($, on)
-  await $.command.run({ command: 'mod-collision-guard', args: 'settings' })
+  await $.command.run({ command: 'mod-collision-guard', args: 'settings' } as never)
   expect(await ui.find({ type: 'Text', text: /^Settings panel waiting/ })).toBeDefined()
   expect(await ui.find({ type: 'Text', text: 'other mod' })).toBeDefined()
   await pointing(ui).pointer({ type: 'move', x: 0, y: 0, in: 'toast-collisionguard-1' })
@@ -801,7 +801,7 @@ test('a toast draws as a band card, shows its dismiss tip, and a click removes i
 
 test('a toast leaves on its own after the timeout', async ($, on) => {
   const { ui, clock } = await bandOf($, on)
-  await $.command.run({ command: 'mod-collision-guard', args: 'settings' })
+  await $.command.run({ command: 'mod-collision-guard', args: 'settings' } as never)
   expect(await ui.find({ type: 'Text', text: /^Settings panel waiting/ })).toBeDefined()
   await clock.advance(4000)
   expect(await ui.find({ type: 'Text', text: /^Settings panel waiting/ })).toBeUndefined()

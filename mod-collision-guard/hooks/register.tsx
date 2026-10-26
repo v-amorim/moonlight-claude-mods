@@ -1,6 +1,6 @@
 // mod-collision-guard / hooks/register.tsx, by v-amorim
 // Wires the mod into the engine: checks edit tools for conflicts, asks, and draws its pane.
-import type { ConfigValue, EngineInterface, Register } from 'claude-code'
+import type { ConfigValue, EngineInterface, Register, RenderChildren } from 'claude-code'
 
 import { agoText, clearOwn, cleanReason, clockText, EDIT_TOOLS, findConflict, normalize, pathOf, recordEdit, titleOf, type Clash, type Io } from './guard'
 import { GUARD, holdCard, type HoldView } from './hold'
@@ -336,7 +336,7 @@ async function decide($: EngineInterface, next: { signal: AbortSignal }, path: s
   const quiet = snoozed.get(key)
   if (quiet !== undefined && clash.at <= quiet) return undefined
   // Fire and forget: a refused notification must never touch the pause.
-  void Promise.resolve().then(() => $.ui.notify(fill(text.notifyPaused, { file: path.split(/[\\/]/).pop() }), { title: text.notifyTitle })).catch(() => undefined)
+  void Promise.resolve().then(() => $.ui.notify(fill(text.notifyPaused, { file: path.split(/[\\/]/).pop() ?? '' }), { title: text.notifyTitle })).catch(() => undefined)
   const outcome = await hold($, next, { path, session: clash.session, prompt: clash.prompt, at: clash.at, more: clash.more, isUnchecked: false, canWorktree: await isInRepo($, path), isAsking: false, draft: '' })
   if (outcome.decision === 'proceed') {
     snoozed.set(key, now)
@@ -503,7 +503,7 @@ export const register: Register = (on, options) => {
     const { group, row, rest, tip: menuTip } = splitRow(await next(e))
     const tip = hovered?.id && hovered !== bandExpired ? tipLine({ Box, Text }, tipText(hovered)) : menuTip
     if (group.length || row.length || tip) return pillRow({ Box, Client, Text }, look.nerd, group, row, [...cards, ...rest], tip, e.props.bodyColumns)
-    return <Box key="collisionguard" flexDirection="column">{cards}{rest}</Box>
+    return <Box key="collisionguard" flexDirection="column">{cards}{rest as RenderChildren}</Box>
   })
 
   on('ui.render', { component: 'Pane' }, async ($, e, next) => {
