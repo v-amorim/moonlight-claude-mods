@@ -114,7 +114,7 @@ const fades = new WeakMap<object, () => void>()
 const startFade = (surface: ClientSurface<State>) => {
   if (fades.has(surface)) return
   const stop = surface.every(HOVER_TICK_MS, () => {
-    const state = surface.state
+    const { state } = surface
     if (!state) return
     const level = stepToward(state.level ?? 0, state.isOver)
     if (level !== (state.level ?? 0)) surface.setState({ ...state, level })
@@ -135,7 +135,7 @@ const ticks = new WeakMap<object, () => void>()
 const startTick = (surface: ClientSurface<State>) => {
   if (ticks.has(surface)) return
   const stop = surface.every(TICK_MS, () => {
-    const state = surface.state
+    const { state } = surface
     if (!state) return
     const now = latest.get(surface)
     if (!now?.still && (now?.isBusy || isPressed(state, now))) surface.setState({ ...state, phase: state.phase + 1 })
@@ -160,7 +160,7 @@ const spins = new WeakMap<object, () => void>()
 const startSpin = (surface: ClientSurface<State>) => {
   if (spins.has(surface)) return
   const stop = surface.every(SPIN_MS, () => {
-    const state = surface.state
+    const { state } = surface
     const now = latest.get(surface)
     if (!state || !now?.spinner || now.still) {
       stop()

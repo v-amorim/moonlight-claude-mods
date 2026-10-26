@@ -4,17 +4,19 @@ import type { EngineInterface, Register } from 'claude-code'
 import { fill } from './theme'
 import text from './text'
 
-const LABELS = ['auto', 'always', 'never']
+const LABELS = ['auto', 'always', 'never'] as const
+type Labels = (typeof LABELS)[number]
+const isLabels = (value: unknown): value is Labels => LABELS.some(each => each === value)
 // The mods that draw an entry in the band; each lists its settings rows in config.list once installed and enabled.
 const PANEL_MODS = ['mod-file-tree', 'mod-heads-up', 'mod-manager', 'mod-model-effort', 'mod-progress', 'mod-prompts', 'mod-skill-panel', 'mod-wrap-up']
 const BOOT_KEY = { plugin: 'mod-menu', key: 'booted' } as const
 const LABELS_KEY = { plugin: 'mod-menu', key: 'labels' } as const
 
 // The labels state no longer says the setting: a settings pane saved a new one, which reloads this mod with no session start.
-const isStale = async ($: EngineInterface, labels: string) => (await $.state.get(LABELS_KEY)).value !== labels
+const isStale = async ($: EngineInterface, labels: Labels) => (await $.state.get(LABELS_KEY)).value !== labels
 
 // A /clear empties $.state and starts no session, so an unset marker means the two values must be written again.
-async function restore($: EngineInterface, labels: string) {
+async function restore($: EngineInterface, labels: Labels) {
   if ((await $.state.get(BOOT_KEY)).value) {
     if (!(await isStale($, labels))) return false
     await $.state.set(LABELS_KEY, labels)
@@ -29,7 +31,7 @@ async function restore($: EngineInterface, labels: string) {
 
 // Panel mods draw their own entries in the band above the prompt and read `hidden` and `labels`; this mod owns both.
 export const register: Register = (on, options) => {
-  const labels = LABELS.includes(String(options.labels)) ? String(options.labels) : 'auto'
+  const labels = isLabels(options.labels) ? options.labels : 'auto'
   let restoring = false
 
   on('session.start', async ($, e, next) => {
@@ -56,7 +58,7 @@ export const register: Register = (on, options) => {
   on('command.run', { command: 'mod-menu' }, async ($, e) => {
     const [word, mode] = (e.args ?? '').trim().split(/\s+/)
     if (word === 'labels') {
-      if (!mode || !LABELS.includes(mode)) return { text: text.labelsUsage }
+      if (!isLabels(mode)) return { text: text.labelsUsage }
       // The saved setting reloads this mod; the state is set now so the pills redraw at once.
       await $.config.set({ key: 'mod-menu.labels', value: mode })
       await $.state.set(LABELS_KEY, mode)
