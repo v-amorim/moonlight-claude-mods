@@ -49,12 +49,12 @@ function reaches(glob: string[], at: number, parts: string[], seen: number, isFo
   return segmentRe(glob[at]!).test(parts[seen]!) && reaches(glob, at + 1, parts, seen + 1, isFolder)
 }
 
-// An entry that is home, above it, or a root covers every file the person has, so it is no signal and is skipped.
+// Home, above it or a root is no signal; a pending folder guards itself, not its files, which keep.json shields.
 export const isPending = (path: string, pending: string[] | undefined, isWindows: boolean, home: string) =>
   (pending ?? []).some(item => {
     const other = native(item, isWindows)
     if (dirname(other) === other || isSame(other, home, isWindows) || isInside(home, other, isWindows)) return false
-    return isSame(path, other, isWindows) || isInside(path, other, isWindows) || isInside(other, path, isWindows)
+    return isSame(path, other, isWindows) || isInside(other, path, isWindows)
   })
 
 type Listed = { name: string; kind: string; isLink: boolean }
