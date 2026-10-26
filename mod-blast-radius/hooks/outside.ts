@@ -49,9 +49,11 @@ function reaches(glob: string[], at: number, parts: string[], seen: number, isFo
   return segmentRe(glob[at]!).test(parts[seen]!) && reaches(glob, at + 1, parts, seen + 1, isFolder)
 }
 
-export const isPending = (path: string, pending: string[] | undefined, isWindows: boolean) =>
+// An entry that is home, above it, or a root covers every file the person has, so it is no signal and is skipped.
+export const isPending = (path: string, pending: string[] | undefined, isWindows: boolean, home: string) =>
   (pending ?? []).some(item => {
     const other = native(item, isWindows)
+    if (dirname(other) === other || isSame(other, home, isWindows) || isInside(home, other, isWindows)) return false
     return isSame(path, other, isWindows) || isInside(path, other, isWindows) || isInside(other, path, isWindows)
   })
 
@@ -119,7 +121,7 @@ export async function approveOutside(paths: string[], standing: Standing, io: Ou
     try {
       const covers = (other: string) => isSame(path, other, isWindows) || isInside(other, path, isWindows)
       if (dirname(path) === path || covers(standing.root) || covers(standing.home)) continue
-      if (isPending(path, standing.pending, isWindows)) continue
+      if (isPending(path, standing.pending, isWindows, standing.home)) continue
       const stat = await io.stat(path)
       if (stat.isLink) continue
       const isFolder = stat.kind === 'dir'

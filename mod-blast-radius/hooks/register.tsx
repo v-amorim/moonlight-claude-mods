@@ -11,6 +11,7 @@ import { describePrompt, parseDescribed, SYSTEM, verdictOf, type Described } fro
 import { colorLines, colorStep, LEGEND, wrapSpans, type Role, type Span } from './syntax'
 import { measure, tilde, type Io, type Report } from './preview'
 import { CHECKS, compileRules, errorRisk, evaluate, type Risk, type Session, type UserRule } from './risk'
+import { countdownOf, countdownParts } from './countdown'
 import { outsideTargets, planRecycle, sessionRoot } from './recycle'
 import { approvalKey, approveOutside, birthArgv, compileKeep, parseBirths, type Keep, type OutsideFs } from './outside'
 import { native } from './paths'
@@ -36,7 +37,7 @@ const plural = (count: number, unit: Unit) => fill(count === 1 ? unit.one : unit
 type Decision = 'run' | 'cancel' | 'interrupted' | 'error' | 'idle'
 // isDescribing: Haiku is still writing the card's words.
 // isFull: the Details pane shows the whole command, not its first rows; isDoesOpen: the card shows its whole sentence, not two rows.
-type Held = { command: string; risk: Risk; report: Report | null; plain: Plain | null; decision: Decision | null; described?: Described; isDescribing?: boolean; isFull?: boolean; isDoesOpen?: boolean; isAsking?: boolean; isStored?: boolean; touchedAt?: number; draft?: string; reason?: string }
+type Held = { command: string; risk: Risk; report: Report | null; plain: Plain | null; decision: Decision | null; described?: Described; isDescribing?: boolean; isFull?: boolean; isDoesOpen?: boolean; isAsking?: boolean; isStored?: boolean; touchedAt?: number; leftMs?: number; draft?: string; reason?: string }
 
 // Commands whose card timed out, by exact text: the chip lists them and a stored answer waits for the next identical call.
 type Waiting = { held: Held; answer: { decision: 'run' | 'cancel'; reason?: string } | null }
@@ -725,10 +726,21 @@ function holdCard({ Box, Button, Client, Input, Text }: Elements & { Button: (pr
       ) : null}
     </Box>
   )
+  // The idle countdown sits at the top edge's right end, across from the title; it never takes the title's room.
+  const titleUsed = 1 + 2 + [...text.card.title].length + (text.card.titleHint ? 1 + [...text.card.titleHint].length : 0) + 1
+  const parts = idleMs > 0 && state.leftMs !== undefined && !state.isStored ? countdownParts(state.leftMs, columns - 1 - titleUsed - 1 - 1) : null
+  const countdown = parts ? (
+    <Box key="blast-card-edge-right" position="absolute" top={0} right={1} flexDirection="row" height={1} backgroundColor={THEME.bg}>
+      <Text key="blast-idle-lead" color={THEME.muted}>{` ${parts.lead}`}</Text>
+      <Text key="blast-idle-time" color={parts.color}>{parts.time}</Text>
+      <Text key="blast-idle-tail" color={THEME.muted}>{`${parts.tail} `}</Text>
+    </Box>
+  ) : null
   return (
     <Box key="blast-card" flexDirection="column">
       {card}
       {titleEdge({ Box, Text }, look, 'blast-card', '', text.card.title, text.card.titleHint, 0, edge)}
+      {countdown}
     </Box>
   )
 }
@@ -750,11 +762,17 @@ const isChipCut = (node: unknown): boolean => {
   return (found.children ?? []).some(isChipCut)
 }
 
+// Using the card restarts the idle time, and its countdown with it.
+function touch(card: Held, now: number) {
+  card.touchedAt = now
+  if (idleMs > 0) card.leftMs = idleMs
+}
+
 // A card action, from a click on its entry or its digit typed into the empty prompt.
 async function choose($: EngineInterface, id: string) {
   const now = await $.clock.now()
   if (!held || held.decision !== null) return
-  held.touchedAt = now
+  touch(held, now)
   if (held.isAsking) {
     if (id === REASON_SEND) await sendReason($, held.draft ?? '')
     if (id === REASON_BACK) {
@@ -789,7 +807,7 @@ async function keepStored($: EngineInterface) {
 async function sendReason($: EngineInterface, value: string) {
   const now = await $.clock.now()
   if (!held || held.decision !== null || !held.isAsking) return
-  held.touchedAt = now
+  touch(held, now)
   held.reason = cleanReason(value)
   held.decision = 'cancel'
   await keepStored($)
@@ -799,7 +817,7 @@ async function sendReason($: EngineInterface, value: string) {
 async function typeReason($: EngineInterface, value: string) {
   const now = await $.clock.now()
   if (!held?.isAsking) return
-  held.touchedAt = now
+  touch(held, now)
   held.draft = value
   $.ui.invalidate('ui.render')
 }
@@ -856,6 +874,7 @@ async function holdRisky($: EngineInterface, next:{ signal: AbortSignal }, risk:
     } else {
       // Other band mods can read this to step aside while the card is up.
       await $.state.set({ plugin: 'mod-blast-radius', key: 'holding' }, true)
+      if (idleMs > 0) mine.leftMs = idleMs
       $.clock.after(0, () => describe($, mine).catch(() => undefined))
       // Fire and forget: a refused notification must never touch the hold.
       void Promise.resolve().then(() => $.ui.notify(fill(text.ui.notifyHeld, { command: oneLine(command) }), { title: text.ui.notifyTitle })).catch(() => undefined)
@@ -863,9 +882,17 @@ async function holdRisky($: EngineInterface, next:{ signal: AbortSignal }, risk:
       // The hold stays until the person answers or the turn is interrupted; with an idle timeout set, it also ends once nobody used the card for that long.
       const shownAt = await $.clock.now()
       while (mine.decision === null) {
+        const left = idleMs - ((await $.clock.now()) - (mine.touchedAt ?? shownAt))
         if (next.signal.aborted) mine.decision = 'interrupted'
-        else if (idleMs > 0 && (await $.clock.now()) - (mine.touchedAt ?? shownAt) >= idleMs) mine.decision = 'idle'
-        else await pause($)
+        else if (idleMs > 0 && left <= 0) mine.decision = 'idle'
+        else {
+          // The shown time changes once a minute, then once a second in the last minute: redraw only then.
+          if (idleMs > 0 && countdownOf(left).time !== countdownOf(mine.leftMs ?? left).time) {
+            mine.leftMs = left
+            $.ui.invalidate('ui.render')
+          }
+          await pause($)
+        }
       }
     }
   } catch {

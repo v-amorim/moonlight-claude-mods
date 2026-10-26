@@ -1,5 +1,6 @@
 // mod-blast-radius / tests/idle.test.tsx, by v-amorim: idle timeout, waiting chip, stored answer
 import { expect, mock, test } from 'claude-code/testing'
+import { countdownOf, countdownParts } from '../hooks/countdown'
 import text from '../hooks/text'
 import { THEME } from '../hooks/theme'
 
@@ -363,6 +364,158 @@ test('a Run pressed on the card writes no file', async ($, on) => {
   await ran
   await band.unmount()
   expect(writes).toEqual([])
+})
+
+// ---- the idle countdown on the card's top edge ----
+
+const SECOND = 1000
+const EDGE_TEXT = /Sets this aside in/
+// The edge's three runs: the muted lead, the timed value, the muted clause.
+const edgeOf = async (band: any) => {
+  const lead = await band.find({ type: 'Text', text: EDGE_TEXT })
+  const time = await band.find({ type: 'Text', text: /^(\d+ min|\d+ s)$/ })
+  const tail = await band.find({ type: 'Text', text: /Claude keeps going/ })
+  return { lead, time, tail }
+}
+const colorOf = (found: any): string | undefined => found?.props?.color ?? found?.color
+// Lets the hold's poll see the clock move.
+const settle = async (clock: { advance: (ms: number) => Promise<void> }, ms: number) => {
+  await clock.advance(ms)
+  await sleep(60)
+}
+
+test('countdown: whole minutes rounded up, then seconds, with the tone going warn at 2 min and alert in the last minute', () => {
+  expect(countdownOf(10 * MINUTE)).toEqual({ time: '10 min', color: THEME.onSurface })
+  expect(countdownOf(9.5 * MINUTE)).toEqual({ time: '10 min', color: THEME.onSurface })
+  expect(countdownOf(2 * MINUTE + 1)).toEqual({ time: '3 min', color: THEME.onSurface })
+  expect(countdownOf(2 * MINUTE)).toEqual({ time: '2 min', color: THEME.warn })
+  expect(countdownOf(MINUTE + 59 * SECOND)).toEqual({ time: '2 min', color: THEME.warn })
+  expect(countdownOf(MINUTE)).toEqual({ time: '1 min', color: THEME.warn })
+  expect(countdownOf(42 * SECOND)).toEqual({ time: '42 s', color: THEME.alert })
+  expect(countdownOf(41.2 * SECOND)).toEqual({ time: '42 s', color: THEME.alert })
+  expect(countdownOf(-5)).toEqual({ time: '0 s', color: THEME.alert })
+})
+
+test('countdown: the whole sentence when it fits, then without its clause, then nothing', () => {
+  const full = 'Sets this aside in 10 min, Claude keeps going'
+  expect(countdownParts(10 * MINUTE, full.length + 2)).toMatchObject({ lead: 'Sets this aside in ', time: '10 min', tail: ', Claude keeps going' })
+  expect(countdownParts(10 * MINUTE, full.length + 1)).toMatchObject({ tail: '' })
+  expect(countdownParts(10 * MINUTE, 'Sets this aside in 10 min'.length + 2)).toMatchObject({ tail: '' })
+  expect(countdownParts(10 * MINUTE, 'Sets this aside in 10 min'.length + 1)).toBeNull()
+})
+
+test('countdown: the card draws it at 9:30 left as 10 min, muted words and an on-surface time', IDLE, async ($, on) => {
+  const { seen, clock } = world(on)
+  const call = $.tool.call({ tool: 'Bash', command: COMMAND })
+  await holding(seen)
+  const band = await $.ui.mount({ plugin: PLUGIN, surface: 'terminal', ...BAND })
+  await settle(clock, 30 * SECOND)
+  await band.redraw()
+  const { lead, time, tail } = await edgeOf(band)
+  expect(lead.text).toBe(' Sets this aside in ')
+  expect(time.text).toBe('10 min')
+  expect(tail.text).toBe(', Claude keeps going ')
+  expect([colorOf(lead), colorOf(time), colorOf(tail)]).toEqual([THEME.muted, THEME.onSurface, THEME.muted])
+  await click(band, 'blast-run')
+  await call
+  await band.unmount()
+})
+
+test('countdown: 1:59 left reads 2 min in warn, and 0:42 left reads 42 s in alert, the words staying muted', IDLE, async ($, on) => {
+  const { seen, clock } = world(on)
+  const call = $.tool.call({ tool: 'Bash', command: COMMAND })
+  await holding(seen)
+  const band = await $.ui.mount({ plugin: PLUGIN, surface: 'terminal', ...BAND })
+  await settle(clock, 8 * MINUTE + 1 * SECOND)
+  await band.redraw()
+  let edge = await edgeOf(band)
+  expect([edge.time.text, colorOf(edge.time), colorOf(edge.lead)]).toEqual(['2 min', THEME.warn, THEME.muted])
+  await settle(clock, 77 * SECOND)
+  await band.redraw()
+  edge = await edgeOf(band)
+  expect([edge.time.text, colorOf(edge.time), colorOf(edge.lead), colorOf(edge.tail)]).toEqual(['42 s', THEME.alert, THEME.muted, THEME.muted])
+  await click(band, 'blast-run')
+  await call
+  await band.unmount()
+})
+
+test('countdown: with the idle timeout Off the edge draws nothing', { options: { idle: 'Off' } }, async ($, on) => {
+  const { seen } = world(on)
+  const call = $.tool.call({ tool: 'Bash', command: COMMAND })
+  await holding(seen)
+  const band = await $.ui.mount({ plugin: PLUGIN, surface: 'terminal', ...BAND })
+  expect(await band.find({ type: 'Text', text: EDGE_TEXT })).toBeUndefined()
+  await click(band, 'blast-run')
+  await call
+  await band.unmount()
+})
+
+test('countdown: using the card sets it back to the full time', IDLE, async ($, on) => {
+  const { seen, clock } = world(on)
+  const call = $.tool.call({ tool: 'Bash', command: COMMAND })
+  await holding(seen)
+  const band = await $.ui.mount({ plugin: PLUGIN, surface: 'terminal', ...BAND })
+  await settle(clock, 9 * MINUTE)
+  await band.redraw()
+  expect((await edgeOf(band)).time.text).toBe('1 min')
+  await click(band, 'blast-cancel')
+  await band.redraw()
+  const edge = await edgeOf(band)
+  expect([edge.time.text, colorOf(edge.time)]).toEqual(['10 min', THEME.onSurface])
+  await band.input({ key: 'blast-reason', text: '', kind: 'submit' })
+  await call
+  await band.unmount()
+})
+
+test('countdown: a narrow card drops the clause first, then the whole countdown, and the title stays', IDLE, async ($, on) => {
+  const { seen } = world(on)
+  const call = $.tool.call({ tool: 'Bash', command: COMMAND })
+  await holding(seen)
+  let band = await $.ui.mount({ plugin: PLUGIN, surface: 'terminal', ...bandOf(60) })
+  let edge = await edgeOf(band)
+  expect([edge.lead.text, edge.time.text, edge.tail]).toEqual([' Sets this aside in ', '10 min', undefined])
+  expect(await band.find({ type: 'Text', text: text.card.title })).toBeDefined()
+  await band.unmount()
+  band = await $.ui.mount({ plugin: PLUGIN, surface: 'terminal', ...bandOf(40) })
+  edge = await edgeOf(band)
+  expect([edge.lead, edge.time, edge.tail]).toEqual([undefined, undefined, undefined])
+  expect(await band.find({ type: 'Text', text: text.card.title })).toBeDefined()
+  await click(band, 'blast-run')
+  await call
+  await band.unmount()
+})
+
+test('countdown: redraws once a minute, then once a second in the last minute, and not between', IDLE, async ($, on) => {
+  const { seen, clock } = world(on)
+  let draws = 0
+  on('ui.invalidate', () => {
+    draws++
+    return { value: undefined }
+  })
+  const call = $.tool.call({ tool: 'Bash', command: COMMAND })
+  await holding(seen)
+  const drawsAfter = async (ms: number) => {
+    const before = draws
+    await settle(clock, ms)
+    return draws - before
+  }
+  // 10 min shows until 9:00 left: half a minute changes nothing, the next half minute shows 9 min.
+  expect(await drawsAfter(30 * SECOND)).toBe(0)
+  expect(await drawsAfter(30 * SECOND)).toBe(1)
+  // Down to 2 min left, one redraw per minute and none between.
+  for (let minute = 0; minute < 7; minute++) {
+    expect(await drawsAfter(30 * SECOND)).toBe(0)
+    expect(await drawsAfter(30 * SECOND)).toBe(1)
+  }
+  // 2 min shows until 1:00 left.
+  expect(await drawsAfter(59 * SECOND)).toBe(0)
+  expect(await drawsAfter(1 * SECOND)).toBe(1)
+  // Inside the last minute each second is a redraw.
+  expect(await drawsAfter(1 * SECOND)).toBe(1)
+  expect(await drawsAfter(1 * SECOND)).toBe(1)
+  expect(await drawsAfter(0)).toBe(0)
+  await clock.advance(MINUTE)
+  await call
 })
 
 test('the chip goes when the session ends', IDLE, async ($, on) => {

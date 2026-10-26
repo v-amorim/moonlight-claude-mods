@@ -162,7 +162,11 @@ export default {
     "details": "Details",
     "showAll": "Show all",
     "showLess": "Show less",
-    "explaining": "Explaining"
+    "explaining": "Explaining",
+    "idle": "Sets this aside in {time}",
+    "idleKeeps": ", Claude keeps going",
+    "idleMin": "{n} min",
+    "idleSec": "{n} s"
   },
   "verdict": {
     "nothingMeasured": "nothing could be measured before it runs",

@@ -145,12 +145,17 @@ test('a folder walk past the cap keeps the card instead of trusting the rest', a
 
 test('pending: a target inside, equal to, or holding a pending path fails; other paths and no state pass', () => {
   const pending = ['C:/Users/me/proj/plan.md', 'C:/Users/me/proj/docs']
-  expect(isPending('C:/Users/me/proj/plan.md', pending, true)).toBe(true)
-  expect(isPending('C:/Users/me/proj/docs/a.md', pending, true)).toBe(true)
-  expect(isPending('C:/Users/me/proj', pending, true)).toBe(true)
-  expect(isPending('C:/Users/me/other/plan.md', pending, true)).toBe(false)
-  expect(isPending('C:/Users/me/proj/plan.md', undefined, true)).toBe(false)
-  expect(isPending('C:/Users/me/proj/plan.md', [], true)).toBe(false)
+  expect(isPending('C:/Users/me/proj/plan.md', pending, true, HOME)).toBe(true)
+  expect(isPending('C:/Users/me/proj/docs/a.md', pending, true, HOME)).toBe(true)
+  expect(isPending('C:/Users/me/proj', pending, true, HOME)).toBe(true)
+  expect(isPending('C:/Users/me/other/plan.md', pending, true, HOME)).toBe(false)
+  expect(isPending('C:/Users/me/proj/plan.md', undefined, true, HOME)).toBe(false)
+  expect(isPending('C:/Users/me/proj/plan.md', [], true, HOME)).toBe(false)
+})
+
+test('pending: an entry that is home, above it, or a drive root is ignored, so one broad entry cannot hold every delete', () => {
+  for (const broad of ['C:/Users/me', 'c:/users/ME/', 'C:/Users', 'C:/', '/']) expect(isPending('C:/Users/me/x/new.txt', [broad], true, HOME)).toBe(false)
+  expect(isPending('C:/Users/me/x/new.txt', ['C:/Users/me', 'C:/Users/me/x'], true, HOME)).toBe(true)
 })
 
 // ---- the birth process ----
