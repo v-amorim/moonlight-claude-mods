@@ -46,10 +46,10 @@ const transcriptFor = (prompts: string[]) =>
 const encoder = new TextEncoder()
 const base64Of = (bytes: Uint8Array) => btoa(Array.from(bytes, byte => String.fromCharCode(byte)).join(''))
 
-type Setup = { reply?: () => unknown; below?: (elements: any) => unknown; isUnplaced?: boolean; gate?: Promise<unknown>; oversize?: boolean; session?: { id: string }; cwd?: { dir: string }; drop?: string }
+type Setup = { reply?: () => unknown; below?: (elements: any) => unknown; isUnplaced?: boolean; gate?: Promise<unknown>; oversize?: boolean; session?: { id: string }; cwd?: { dir: string }; drop?: string; busy?: Promise<unknown> }
 
-// Stubs everything the mod touches. `forks` and `completes` record what the model was asked, `store` what the mod saved, `reads` and `runs` the file and process calls, and the transcript holds each prompt the test sent. `gate` holds every read of a session's notes until it resolves; `oversize` makes the file read past 4 MiB, as the engine refuses it.
-function setup(on: any, { reply = () => answered(FULL), below, isUnplaced, gate, oversize = false, session = { id: 's1' }, cwd = { dir: '/w' }, drop }: Setup = {}) {
+// Stubs everything the mod touches. `forks` and `completes` record what the model was asked, `store` what the mod saved, `reads` and `runs` the file and process calls, and the transcript holds each prompt the test sent. `gate` holds every read of a session's notes until it resolves; `oversize` makes the file read past 4 MiB, as the engine refuses it; `busy` holds a note sent to Claude until it resolves, as a running turn does.
+function setup(on: any, { reply = () => answered(FULL), below, isUnplaced, gate, oversize = false, session = { id: 's1' }, cwd = { dir: '/w' }, drop, busy }: Setup = {}) {
   const clock = mock.clock(on, { now: Date.UTC(2026, 9, 5, 16, 52) })
   const store = new Map<string, unknown>([['transcript:s1', TRANSCRIPT], ['transcript:s2', TRANSCRIPT]])
   const sent: string[] = []
@@ -93,8 +93,9 @@ function setup(on: any, { reply = () => answered(FULL), below, isUnplaced, gate,
     fills.push({ text: e.text, mode: e.mode })
     return { isFilled: true }
   })
-  on('prompt.submit', (_$: unknown, e: { text: string }) => {
+  on('prompt.submit', async (_$: unknown, e: { text: string }) => {
     if (drop && e.text.startsWith('A heads-up note')) return { drop }
+    if (busy && e.text.startsWith('A heads-up note')) await busy
     sent.push(e.text)
     return { text: e.text }
   })
@@ -513,6 +514,21 @@ test('Ask Claude on the card sends the note to Claude, closes the card and reads
   expect(sent[1]).toMatch(/^A heads-up note/)
   expect(await ui.find({ key: 'headsup-card' })).toBeUndefined()
   expect(JSON.stringify(await ui.find({ key: 'menu-entry-headsup' }))).not.toContain('"text":"1"')
+  await ui.unmount()
+})
+
+test('Ask Claude mid-turn closes the card at once, before the turn ends and the note is sent', async ($, on) => {
+  let idle = () => {}
+  const { clock, sent } = setup(on, { busy: new Promise<void>(resolve => (idle = resolve)) })
+  await finding($, clock)
+  const ui = await band($)
+  await click(ui, 'headsup-card-chat')
+  await clock.settle()
+  expect(await ui.find({ key: 'headsup-card' })).toBeUndefined()
+  expect(sent.slice(1)).toHaveLength(0)
+  idle()
+  await clock.settle()
+  expect(sent[1]).toMatch(/^A heads-up note/)
   await ui.unmount()
 })
 

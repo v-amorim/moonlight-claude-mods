@@ -416,12 +416,12 @@ async function cardAction($: EngineInterface, id: string) {
   const card = saved.card ?? ''
   if (!card) return
   if (id === 'headsup-card-open') await learnMore($, card)
-  // Sending the note to Claude counts as seeing it, so the card closes as Dismiss would
+  // Asking Claude counts as seeing the note; close first, since mid-turn the send waits for idle
   else if (id === 'headsup-card-chat' || id === 'headsup-card-dismiss') {
-    if (id === 'headsup-card-chat') await chat($, card)
     bandTip = ''
     await closeCard($)
     await update($, card, { isRead: true })
+    if (id === 'headsup-card-chat') await chat($, card)
   }
 }
 
