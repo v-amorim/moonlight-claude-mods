@@ -502,14 +502,17 @@ test('the card has three unnumbered actions on a row under the note: Open, Ask C
   await ui.unmount()
 })
 
-test('Ask Claude on the card sends the note to Claude', async ($, on) => {
+test('Ask Claude on the card sends the note to Claude, closes the card and reads the note', async ($, on) => {
   const { clock, sent } = setup(on)
   await finding($, clock)
   const ui = await band($)
+  expect(JSON.stringify(await ui.find({ key: 'menu-entry-headsup' }))).toContain('"text":"1"')
   await click(ui, 'headsup-card-chat')
   await clock.settle()
   expect(sent.slice(1)).toHaveLength(1)
   expect(sent[1]).toMatch(/^A heads-up note/)
+  expect(await ui.find({ key: 'headsup-card' })).toBeUndefined()
+  expect(JSON.stringify(await ui.find({ key: 'menu-entry-headsup' }))).not.toContain('"text":"1"')
   await ui.unmount()
 })
 
