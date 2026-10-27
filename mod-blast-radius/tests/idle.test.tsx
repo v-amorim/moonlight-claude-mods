@@ -21,8 +21,12 @@ const asGiven = (path: string) => path.replace(/\\/g, '/').replace(/^.*?(?=[A-Za
 
 // Everything the engine would answer; `labels` is mod-menu's pill-label mode.
 function world(on: (event: string, handler: (...args: any[]) => unknown) => void, labels?: string, verdict = 'allow') {
-  const seen = { ran: 0, argv: [] as string[] }
+  const seen = { ran: 0, argv: [] as string[], sent: [] as string[] }
   const clock = mock.clock(on as never)
+  on('prompt.submit', (_$: unknown, e: { text: string }) => {
+    seen.sent.push(e.text)
+    return { text: e.text }
+  })
   on('session.cwd', () => ({ value: 'C:/w' }))
   on('session.surfaces', () => ({ value: ['terminal'] }))
   on('env.get', (_$: unknown, e: { name: string }) => ({ value: e.name === 'OS' ? 'Windows_NT' : e.name === 'USERPROFILE' ? 'C:\\Users\\me' : undefined }))
@@ -334,6 +338,136 @@ test('asked again before any click, the command gets a fresh card and the chip g
   await click(band, 'blast-run')
   await call
   expect(seen.ran).toBe(1)
+  await band.unmount()
+})
+
+// ---- an answered command: the quiet chip and the nudge ----
+
+test('the chip counts only the unanswered commands', { options: { idle: '10 min', icons: 'safe' } }, async ($, on) => {
+  const { seen, clock } = world(on)
+  await timeOut($, clock, seen)
+  seen.argv.length = 0
+  await timeOut($, clock, seen, 'rm -rf build/a.js')
+  const band = await $.ui.mount({ plugin: PLUGIN, surface: 'terminal', ...BAND })
+  expect(await wordsOf(band, 'blast-wait')).toBe(' ! Approve 2 commands ')
+  await click(band, 'blast-wait')
+  await click(band, 'blast-run')
+  await band.redraw()
+  expect(await wordsOf(band, 'blast-wait')).toBe(' ! Approve 1 command ')
+  await band.unmount()
+})
+
+for (const [icons, glyph] of [['nerd', String.fromCodePoint(0xeab2)], ['safe', '✓']] as const) {
+  test(`icons=${icons}: once every command is answered the chip is quiet: a check, muted words, surface-3`, { options: { idle: '10 min', icons } }, async ($, on) => {
+    const { seen, clock } = world(on)
+    await timeOut($, clock, seen)
+    const band = await $.ui.mount({ plugin: PLUGIN, surface: 'terminal', ...BAND })
+    await click(band, 'blast-wait')
+    await click(band, 'blast-run')
+    await band.unmount()
+    // A fresh mount: the pointer rests nowhere, so no hover tint.
+    const quiet = await $.ui.mount({ plugin: PLUGIN, surface: 'terminal', ...BAND })
+    expect(await wordsOf(quiet, 'blast-wait')).toBe(` ${glyph} Approved · waiting for Claude `)
+    const tree = await quiet.drawn({ in: 'blast-wait' })
+    expect(colorOfWords(tree, 'Approved')).toBe(THEME.muted)
+    expect(JSON.stringify(tree)).toContain(THEME.good)
+    expect(JSON.stringify(tree)).toContain(THEME.surface3)
+    expect(JSON.stringify(tree)).not.toContain(THEME.alert)
+    await quiet.unmount()
+  })
+}
+
+test('several answered Runs read "2 approved"', { options: { idle: '10 min', icons: 'safe' } }, async ($, on) => {
+  const { seen, clock } = world(on)
+  await timeOut($, clock, seen)
+  seen.argv.length = 0
+  await timeOut($, clock, seen, 'rm -rf build/a.js')
+  const band = await $.ui.mount({ plugin: PLUGIN, surface: 'terminal', ...BAND })
+  await click(band, 'blast-wait')
+  await click(band, 'blast-run')
+  await click(band, 'blast-wait')
+  await click(band, 'blast-run')
+  await band.redraw()
+  expect(await wordsOf(band, 'blast-wait')).toBe(' ✓ 2 approved · waiting for Claude ')
+  await band.unmount()
+})
+
+test('a Cancel among the answers words the chip "answered", which stays true', { options: { idle: '10 min', icons: 'safe' } }, async ($, on) => {
+  const { seen, clock } = world(on)
+  await timeOut($, clock, seen)
+  const band = await $.ui.mount({ plugin: PLUGIN, surface: 'terminal', ...BAND })
+  await click(band, 'blast-wait')
+  await click(band, 'blast-cancel')
+  await band.input({ key: 'blast-reason', text: '', kind: 'submit' })
+  await band.redraw()
+  expect(await wordsOf(band, 'blast-wait')).toBe(' ✓ Answered · waiting for Claude ')
+  await click(band, 'blast-wait')
+  await band.redraw()
+  expect(await textOf(band, /Answered\. Claude is told when it asks for it again\./)).toBeDefined()
+  await band.unmount()
+})
+
+test('a click on the quiet chip toasts and opens no card; its hover tip says the same', { options: { idle: '10 min', icons: 'safe' } }, async ($, on) => {
+  const { seen, clock } = world(on)
+  await timeOut($, clock, seen)
+  const band = await $.ui.mount({ plugin: PLUGIN, surface: 'terminal', ...BAND })
+  await click(band, 'blast-wait')
+  await click(band, 'blast-run')
+  await band.unmount()
+
+  const quiet = await $.ui.mount({ plugin: PLUGIN, surface: 'terminal', ...BAND })
+  await quiet.pointer({ type: 'enter', x: 1, y: 0, in: 'blast-wait' })
+  await quiet.redraw()
+  expect(await textOf(quiet, /^Approved · waiting for Claude:/)).toBeDefined()
+  expect(await textOf(quiet, /Approved\. It runs when Claude asks for it again\./)).toBeDefined()
+  await quiet.pointer({ type: 'leave', x: 1, y: 0, in: 'blast-wait' })
+
+  await click(quiet, 'blast-wait')
+  await quiet.redraw()
+  expect(await quiet.find({ key: 'blast-run' })).toBeUndefined()
+  expect(await quiet.find({ key: 'blast-cancel' })).toBeUndefined()
+  expect(await textOf(quiet, /Approved\. It runs when Claude asks for it again\./)).toBeDefined()
+  await quiet.unmount()
+})
+
+test('Run on a reopened card nudges the session once, with the command on one line', IDLE, async ($, on) => {
+  const { seen, clock } = world(on)
+  await timeOut($, clock, seen, 'rm -rf   build\n')
+  const band = await $.ui.mount({ plugin: PLUGIN, surface: 'terminal', ...BAND })
+  expect(seen.sent).toEqual([])
+  await click(band, 'blast-wait')
+  expect(seen.sent).toEqual([])
+  await click(band, 'blast-run')
+  await sleep(20)
+  expect(seen.sent).toEqual(['Approved in blast-radius: `rm -rf build`. Run it now.'])
+  await band.unmount()
+})
+
+test('Cancel on a reopened card sends no nudge', IDLE, async ($, on) => {
+  const { seen, clock } = world(on)
+  await timeOut($, clock, seen)
+  const band = await $.ui.mount({ plugin: PLUGIN, surface: 'terminal', ...BAND })
+  await click(band, 'blast-wait')
+  await click(band, 'blast-cancel')
+  await band.input({ key: 'blast-reason', text: 'no', kind: 'submit' })
+  await sleep(20)
+  expect(seen.sent).toEqual([])
+  await band.unmount()
+})
+
+test('the retry applies the stored Run at once and the chip is gone', IDLE, async ($, on) => {
+  const { seen, clock } = world(on)
+  await timeOut($, clock, seen)
+  const band = await $.ui.mount({ plugin: PLUGIN, surface: 'terminal', ...BAND })
+  await click(band, 'blast-wait')
+  await click(band, 'blast-run')
+  await sleep(20)
+  expect(seen.sent.length).toBe(1)
+  expect(await band.find({ key: 'blast-wait' })).toBeDefined()
+  await $.tool.call({ tool: 'Bash', command: COMMAND })
+  expect(seen.ran).toBe(1)
+  await band.redraw()
+  expect(await band.find({ key: 'blast-wait' })).toBeUndefined()
   await band.unmount()
 })
 

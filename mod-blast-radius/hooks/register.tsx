@@ -745,11 +745,23 @@ function holdCard({ Box, Button, Client, Input, Text }: Elements & { Button: (pr
   )
 }
 
+// With every answer a Run the quiet chip says "approved"; a Cancel among them makes it "answered", which stays true.
+const isAllRun = (chips: Waiting[]) => chips.every(each => each.answer?.decision === 'run')
+const quietWords = (chips: Waiting[]) => (isAllRun(chips) ? text.waiting.approved : text.waiting.answered)
+const quietNote = (chips: Waiting[]) => (isAllRun(chips) ? text.waiting.approvedNote : text.waiting.answeredNote)
+
 // The chip at the right end of the pill row: an alert icon, the words in on-surface, on surface-3. `count` shows only the icon and the number.
-function waitChip({ Box, Client, Text }: Pick<Elements, 'Box' | 'Client' | 'Text'>, mode: 'full' | 'count', count: number, command: string) {
-  const label = fill(count === 1 ? text.waiting.approve.one : text.waiting.approve.many, { n: count })
-  const tip = { glyph: bare(look.glyph.warn), label, text: fill(text.waiting.tip, { command: oneLine(command) }) }
-  const props = { id: WAIT_CHIP, label: mode === 'full' ? label : String(count), isOpen: true, bg: THEME.surface3, color: THEME.onSurface, lead: look.glyph.warn, leadColor: THEME.alert, nerd: look.nerd, still, tip, ...(mode === 'full' ? { compact: false } : {}) } satisfies EntryProps
+function waitChip({ Box, Client, Text }: Pick<Elements, 'Box' | 'Client' | 'Text'>, mode: 'full' | 'count', chips: Waiting[]) {
+  const open = chips.filter(each => !each.answer)
+  const isQuiet = open.length === 0
+  const count = isQuiet ? chips.length : open.length
+  const words = isQuiet ? quietWords(chips) : text.waiting.approve
+  const label = fill(count === 1 ? words.one : words.many, { n: count })
+  const tip = isQuiet
+    ? { glyph: bare(look.glyph.ok), label, text: quietNote(chips) }
+    : { glyph: bare(look.glyph.warn), label, text: fill(text.waiting.tip, { command: oneLine(open[0]!.held.command) }) }
+  const tone = isQuiet ? { color: THEME.muted, lead: look.glyph.ok, leadColor: THEME.good } : { color: THEME.onSurface, lead: look.glyph.warn, leadColor: THEME.alert }
+  const props = { id: WAIT_CHIP, label: mode === 'full' ? label : String(count), isOpen: true, bg: THEME.surface3, ...tone, nerd: look.nerd, still, tip, ...(mode === 'full' ? { compact: false } : {}) } satisfies EntryProps
   return pill({ Box, Text }, look.nerd, THEME.surface3, <Client key={WAIT_CHIP} module="./entry.tsx" height={1} props={props} />, `${WAIT_CHIP}-pill`)
 }
 
@@ -796,6 +808,8 @@ async function keepStored($: EngineInterface) {
   if (!card?.isStored || card.decision === null) return
   const entry = waiting.get(card.command)
   if (entry) entry.answer = { decision: card.decision === 'run' ? 'run' : 'cancel', ...(card.reason ? { reason: card.reason } : {}) }
+  // Queued by the engine until the session is idle; Claude then retries the exact command and the stored Run applies. Cancel sends nothing.
+  if (entry && card.decision === 'run') void Promise.resolve().then(() => $.prompt.submit({ text: fill(text.waiting.nudge, { command: oneLine(card.command) }) })).catch(() => undefined)
   held = null
   hovered = null
   if (await isPaneOpen($, LIST_PANE).catch(() => false)) {
@@ -947,12 +961,15 @@ async function useStored($: EngineInterface, next: { signal: AbortSignal }, comm
 // Reopens the oldest waiting command's card; its Cancel, Details and Run work as on a live hold, and the answer is kept for Claude's next identical call.
 async function reopenWaiting($: EngineInterface) {
   const now = await $.clock.now()
+  const entry = [...waiting.values()].find(each => !each.answer)
+  if (!entry) {
+    if (waiting.size > 0) toast($, quietNote([...waiting.values()]))
+    return
+  }
   if (held) {
     toast($, text.waiting.busy)
     return
   }
-  const entry = [...waiting.values()].find(each => !each.answer) ?? [...waiting.values()][0]
-  if (!entry) return
   const { isAsking, draft, reason, ...rest } = entry.held
   held = { ...rest, decision: null, isStored: true, isDescribing: false, touchedAt: now }
   $.ui.invalidate('ui.render')
@@ -1291,7 +1308,7 @@ export const register: Register = (on, options) => {
     const chips = [...waiting.values()]
     const drawRow = async (group: unknown[], row: unknown[], rest: unknown[], tip: unknown) => {
       const labels = labelsOf((await $.state.get({ plugin: 'mod-menu', key: 'labels' }).catch(() => undefined))?.value)
-      const draw = (mode: 'full' | 'count') => pillRow({ Box, Client, Text }, look.nerd, group, [...row, waitChip({ Box, Client, Text }, mode, chips.length, (chips.find(each => !each.answer) ?? chips[0]!).held.command)], rest, tip, e.props.bodyColumns)
+      const draw = (mode: 'full' | 'count') => pillRow({ Box, Client, Text }, look.nerd, group, [...row, waitChip({ Box, Client, Text }, mode, chips)], rest, tip, e.props.bodyColumns)
       const full = draw(labels === 'never' ? 'count' : 'full')
       return labels !== 'never' && isChipCut(full) ? draw('count') : full
     }

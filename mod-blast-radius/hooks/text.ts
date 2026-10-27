@@ -52,7 +52,12 @@ export default {
   "waiting": {
     "approve": { "one": "Approve {n} command", "many": "Approve {n} commands" },
     "tip": "opens the card for {command} again; your answer applies when Claude asks for it again",
-    "busy": "Answer the card on screen first"
+    "busy": "Answer the card on screen first",
+    "approved": { "one": "Approved · waiting for Claude", "many": "{n} approved · waiting for Claude" },
+    "answered": { "one": "Answered · waiting for Claude", "many": "{n} answered · waiting for Claude" },
+    "approvedNote": "Approved. It runs when Claude asks for it again.",
+    "answeredNote": "Answered. Claude is told when it asks for it again.",
+    "nudge": "Approved in blast-radius: `{command}`. Run it now."
   },
   "atLeast": "at least ",
   "orMore": " or more",
