@@ -5,7 +5,7 @@ import { expect, mock, test, type TestBody } from 'claude-code/testing'
 import { lookFor } from '../hooks/look'
 import style from '../hooks/style'
 import { decodeAll, MARK, THEME } from '../hooks/theme'
-import { groupSkills, markDescription, readFrontmatter, swatchFor } from '../hooks/tags'
+import { groupSkills, markDescription, paintsDescriptions, readFrontmatter, swatchFor } from '../hooks/tags'
 
 type Pointer = { pointer: (event: object) => Promise<unknown> }
 // The host types leave `pointer` off a mounted UI.
@@ -50,9 +50,6 @@ const stubSession = (on: On) => {
   on('ui.panes', () => ({ value: [] }))
 }
 
-// The review tag's hue as a text color: the badge's icon and name draw in it.
-const REVIEW_HUE = '\x1b[38;2;209;168;255m'
-
 test('tags: default personal, explicit tag, unknown fallback, malformed skipped', () => {
   expect(readFrontmatter(FILES['/h/.claude/skills/plain/SKILL.md']!)).toEqual({ name: 'plain', tag: 'personal', description: 'x', hidden: false })
   expect(readFrontmatter('---\r\nname: "quoted"\r\ncolor-tag: tool \r\n---\r\n')).toEqual({ name: 'quoted', tag: 'tool', hidden: false })
@@ -61,10 +58,25 @@ test('tags: default personal, explicit tag, unknown fallback, malformed skipped'
   // Slash-only: the model may not call it, but the person types it, so the panel still lists it.
   expect(readFrontmatter('---\nname: sync\ndisable-model-invocation: true\nuser-invocable: true\n---\n')?.hidden).toBe(false)
   expect(swatchFor('nope')).toEqual(swatchFor('personal'))
-  const safe = markDescription('Does X', 'review', false)
-  expect(safe).toContain(`${REVIEW_HUE} ∴ review `)
-  expect(safe.endsWith(' Does X')).toBe(true)
-  expect(markDescription('Does X', 'review', true)).toContain(String.fromCodePoint(0xe0b6))
+  const plain = markDescription('Does X', 'review', { nerd: false, colored: false })
+  expect(plain.startsWith('[∴ review]')).toBe(true)
+  expect(plain).not.toContain('\x1b')
+  expect(plain.endsWith(' Does X')).toBe(true)
+  const pill = markDescription('Does X', 'review', { nerd: false, colored: true })
+  expect(pill).toContain('\x1b[38;2;209;168;255m ∴ review ')
+  expect(pill.endsWith(' Does X')).toBe(true)
+  expect(markDescription('Does X', 'review', { nerd: true, colored: true })).toContain(String.fromCodePoint(0xe0b6))})
+
+test('the pill draws up to the last release seen coloring the typeahead, the plain badge after it or when unknown', () => {
+  expect(paintsDescriptions('2.1.289')).toBe(true)
+  expect(paintsDescriptions('2.1.288')).toBe(true)
+  expect(paintsDescriptions('2.0.999')).toBe(true)
+  expect(paintsDescriptions('2.1.290')).toBe(false)
+  expect(paintsDescriptions('2.1.312')).toBe(false)
+  expect(paintsDescriptions('3.0.0')).toBe(false)
+  expect(paintsDescriptions('2.1.289-dev.20260920.t101500.sha1a2b3c4')).toBe(true)
+  expect(paintsDescriptions(undefined)).toBe(false)
+  expect(paintsDescriptions('nightly')).toBe(false)
 })
 
 test('describe marks personal skills and leaves other commands alone', async ($, on) => {
@@ -84,14 +96,14 @@ test('describe marks personal skills and leaves other commands alone', async ($,
       provider: { plugin, tier: plugin === 'engine' ? 'core' : 'user' },
     } as never)
 
-  expect((await describe('mod-manager', 'mod-manager')).description).toContain('\x1b[38;2;93;203;255m')
-  expect((await describe('mod-manager', 'mod-manager@inline')).description).toContain('\x1b[38;2;93;203;255m')
+  expect((await describe('mod-manager', 'mod-manager')).description).toMatch(/^\[\+ mods\]/)
+  expect((await describe('mod-manager', 'mod-manager@inline')).description).toMatch(/^\[\+ mods\]/)
   // Installed from the marketplace, a mod has no folder under ~/.claude/mods.
-  expect((await describe('mod-wrap-up', 'mod-wrap-up@claude-mods')).description).toContain('\x1b[38;2;93;203;255m')
+  expect((await describe('mod-wrap-up', 'mod-wrap-up@claude-mods')).description).toMatch(/^\[\+ mods\]/)
   expect((await describe('other', 'someone-elses-plugin')).description).toBe('Does X')
 
-  expect((await describe('plain')).description).toContain('\x1b[38;2;155;163;196m')
-  expect((await describe('rev')).description).toContain(REVIEW_HUE)
+  expect((await describe('plain')).description).toMatch(/^\[● personal\]/)
+  expect((await describe('rev')).description).toMatch(/^\[∴ review\]/)
   expect((await describe('help')).description).toBe('Does X')
 })
 

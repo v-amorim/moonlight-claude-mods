@@ -42,10 +42,6 @@ export const groupSkills = (skills: Skill[]) => {
   return [...groups].map(([tag, members]) => ({ tag, swatch: swatchFor(tag), skills: members }))
 }
 
-const rgb = (hex: string) => [1, 3, 5].map(i => parseInt(hex.slice(i, i + 2), 16)).join(';')
-const fgOf = (hex: string) => `\x1b[38;2;${rgb(hex)}m`
-const bgOf = (hex: string) => `\x1b[48;2;${rgb(hex)}m`
-
 // The share of the tag's own hue left in the badge, as the panel's tag pills tint theirs.
 export const TAG_WASH = 0.72
 
@@ -57,16 +53,35 @@ const PAD = '⠀'
 // Every badge pads to the longest tag name, so the descriptions after it line up.
 const nameWidth = () => Math.max(...TAG_ORDER.map(tag => tagName(tag).length))
 
-// A tinted pill with the tag's icon and name in its hue, on the typeahead's own background; rounded where the font has the caps.
-export function badge(tag: string, nerd: boolean) {
+const rgb = (hex: string) => [1, 3, 5].map(i => parseInt(hex.slice(i, i + 2), 16)).join(';')
+const fgOf = (hex: string) => `\x1b[38;2;${rgb(hex)}m`
+const bgOf = (hex: string) => `\x1b[48;2;${rgb(hex)}m`
+
+// The last Claude Code release seen drawing color codes in the typeahead; later ones drop the ESC byte and leak the rest.
+const LAST_COLORED = [2, 1, 289]
+
+// Unknown or newer releases get the plain badge, so a wrong guess costs color, never leaked codes.
+export function paintsDescriptions(version: string | undefined) {
+  const parts = /^(\d+)\.(\d+)\.(\d+)/.exec(version ?? '')?.slice(1).map(Number)
+  if (!parts) return false
+  const step = parts.findIndex((part, i) => part !== LAST_COLORED[i])
+  return step === -1 || parts[step]! < LAST_COLORED[step]!
+}
+
+export type BadgeLook = { nerd: boolean; colored: boolean }
+
+// A tinted pill in the tag's hue where the typeahead draws color codes, else the bracketed icon and name.
+export function badge(tag: string, { nerd, colored }: BadgeLook) {
   const known = knownTag(tag)
   const { hex, icon } = swatchFor(known)
-  const wash = mix(hex, THEME.bg, TAG_WASH)
   const name = tagName(known)
+  const pad = PAD.repeat(nameWidth() - name.length)
+  if (!colored) return `[${icon} ${name}]${pad}`
+  const wash = mix(hex, THEME.bg, TAG_WASH)
   const body = `${bgOf(wash)}${fgOf(hex)}${nerd ? '' : ' '}${icon} ${name}${nerd ? '' : ' '}\x1b[39m\x1b[49m`
   const caps = nerd ? [`${fgOf(wash)}${CAPS.left}\x1b[39m`, `${fgOf(wash)}${CAPS.right}\x1b[39m`] : ['', '']
-  return `${caps[0]}${body}${caps[1]}${PAD.repeat(nameWidth() - name.length)}`
+  return `${caps[0]}${body}${caps[1]}${pad}`
 }
 
 // The typeahead draws the name and description only, so the badge rides on the description.
-export const markDescription = (description: string, tag: string, nerd: boolean) => `${badge(tag, nerd)} ${description}`
+export const markDescription = (description: string, tag: string, look: BadgeLook) => `${badge(tag, look)} ${description}`

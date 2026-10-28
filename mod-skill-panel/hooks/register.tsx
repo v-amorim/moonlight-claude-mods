@@ -3,7 +3,7 @@
 import type { ConfigValue, EngineInterface, Register } from 'claude-code'
 
 import { layoutCloud, type CloudGroup, type CloudMessage, type CloudProps } from './cloud'
-import { groupSkills, markDescription, readFrontmatter, type Skill } from './tags'
+import { groupSkills, markDescription, paintsDescriptions, readFrontmatter, type Skill } from './tags'
 import { fill, MARK, statusColor, THEME } from './theme'
 import text from './text'
 import { tagName } from './tags'
@@ -88,6 +88,7 @@ const PANE = 'skill-panel'
 const SETTINGS = 'skill-panel-settings'
 
 let skills: Skill[] = []
+let colored = false
 let mods = new Set<string>()
 let note = ''
 let selected = 0
@@ -273,6 +274,7 @@ export const register: Register = (on, options) => {
 
   on('session.start', async ($, e, next) => {
     await loadLook($)
+    colored = paintsDescriptions((await $.session.version().catch(() => undefined))?.version)
     await $.command.register({ name: 'mod-skill-panel', description: text.commandDescription, argumentHint: '[settings]' })
     const config = await configDir($)
     const projectClaude = `${String(e.cwd ?? '').replace(/\\/g, '/')}/.claude`
@@ -319,9 +321,8 @@ export const register: Register = (on, options) => {
     const tag = skills.find(skill => skill.name === e.command)?.tag ?? (mods.has(plugin!) || market === 'claude-mods' ? 'mods' : undefined)
     if (!tag) return answer
 
-    return { ...answer, description: markDescription(answer.description, tag, look.nerd) }
+    return { ...answer, description: markDescription(answer.description, tag, { nerd: look.nerd, colored }) }
   })
-
   on('command.run', { command: 'mod-skill-panel' }, async ($, e) => {
     if ((e.args ?? '').trim() === 'settings') await toggleSettings($)
     else await togglePane($)
