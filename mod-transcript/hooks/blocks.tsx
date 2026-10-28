@@ -5,7 +5,7 @@ import type { RenderElement } from 'claude-code'
 import { cellOf } from './cells'
 import { chunkPieces, diffLanguage, highlight, type Piece } from './hilite'
 import type { Paint, Part } from './mark'
-import { inline, tinted, type Inline } from './prose'
+import { inline, noteMark, tinted, type Inline } from './prose'
 import text from './text'
 import { MARK, mix, THEME } from './theme'
 import style from './style'
@@ -149,6 +149,61 @@ export function headingRow({ Box, Text }: Elements, heading: string, look: Inlin
       <Box key={`${key}-rule`} flexGrow={1} flexShrink={1} height={1} overflow="hidden">
         <Text color={tinted(look.paint, THEME.border, 'text')}>{` ${MARK.rule.repeat(Math.max(1, width))}`}</Text>
       </Box>
+    </Box>
+  )
+}
+
+// A thematic break: a hairline in the border color across the reply.
+export function ruleRow({ Box, Text }: Elements, look: Inline, width: number, key: string) {
+  return (
+    <Box key={key} height={1} overflow="hidden">
+      <Text color={tinted(look.paint, THEME.border, 'text')}>{MARK.rule.repeat(Math.max(1, width))}</Text>
+    </Box>
+  )
+}
+
+// The width of the short hairline above a reply's footnotes.
+const NOTES_RULE = 16
+
+// Footnotes under a short hairline: the mark in accent, the note muted.
+export function footnoteRows({ Box, Text }: Elements, notes: { mark: string; text: string }[], look: Inline, key: string) {
+  return (
+    <Box key={key} flexDirection="column">
+      <Text key={`${key}-rule`} color={tinted(look.paint, THEME.border, 'text')}>{MARK.rule.repeat(NOTES_RULE)}</Text>
+      {notes.map((note, n) => (
+        <Text key={`${key}-${n}`}>
+          <Text color={tinted(look.paint, THEME.accent, 'text')}>{`${noteMark(note.mark)} `}</Text>
+          <Text color={tinted(look.paint, THEME.muted, 'text')}>{inline({ Text }, note.text, look, `${key}-${n}-text`)}</Text>
+        </Text>
+      ))}
+    </Box>
+  )
+}
+
+// A <details> section as a round card: one line closed, the body inside the card when open. `toggle` is the summary's Client, which flips it.
+export function detailsCard({ Box, Text }: Elements, body: string, isOpen: boolean, toggle: unknown, look: Inline, width: number, key: string) {
+  const border = tinted(look.paint, THEME.border, 'text')
+  const [start, end] = isOpen ? [CORNER.topLeft, CORNER.topRight] : ['╶', '╴']
+  return (
+    <Box key={key} flexDirection="column">
+      <Box key={`${key}-top`} flexDirection="row" height={1}>
+        <Text color={border}>{`${start}${MARK.rule} `}</Text>
+        <Box key={`${key}-toggle`} flexShrink={0}>{toggle as never}</Box>
+        <Box key={`${key}-run`} flexGrow={1} flexShrink={1} height={1} overflow="hidden">
+          <Text color={border}>{` ${MARK.rule.repeat(Math.max(1, width))}`}</Text>
+        </Box>
+        <Text color={border}>{end}</Text>
+      </Box>
+      {isOpen ? body.split('\n').map((line, n) => (
+        <Box key={`${key}-row-${n}`} flexDirection="row">
+          <Text color={border}>{MARK.rail}</Text>
+          <Box key={`${key}-row-${n}-in`} width={width - 2} paddingX={1}>
+            <Text color={tinted(look.paint, THEME.onSurface, 'text')}>{line.trim() ? inline({ Text }, line, look, `${key}-row-${n}-text`) : ' '}</Text>
+          </Box>
+          <Text color={border}>{MARK.rail}</Text>
+        </Box>
+      )) : null}
+      {isOpen ? <Text key={`${key}-bottom`} color={border}>{`${CORNER.bottomLeft}${MARK.rule.repeat(Math.max(0, width - 2))}${CORNER.bottomRight}`}</Text> : null}
     </Box>
   )
 }

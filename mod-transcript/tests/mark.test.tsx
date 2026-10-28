@@ -6,7 +6,7 @@ import { copyChoices, copyText, type CopyChoice } from '../hooks/clip'
 import Copy from '../hooks/copy'
 import { markPieces, paintOf, type Part, type Piece } from '../hooks/mark'
 import style from '../hooks/style'
-import { inTable } from '../hooks/table'
+import { inTable, richBlocks } from '../hooks/table'
 import { mix, THEME } from '../hooks/theme'
 import { reading, sessionStarted } from './bridge-feed'
 
@@ -44,6 +44,16 @@ const transcriptOf = (text: string) => [
 
 const markedText = (pieces: Piece[] | null) =>
   (pieces ?? []).flatMap(piece => (piece.kind === 'marked' ? piece.parts.filter(part => part.isMarked).map(part => part.text) : piece.isMarked ? [piece.text] : []))
+
+test('a reply with inline code is the mod own, with no path or color in it; one with neither stays Claude Code', () => {
+  const nothing = () => false
+  expect(richBlocks('Use `command.describe` here.\n\n- It feeds `skill_listing` too.', nothing).map(block => block.kind)).toEqual(['prose', 'prose'])
+  expect(richBlocks('Plain words.\n\nA <span>tag</span> with `code` stays.', nothing).map(block => block.kind)).toEqual(['markdown'])
+  expect(richBlocks('Plain words only.', nothing)).toEqual([{ kind: 'markdown', text: 'Plain words only.' }])
+  const moved = richBlocks('A claim[^1].\n\n[^1]: The note.\n\nMore text after it.', nothing)
+  expect(moved.map(block => block.kind)).toEqual(['prose', 'markdown', 'footnotes'])
+  expect(moved.at(-1)).toEqual({ kind: 'footnotes', notes: [{ mark: '1', text: 'The note.' }] })
+})
 
 test('marks: each choice marks the characters it copies', () => {
   expect(markedText(markPieces(REPLY, 'code')).join('\n\n')).toBe(copyText(REPLY, 'code'))

@@ -263,6 +263,13 @@ test('a reply table that cannot fit even with every column at its narrowest goes
   expect(await reply.find({ type: 'Text', text: 'base AssistantMessage' })).toBeDefined()
 })
 
+test('a :---: column centers its cells, with the odd cell of room after the text', async ($, on) => {
+  const mount = await open($, on)
+  const reply = await mount('AssistantMessage', ID(7), { text: '| Left | Center | Right |\n| :--- | :---: | ---: |\n| a | b | 1 |', isFirstOfReply: true })
+  expect(await reply.find({ type: 'Text', text: /^ {2}b {3}$/ })).toBeDefined()
+  expect(await reply.find({ type: 'Text', text: /^ {4}1$/ })).toBeDefined()
+})
+
 // The text of each line a table drew, rules included, in order.
 const tableLines = async (reply: any, at = 0) => {
   const table = (await reply.find({ key: `toggle-table-${at}` })) as any
@@ -761,7 +768,7 @@ for (const icons of ['safe', 'nerd'] as const) {
     const links = (await reply.findAll({ type: 'Link' })) as any[]
     const path = links.find(link => String(link.props.href).startsWith('vscode://'))
     expect(path.props.href).toBe('vscode://file/w/src/a.ts:12:3')
-    expect(textOf(path)).toBe(icons === 'nerd' ? `${CAPS.left}${VSCODE_ICON} src/a.ts:12:3${CAPS.right}` : ' src/a.ts:12:3 ')
+    expect(textOf(path)).toBe(icons === 'nerd' ? `${VSCODE_ICON} src/a.ts:12:3` : ' src/a.ts:12:3 ')
     const name = (await textsOf(reply, 'src/a.ts:12:3'))[0]
     expect(name.props).toMatchObject({ color: THEME.secondary, underline: true })
     expect((await textsOf(reply, new RegExp(VSCODE_ICON))).map((icon: any) => icon.props.color)).toEqual(icons === 'nerd' ? [THEME.secondary] : [])
@@ -775,7 +782,7 @@ for (const icons of ['safe', 'nerd'] as const) {
     const reply = await replyOf($, on, LINKED)
     const links = (await reply.findAll({ type: 'Link' })) as any[]
     expect(links.map(link => link.props.href)).toEqual(['https://example.com/p', 'https://example.com/q'])
-    expect(textOf(links[0])).toBe(icons === 'nerd' ? `${CAPS.left}${GLOBE_ICON} the post${CAPS.right}` : ' the post ')
+    expect(textOf(links[0])).toBe(icons === 'nerd' ? `${GLOBE_ICON} the post` : ' the post ')
     expect((await textsOf(reply, 'the post'))[0].props).toMatchObject({ color: THEME.secondary, underline: true })
     expect((await textsOf(reply, new RegExp(GLOBE_ICON))).map((icon: any) => icon.props.color)).toEqual(icons === 'nerd' ? [THEME.secondary, THEME.secondary] : [])
   })
@@ -794,10 +801,12 @@ test('a reply that only names a path draws it as a link once the path exists', a
   expect(((await reply.findAll({ type: 'Link' })) as any[]).map(link => link.props.href)).toEqual(['vscode://file/w/src/a.ts'])
 })
 
-test('a reply that names a path which does not exist stays Claude Code\'s', async ($, on) => {
+test('a reply that names a path which does not exist draws it as a code pill, not a link', async ($, on) => {
   const reply = await replyOf($, on, 'Edited `src/gone.ts`.')
   await reply.redraw()
-  expect(await reply.find({ type: 'Text', text: 'base AssistantMessage' })).toBeDefined()
+  expect(await reply.find({ type: 'Text', text: 'base AssistantMessage' })).toBeUndefined()
+  expect(await reply.findAll({ type: 'Link' })).toHaveLength(0)
+  expect((await textsOf(reply, /src\/gone\.ts/))[0].props).toMatchObject({ backgroundColor: THEME.surface3 })
 })
 
 test('a relative path resolves against the session folder, ~ against home, and a bare path that exists links too', async ($, on) => {
@@ -832,8 +841,56 @@ test('shownWidth counts the cells a link pill adds, the code pill\'s two already
   expect(shownWidth('see `src/a.ts`')).toBe('see src/a.ts'.length + 2)
 })
 
-test('a reply with only inline code and links stays Claude Code\'s', async ($, on) => {
+test('a reply with only inline code and links is the mod\'s, so its pills match the replies that name a file', async ($, on) => {
   const reply = await replyOf($, on, 'Run `just test`, see [the post](https://example.com).')
+  expect(await reply.find({ type: 'Text', text: 'base AssistantMessage' })).toBeUndefined()
+  expect(((await reply.findAll({ type: 'Link' })) as any[]).map(link => link.props.href)).toEqual(['https://example.com'])
+})
+
+test('a web autolink is a link pill; an email autolink is its underlined address, no pill, no link', async ($, on) => {
+  const reply = await replyOf($, on, '**Links:** an autolink <https://example.com/auto>, and an email <dev@example.com>.')
+  expect(await reply.find({ type: 'Text', text: 'base AssistantMessage' })).toBeUndefined()
+  expect(((await reply.findAll({ type: 'Link' })) as any[]).map(link => link.props.href)).toEqual(['https://example.com/auto'])
+  expect((await textsOf(reply, 'dev@example.com'))[0].props).toMatchObject({ color: THEME.secondary, underline: true })
+  expect(JSON.stringify(await reply.drawn())).not.toContain('<https')
+})
+
+test('italic is secondary, bold italic accent, struck text muted, and the mod keeps the paragraph', async ($, on) => {
+  const reply = await replyOf($, on, 'Styles: *italic*, _also italic_, ***both***, ~~gone~~ and `code`; snake_case stays text.')
+  expect(await reply.find({ type: 'Text', text: 'base AssistantMessage' })).toBeUndefined()
+  expect((await textsOf(reply, 'italic'))[0].props).toMatchObject({ color: THEME.secondary, italic: true })
+  expect((await textsOf(reply, 'also italic'))[0].props).toMatchObject({ color: THEME.secondary, italic: true })
+  expect((await textsOf(reply, 'both'))[0].props).toMatchObject({ color: THEME.accent, bold: true, italic: true })
+  expect((await textsOf(reply, 'gone'))[0].props).toMatchObject({ color: THEME.muted, strikethrough: true })
+  const drawn = JSON.stringify(await reply.drawn())
+  expect(drawn).toContain('snake_case')
+  expect(drawn).not.toContain('~~')
+})
+
+test('an image is a link pill, kbd keys are keycaps joined by a muted +, math is Unicode italic, a footnote mark is accent superscript', async ($, on) => {
+  const reply = await replyOf($, on, 'See ![Build graph](https://example.com/g.png), press <kbd>Ctrl</kbd> + <kbd>C</kbd>, $E = mc^2$ holds[^1].')
+  expect(await reply.find({ type: 'Text', text: 'base AssistantMessage' })).toBeUndefined()
+  expect(((await reply.findAll({ type: 'Link' })) as any[]).map(link => link.props.href)).toEqual(['https://example.com/g.png'])
+  expect((await textsOf(reply, /^ ?Ctrl ?$/))[0].props.backgroundColor).toBe(THEME.surface3)
+  expect((await textsOf(reply, ' + '))[0].props.color).toBe(THEME.muted)
+  expect((await textsOf(reply, 'E = mc²'))[0].props).toMatchObject({ color: THEME.secondary, italic: true })
+  expect((await textsOf(reply, '¹'))[0].props.color).toBe(THEME.accent)
+  expect(JSON.stringify(await reply.drawn())).not.toContain('<kbd>')
+})
+
+test('a rule line is a hairline, footnote lines sit under a short hairline, and details starts as a closed card with only its summary', async ($, on) => {
+  const reply = await replyOf($, on, 'Before.\n\n---\n\n<details>\n<summary>Full test log</summary>\n\n334 pass, 0 fail\n</details>\n\n[^1]: Measured on main.')
+  expect(await reply.find({ type: 'Text', text: 'base AssistantMessage' })).toBeUndefined()
+  const drawn = JSON.stringify(await reply.drawn())
+  expect(drawn).not.toContain('<details>')
+  expect(drawn).not.toContain('[^1]')
+  expect(drawn).toContain('Measured on main.')
+  expect(drawn).toContain('Full test log')
+  expect(drawn).not.toContain('334 pass')
+})
+
+test('a reply with no inline code, link, path or color stays Claude Code\'s', async ($, on) => {
+  const reply = await replyOf($, on, 'Plain words only.')
   expect(await reply.find({ type: 'Text', text: 'base AssistantMessage' })).toBeDefined()
 })
 
@@ -1095,7 +1152,7 @@ for (const icons of ['safe', 'nerd'] as const) {
     expect((await textsOf(result, /^· $/))[0].props.color).toBe('#3B446A')
     const link = (await result.findAll({ type: 'Link' })) as any[]
     expect(link.map(each => each.props.href)).toEqual(['vscode://file/w/src/a.ts:11'])
-    expect(textOf(link[0])).toBe(icons === 'nerd' ? `${CAPS.left}${VS_ICON} src/a.ts:11${CAPS.right}` : ' src/a.ts:11 ')
+    expect(textOf(link[0])).toBe(icons === 'nerd' ? `${VS_ICON} src/a.ts:11` : ' src/a.ts:11 ')
     expect((await textsOf(result, 'src/a.ts:11'))[0].props).toMatchObject({ color: THEME.secondary, underline: true })
     expect((await textsOf(result, new RegExp(VS_ICON))).map((icon: any) => icon.props.color)).toEqual(icons === 'nerd' ? [THEME.secondary] : [])
     expect((await result.find({ key: `${CARD}-row-0-0-in` }))?.props.backgroundColor).toBe(THEME.surface1)

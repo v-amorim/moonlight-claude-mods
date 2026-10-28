@@ -4,13 +4,13 @@ import type { RenderElement } from 'claude-code'
 
 import { calloutOf, squareTag, STATUS_EXTRA, statusHue, type Callout, type Fence } from './blocks'
 import { cells, cut } from './cells'
-import { hasTask, inline, isSimple, shownWidth, tinted, type Inline } from './prose'
+import { AUTOLINK, EMPHASIS, hasMarks, hasTask, inline, isSimple, shownWidth, tinted, type Inline } from './prose'
 import type { Paint, Part } from './mark'
 import style from './style'
 import { MARK, THEME } from './theme'
 
 type Elements = { Box: (props: any) => RenderElement; Text: (props: any) => RenderElement }
-export type Table = { head: string[]; right: boolean[]; rows: string[][] }
+export type Table = { head: string[]; right: boolean[]; center?: boolean[]; rows: string[][] }
 export type Block =
   | { kind: 'markdown'; text: string }
   | { kind: 'prose'; text: string }
@@ -18,6 +18,9 @@ export type Block =
   | ({ kind: 'code' } & Fence)
   | { kind: 'heading'; text: string }
   | ({ kind: 'callout' } & Callout)
+  | { kind: 'rule' }
+  | { kind: 'footnotes'; notes: { mark: string; text: string }[] }
+  | { kind: 'details'; summary: string; body: string }
 
 const GAP = 3
 const isRow = (line: string) => /^\s*\|.*\|\s*$/.test(line)
@@ -47,9 +50,10 @@ export function splitTables(text: string): Block[] {
       at += 2
       while (at < lines.length && isRow(lines[at]!)) rows.push(split(lines[at++]!))
       at--
-      const right = head.map((_, column) => marks[column]?.endsWith(':') === true || (rows.length > 0 && rows.every(row => isNumber(row[column] ?? ''))))
+      const center = head.map((_, column) => /^:-*:$/.test(marks[column]?.trim() ?? ''))
+      const right = head.map((_, column) => !center[column] && (marks[column]?.endsWith(':') === true || (rows.length > 0 && rows.every(row => isNumber(row[column] ?? '')))))
       keep()
-      blocks.push({ kind: 'table', table: { head, right, rows } })
+      blocks.push({ kind: 'table', table: { head, right, center, rows } })
       continue
     }
     prose.push(line)
@@ -101,6 +105,22 @@ function fences(text: string): ({ kind: 'text'; text: string } | ({ kind: 'code'
 }
 
 const HEADING = /^ {0,3}#{1,3}\s+(.*?)(?:\s+#+)?\s*$/
+const RULE = /^ {0,3}([-*_])(?:\s*\1){2,}\s*$/
+const NOTE = /^\[\^([\w-]+)\]:\s*(.*)$/
+
+// The text cut into <details> sections and the text around them; an unclosed one is left as text.
+function detailsParts(text: string): ({ kind: 'text'; text: string } | { kind: 'details'; summary: string; body: string })[] {
+  const out: ({ kind: 'text'; text: string } | { kind: 'details'; summary: string; body: string })[] = []
+  const DETAILS = /^\s*<details>\s*\n?\s*<summary>([\s\S]*?)<\/summary>([\s\S]*?)<\/details>\s*$/gm
+  let last = 0
+  for (const found of text.matchAll(DETAILS)) {
+    if (found.index! > last) out.push({ kind: 'text', text: text.slice(last, found.index) })
+    out.push({ kind: 'details', summary: found[1]!.trim(), body: found[2]!.trim() })
+    last = found.index! + found[0].length
+  }
+  if (last < text.length) out.push({ kind: 'text', text: text.slice(last) })
+  return out
+}
 
 // A paragraph cut into headings, callouts and the lines left over, in order; the rest keeps Claude Code's drawing unless the mod can draw it.
 function lineBlocks(paragraph: string): Block[] {
@@ -117,6 +137,22 @@ function lineBlocks(paragraph: string): Block[] {
     if (heading?.[1]) {
       flush()
       out.push({ kind: 'heading', text: heading[1] })
+      continue
+    }
+    // A rule right under a line of text is a setext heading in markdown, so only a rule on its own counts.
+    if (RULE.test(line) && !rest.length) {
+      out.push({ kind: 'rule' })
+      continue
+    }
+    if (NOTE.test(line)) {
+      flush()
+      const notes: { mark: string; text: string }[] = []
+      while (at < lines.length && NOTE.test(lines[at]!)) {
+        const [, mark, note] = NOTE.exec(lines[at++]!)!
+        notes.push({ mark: mark!, text: note! })
+      }
+      at--
+      out.push({ kind: 'footnotes', notes })
       continue
     }
     if (/^\s*>/.test(line)) {
@@ -137,10 +173,10 @@ function lineBlocks(paragraph: string): Block[] {
 }
 
 // Marks the mod's own paragraph drawing does not handle, so a paragraph holding one stays with Claude Code.
-export const unsupported = (paragraph: string) => /[*~]|(^|\W)_\S|\S_(\W|$)|!\[|<\w/.test(paragraph.replace(/`[^`]*`/g, '').replace(/\*\*.+?\*\*/g, ''))
+export const unsupported = (paragraph: string) => /[*~]|(^|\W)_\S|\S_(\W|$)|!\[|<\w/.test(paragraph.replace(/`[^`]*`/g, '').replace(EMPHASIS, '').replace(/\*\*.+?\*\*/g, '').replace(AUTOLINK, ''))
 
 // A paragraph worth drawing once the reply is the mod's own, so its code and links match the cards around it.
-const isMarked = (paragraph: string) => isSimple(paragraph) && !unsupported(paragraph) && /`[^`]+`|\[[^\]]+\]\([^)]+\)/.test(paragraph)
+const isMarked = (paragraph: string) => isSimple(paragraph) && !unsupported(paragraph) && hasMarks(paragraph)
 
 // The reply as fenced code, tables, headings, callouts, the paragraphs holding a hex color or a task the mod can draw, and the rest left to Claude Code's markdown.
 export function richBlocks(text: string, wants: (paragraph: string) => boolean): Block[] {
@@ -150,7 +186,8 @@ export function richBlocks(text: string, wants: (paragraph: string) => boolean):
       parts.push({ block: segment })
       continue
     }
-    for (const block of splitTables(segment.text)) {
+    const blocks = detailsParts(segment.text).flatMap(part => (part.kind === 'details' ? [part] : splitTables(part.text)))
+    for (const block of blocks) {
       if (block.kind !== 'markdown') {
         parts.push({ block })
         continue
@@ -164,15 +201,20 @@ export function richBlocks(text: string, wants: (paragraph: string) => boolean):
       }
     }
   }
-  const isOwn = parts.some(part => part.block.kind !== 'markdown')
+  // Inline code or a link is enough, so a reply's pills don't depend on whether it happens to name a file.
+  const isOwn = parts.some(part => part.block.kind !== 'markdown' || part.isMarked)
   const out: Block[] = []
+  // Footnotes gather at the end of the reply, wherever they were written, as markdown renders them.
+  const notes = parts.flatMap(({ block }) => (block.kind === 'footnotes' ? block.notes : []))
   for (const { block, isMarked: adopt } of parts) {
     const last = out.at(-1)
+    if (block.kind === 'footnotes') continue
     if (block.kind !== 'markdown') out.push(block)
     else if (isOwn && adopt) out.push({ kind: 'prose', text: block.text })
     else if (last?.kind === 'markdown') last.text += `\n\n${block.text}`
     else out.push({ ...block })
   }
+  if (notes.length) out.push({ kind: 'footnotes', notes })
   return out
 }
 
@@ -275,14 +317,15 @@ function columnWidths(table: Table, look: Inline, room: number) {
 }
 
 // One line of a cell's text with its inline marks, hex pills and status tag, padded to its column on the side its numbers align to.
-function cellText(elements: Elements, cell: string, width: number, isRight: boolean, color: string, isBold: boolean, isHead: boolean, tag: boolean, look: Inline, key: string) {
+function cellText(elements: Elements, cell: string, width: number, align: 'left' | 'center' | 'right', color: string, isBold: boolean, isHead: boolean, tag: boolean, look: Inline, key: string) {
   const { Text } = elements
-  const room = ' '.repeat(Math.max(0, width - shown(cell, isHead, look, tag)))
+  const room = Math.max(0, width - shown(cell, isHead, look, tag))
+  const before = align === 'right' ? room : align === 'center' ? Math.floor(room / 2) : 0
   return (
     <Text key={key} color={tinted(look.paint, color, 'table')} bold={isBold}>
-      {isRight ? room : ''}
+      {' '.repeat(before)}
       {tag ? squareTag(elements, plain(cell).trim(), statusHue(plain(cell))!, THEME.bg, `${key}-tag`, look.paint, 'table') : inline(elements, cell, isHead ? { ...look, links: undefined } : look, key)}
-      {isRight ? '' : room}
+      {' '.repeat(room - before)}
     </Text>
   )
 }
@@ -310,7 +353,7 @@ export function tableBlock(elements: Elements, table: Table, outer: Inline, key:
       <Text key={`${key}-row-${at}-${line}`} backgroundColor={wash}>
         {sizes.map((width, column) => [
           column ? <Text key={`${key}-bar-${at}-${line}-${column}`} color={lines}>{` ${MARK.rail} `}</Text> : '',
-          cellText(elements, wrapped[column]![line] ?? '', width, table.right[column] === true, isHead ? style.colors.pills.readout : THEME.onSurface, !isHead && column === boldColumn, isHead, !isHead && line === 0 && isTag(cellsOf[column] ?? ''), look, `${key}-cell-${at}-${line}-${column}`),
+          cellText(elements, wrapped[column]![line] ?? '', width, table.center?.[column] ? 'center' : table.right[column] ? 'right' : 'left',isHead ? style.colors.pills.readout : THEME.onSurface, !isHead && column === boldColumn, isHead, !isHead && line === 0 && isTag(cellsOf[column] ?? ''), look, `${key}-cell-${at}-${line}-${column}`),
         ])}
       </Text>
     ))

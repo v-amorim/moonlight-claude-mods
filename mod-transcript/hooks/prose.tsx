@@ -73,23 +73,25 @@ function pillFill(nerd: boolean, part: Part, paint?: Paint) {
   return paint.on(part) && !nerd ? paint.fill(THEME.surface3, part) : paint.color(THEME.surface3, part)
 }
 
-// The icons a link pill leads with in Nerd mode, local since style.ts is a shared copy: the VS Code mark for a path, the globe for a web link.
-const LINK_ICON = { path: String.fromCodePoint(0xf0a1e), web: String.fromCodePoint(0xf0ac) }
+// The icons a link pill leads with in Nerd mode, local since style.ts is a shared copy: the VS Code mark for a path, the globe for a web link, a picture for an image.
+const LINK_ICON = { path: String.fromCodePoint(0xf0a1e), web: String.fromCodePoint(0xf0ac), image: String.fromCodePoint(0xf02e9) }
 
-// A clickable pill, the whole of it the link: caps on surface3 and the icon leading, or one padding cell each side without the font; the text underlined.
-export function linkPill({ Text }: Pick<Elements, 'Text'>, links: Links, href: string, label: string, kind: 'path' | 'web', nerd: boolean, key: string, paint?: Paint) {
+// A link pill whose caps sit outside the link, since iTerm2 paints a Cmd-hovered link's cells and the caps turn into blobs.
+export function linkPill({ Text }: Pick<Elements, 'Text'>, links: Links, href: string, label: string, kind: keyof typeof LINK_ICON, nerd: boolean, key: string, paint?: Paint) {
   const { Link } = links
   const fill = pillFill(nerd, 'link', paint)
   return (
-    <Link key={key} href={href}>
+    <Text key={key}>
       {nerd ? <Text color={fill} backgroundColor={paint?.wash('link')}>{CAPS.left}</Text> : null}
-      <Text backgroundColor={fill}>
-        {nerd ? <Text color={tinted(paint, THEME.secondary, 'link')}>{`${LINK_ICON[kind]} `}</Text> : ' '}
-        <Text color={tinted(paint, THEME.secondary, 'link')} underline>{label}</Text>
-        {nerd ? '' : ' '}
-      </Text>
+      <Link href={href}>
+        <Text backgroundColor={fill}>
+          {nerd ? <Text color={tinted(paint, THEME.secondary, 'link')}>{`${LINK_ICON[kind]} `}</Text> : ' '}
+          <Text color={tinted(paint, THEME.secondary, 'link')} underline>{label}</Text>
+          {nerd ? '' : ' '}
+        </Text>
+      </Link>
       {nerd ? <Text color={fill} backgroundColor={paint?.wash('link')}>{CAPS.right}</Text> : null}
-    </Link>
+    </Text>
   )
 }
 
@@ -110,9 +112,61 @@ function withLinks(elements: Pick<Elements, 'Text'>, text: string, look: Inline,
   return out
 }
 
-const MARKS = /`([^`]+)`|\*\*(.+?)\*\*|__(.+?)__|\[([^\]]+)\]\(([^)]+)\)/g
+// An autolink: a web address or an email in angle brackets.
+const AUTO = String.raw`<(https?:\/\/[^\s<>]+|[\w.+-]+@[\w-]+(?:\.[\w-]+)+)>`
+export const AUTOLINK = new RegExp(AUTO, 'g')
 
-// Markdown inline marks: code as a pill (a hex code stays a hex pill, a path that exists a link), bold, a web link as a pill, every hex color as its pill.
+// Single-star and underscore emphasis: no space inside either end, and not inside a word, so snake_case and 2*3*4 stay text.
+const EM = String.raw`(?<![\w*])\*(?<em>[^*\s](?:[^*]*[^*\s])?)\*(?![\w*])|(?<![\w_])_(?<em2>[^_\s](?:[^_]*[^_\s])?)_(?![\w_])`
+const STRONG_EM = String.raw`\*\*\*(?<strongEm>.+?)\*\*\*`
+const STRIKE = String.raw`~~(?<strike>.+?)~~`
+
+const IMAGE = String.raw`!\[(?<alt>[^\]]*)\]\((?<src>[^)\s]+)\)`
+// A chord of keys, each in <kbd>, joined by +.
+const KBD = String.raw`(?<kbd><kbd>[^<]+<\/kbd>(?:\s*\+\s*<kbd>[^<]+<\/kbd>)*)`
+// Inline math: no space inside either end and no digit after, so "$5 and $10" stays text.
+const MATH = String.raw`(?<![\w$])\$(?<math>[^$\s](?:[^$]*[^$\s])?)\$(?![\w$])`
+const NOTE_REF = String.raw`\[\^(?<note>[\w-]+)\]`
+
+const MARKS = new RegExp(String.raw`\x60(?<code>[^\x60]+)\x60|${STRONG_EM}|\*\*(?<bold>.+?)\*\*|__(?<under>.+?)__|${EM}|${STRIKE}|${IMAGE}|${KBD}|${MATH}|${NOTE_REF}|\[(?<label>[^\]]+)\]\((?<target>[^)]+)\)|${AUTO.replace('<(', '<(?<auto>')}`, 'g')
+
+// The marks the mod draws beyond code, bold and links, stripped to find what is left that it does not.
+export const EMPHASIS = new RegExp(`${STRONG_EM}|${EM}|${STRIKE}|${IMAGE}|${KBD}|${MATH}|${NOTE_REF}`, 'g')
+
+// Whether a paragraph holds any mark the mod draws, so a reply holding one is the mod's own.
+export const hasMarks = (paragraph: string) => new RegExp(MARKS.source).test(paragraph)
+
+const SUPER: Record<string, string> = { '0': '⁰', '1': '¹', '2': '²', '3': '³', '4': '⁴', '5': '⁵', '6': '⁶', '7': '⁷', '8': '⁸', '9': '⁹', '+': '⁺', '-': '⁻', n: 'ⁿ', i: 'ⁱ', '(': '⁽', ')': '⁾' }
+const SUB: Record<string, string> = { '0': '₀', '1': '₁', '2': '₂', '3': '₃', '4': '₄', '5': '₅', '6': '₆', '7': '₇', '8': '₈', '9': '₉', '+': '₊', '-': '₋' }
+
+// A footnote's mark as superscript digits; a named one keeps its name in brackets.
+export const noteMark = (note: string) => (/^\d+$/.test(note) ? [...note].map(digit => SUPER[digit]).join('') : `[${note}]`)
+
+// Math as Unicode where it can be: ^2 and ^{12} to superscript, _2 to subscript, the rest as typed.
+export function prettyMath(math: string) {
+  const swap = (body: string, table: Record<string, string>, mark: string) => ([...body].every(char => table[char]) ? [...body].map(char => table[char]).join('') : `${mark}${body}`)
+  return math
+    .replace(/\^\{([^}]+)\}|\^([\w+-])/g, (_, group, one) => swap(group ?? one, SUPER, '^'))
+    .replace(/_\{([^}]+)\}|_(\w)/g, (_, group, one) => swap(group ?? one, SUB, '_'))
+    .replace(/\\cdot/g, '·').replace(/\\times/g, '×').replace(/\\le/g, '≤').replace(/\\ge/g, '≥').replace(/\\ne/g, '≠').replace(/\\pi/g, 'π').replace(/\\infty/g, '∞')
+}
+
+const keysOf = (chord: string) => [...chord.matchAll(/<kbd>([^<]+)<\/kbd>/g)].map(found => found[1]!)
+
+// A keycap: the key on surface3 in the body color, rounded where the font has caps.
+function keycap({ Text }: Pick<Elements, 'Text'>, key: string, nerd: boolean, id: string, paint?: Paint) {
+  const fill = pillFill(nerd, 'text', paint)
+  if (!nerd) return <Text key={id} color={tinted(paint, THEME.onSurface, 'text')} backgroundColor={fill}>{` ${key} `}</Text>
+  return (
+    <Text key={id}>
+      <Text color={fill} backgroundColor={paint?.wash('text')}>{CAPS.left}</Text>
+      <Text color={tinted(paint, THEME.onSurface, 'text')} backgroundColor={fill}>{key}</Text>
+      <Text color={fill} backgroundColor={paint?.wash('text')}>{CAPS.right}</Text>
+    </Text>
+  )
+}
+
+// Markdown inline marks: code as a pill (a hex code stays a hex pill, a path that exists a link), bold, italic, struck text, a web link as a pill, every hex color as its pill.
 export function inline(elements: Pick<Elements, 'Text'>, text: string, look: Inline, key: string): unknown[] {
   const { Text } = elements
   const out: unknown[] = []
@@ -120,10 +174,23 @@ export function inline(elements: Pick<Elements, 'Text'>, text: string, look: Inl
   for (const found of text.matchAll(MARKS)) {
     const at = found.index!
     if (at > last) out.push(...withLinks(elements, text.slice(last, at), look, `${key}-t-${at}`))
-    const [, code, bold, under, label, target] = found
+    const { code, strongEm, bold, under, em, em2, strike, alt, src, kbd, math, note, label, target, auto } = found.groups!
     const open = code !== undefined && !hasHex(code) ? look.links?.open(code) : undefined
+    const inner = (body: string, mark: string) => inline(elements, body, look, `${key}-${mark}-${at}`)
     if (code !== undefined) out.push(...(hasHex(code) ? withChips(elements, code, look, `${key}-c-${at}`) : open ? [linkPill(elements, look.links!, open, code, 'path', look.nerd, `${key}-c-${at}`, look.paint)] : [codePill(elements, code, look.nerd, `${key}-c-${at}`, look.paint)]))
-    else if (bold !== undefined || under !== undefined) out.push(<Text key={`${key}-b-${at}`} bold>{inline(elements, bold ?? under!, look, `${key}-b-${at}`)}</Text>)
+    else if (strongEm !== undefined) out.push(<Text key={`${key}-bi-${at}`} color={tinted(look.paint, THEME.accent, 'text')} bold italic>{inner(strongEm, 'bi')}</Text>)
+    else if (bold !== undefined || under !== undefined) out.push(<Text key={`${key}-b-${at}`} bold>{inner(bold ?? under!, 'b')}</Text>)
+    else if (em !== undefined || em2 !== undefined) out.push(<Text key={`${key}-i-${at}`} color={tinted(look.paint, THEME.secondary, 'text')} italic>{inner(em ?? em2!, 'i')}</Text>)
+    else if (strike !== undefined) out.push(<Text key={`${key}-s-${at}`} color={tinted(look.paint, THEME.muted, 'text')} strikethrough>{inner(strike, 's')}</Text>)
+    else if (src !== undefined) {
+      const href = isWebUrl(src) ? src : look.links?.open(src)
+      const label = alt || src
+      out.push(href && look.links ? linkPill(elements, look.links, href, label, 'image', look.nerd, `${key}-img-${at}`, look.paint) : <Text key={`${key}-img-${at}`} color={tinted(look.paint, THEME.secondary, 'link')} underline>{label}</Text>)
+    } else if (kbd !== undefined) out.push(...keysOf(kbd).flatMap((each, n) => [n ? <Text key={`${key}-plus-${at}-${n}`} color={tinted(look.paint, THEME.muted, 'text')}>{' + '}</Text> : null, keycap(elements, each, look.nerd, `${key}-kbd-${at}-${n}`, look.paint)]).filter(Boolean))
+    else if (math !== undefined) out.push(<Text key={`${key}-m-${at}`} color={tinted(look.paint, THEME.secondary, 'text')} italic>{prettyMath(math)}</Text>)
+    else if (note !== undefined) out.push(<Text key={`${key}-n-${at}`} color={tinted(look.paint, THEME.accent, 'text')}>{noteMark(note)}</Text>)
+    else if (auto !== undefined && look.links && isWebUrl(auto)) out.push(linkPill(elements, look.links, auto, auto, 'web', look.nerd, `${key}-a-${at}`, look.paint))
+    else if (auto !== undefined) out.push(<Text key={`${key}-a-${at}`} color={tinted(look.paint, THEME.secondary, 'link')} underline>{auto}</Text>)
     else if (look.links && isWebUrl(target!)) out.push(linkPill(elements, look.links, target!, label!, 'web', look.nerd, `${key}-l-${at}`, look.paint))
     else out.push(<Text key={`${key}-l-${at}`} color={tinted(look.paint, THEME.secondary, 'link')} underline>{label}</Text>)
     last = at + found[0].length
@@ -145,10 +212,12 @@ function linksWidth(text: string, look: Inline, links: Links): number {
   let last = 0
   for (const found of text.matchAll(MARKS)) {
     extra += linksIn(text.slice(last, found.index), links).length * each
-    const [, code, bold, under, , target] = found
+    const { code, strongEm, bold, under, em, em2, strike, src, target, auto } = found.groups!
+    const body = strongEm ?? bold ?? under ?? em ?? em2 ?? strike
     if (code !== undefined) extra += !hasHex(code) && links.open(code) ? each - CODE_EXTRA : 0
-    else if (bold !== undefined || under !== undefined) extra += linksWidth(bold ?? under!, look, links)
-    else if (isWebUrl(target!)) extra += each
+    else if (body !== undefined) extra += linksWidth(body, look, links)
+    else if (src !== undefined) extra += isWebUrl(src) || links.open(src) ? each : 0
+    else if ((auto !== undefined && isWebUrl(auto)) || (target !== undefined && isWebUrl(target))) extra += each
     last = found.index! + found[0].length
   }
   return extra + linksIn(text.slice(last), links).length * each
@@ -157,9 +226,19 @@ function linksWidth(text: string, look: Inline, links: Links): number {
 // The cells a line takes once its marks are drawn, each code span is a pill, each link is a pill and each hex color is a pill; `look` says which links.
 export function shownWidth(text: string, look?: Inline) {
   const codes = [...text.matchAll(/`([^`]*)`/g)].filter(found => !hasHex(found[1]!)).length
-  const bare = text.replace(/\*\*(.+?)\*\*|__(.+?)__/g, '$1$2').replace(/`([^`]*)`/g, '$1').replace(/\[([^\]]+)\]\([^)]+\)/g, '$1')
+  const keys = [...text.matchAll(/<kbd>[^<]+<\/kbd>/g)].length
+  const bare = text.replace(EMPHASIS, (...match) => markText(match.at(-1) as Record<string, string | undefined>)).replace(/\*\*(.+?)\*\*|__(.+?)__/g, '$1$2').replace(/`([^`]*)`/g, '$1').replace(/\[([^\]]+)\]\([^)]+\)/g, '$1').replace(AUTOLINK, '$1')
   const chips = [...bare.matchAll(HEX)].filter(found => isHexCode(found[1]!)).length
-  return cells(bare) + CHIP_EXTRA * chips + CODE_EXTRA * codes + (look?.links ? linksWidth(text, look, look.links) : 0)
+  return cells(bare) + CHIP_EXTRA * chips + CODE_EXTRA * (codes + keys) + (look?.links ? linksWidth(text, look, look.links) : 0)
+}
+
+// The text a mark from EMPHASIS shows, before any pill around it.
+function markText({ strongEm, em, em2, strike, alt, src, kbd, math, note }: Record<string, string | undefined>) {
+  if (src !== undefined) return alt || src
+  if (kbd !== undefined) return keysOf(kbd).join(' + ')
+  if (math !== undefined) return prettyMath(math)
+  if (note !== undefined) return noteMark(note)
+  return strongEm ?? em ?? em2 ?? strike ?? ''
 }
 
 const BULLET = /^([-*+]|\d+\.) +/

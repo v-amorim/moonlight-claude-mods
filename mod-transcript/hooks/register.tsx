@@ -11,7 +11,8 @@ import type { DotProps } from './dot'
 import type { FoldProps } from './fold'
 import type { LabelPart, LabelProps } from './label'
 import { pillWidth, type NumberProps } from './number'
-import { codeCard, calloutCard, headingRow } from './blocks'
+import { codeCard, calloutCard, detailsCard, footnoteRows, headingRow, ruleRow } from './blocks'
+import { diagramPage, isMermaid, openCommands } from './diagram'
 import { cutPieces, languageForPath, previewPieces, useTheme, type Piece as TokenPiece } from './hilite'
 import { PathLinks, pathTokens } from './links'
 import { fileResult, resultCard } from './results'
@@ -573,6 +574,38 @@ function copyBlock({ Box, Client, Text }: Rows, id: string, code: string) {
   )
 }
 
+const DIAGRAM = 'diagram:'
+const DIAGRAM_ICON = { nerd: String.fromCodePoint(0xf0e8), safe: '◇' }
+
+// A mermaid card's second pill: it opens the chart drawn in the browser.
+function diagramBlock({ Box, Client, Text }: Rows, id: string, code: string) {
+  codes.set(id, code)
+  const lead = look.nerd ? DIAGRAM_ICON.nerd : DIAGRAM_ICON.safe
+  const props: EntryProps = { id: `${DIAGRAM}${id}`, label: text.diagram, lead, leadColor: THEME.secondary, isOpen: false, bg: THEME.surface3, idle: THEME.secondary, nerd: look.nerd, still, tip: { glyph: lead, label: text.tipDiagramLabel, text: text.tipDiagram } }
+  return (
+    <Box key={`toggle-diagram-${id}`} flexDirection="row" flexShrink={0} marginRight={1}>
+      {look.nerd ? <Text color={THEME.surface3}>{CAPS.left}</Text> : null}
+      <Client key={`toggle-diagram-pill-${id}`} module="./entry.tsx" width={entryCells(props)} height={1} props={props} />
+      {look.nerd ? <Text color={THEME.surface3}>{CAPS.right}</Text> : null}
+    </Box>
+  )
+}
+
+async function openDiagram($: EngineInterface, id: string, code: string) {
+  const home = await homeOf($)
+  const isWindows = Boolean(await $.env.get('USERPROFILE'))
+  const file = `${home}/.claude/cache/diagram-${id.replace(/[^\w-]/g, '_')}.html`
+  try {
+    await $.fs.write(file, diagramPage(code))
+    for (const argv of openCommands(file, isWindows)) {
+      if ((await $.process.run(argv).catch(() => ({ exitCode: 1 }))).exitCode === 0) return
+    }
+    $.ui.toast(fill(text.diagramFailed, { reason: 'no browser opened it' }))
+  } catch (error) {
+    $.ui.toast(fill(text.diagramFailed, { reason: String(error) }))
+  }
+}
+
 // A reply the mod draws in part: tables, code, headings and callouts in the standard's look, paragraphs with hex pills, the rest as Claude Code's markdown; gutter and margin as markedReply.
 function richReply(parts: Rows & { Markdown: (props: any) => RenderElement }, blocks: Block[], inlineLook: Inline, isFirst: boolean, requestId: string, width: number) {
   const { Box, Markdown, Text } = parts
@@ -592,11 +625,17 @@ function richReply(parts: Rows & { Markdown: (props: any) => RenderElement }, bl
               ) : block.kind === 'prose' ? (
                 proseBlock({ Box, Text }, block.text, inlineLook, `toggle-prose-${n}`)
               ) : block.kind === 'code' ? (
-                codeCard({ Box, Text }, block, { isOpen, paint: inlineLook.paint, copy: code => copyBlock(parts, id, code), more: (open, hidden, bg) => moreToggle(parts, `code:${id}`, open, hidden, bg) }, width, `toggle-code-${n}`)
+                codeCard({ Box, Text }, block, { isOpen, paint: inlineLook.paint, copy: code => (isMermaid(block.lang) ? <Box key={`toggle-pills-${id}`} flexDirection="row">{diagramBlock(parts, id, code)}{copyBlock(parts, id, code)}</Box> : copyBlock(parts, id, code)), more: (open, hidden, bg) => moreToggle(parts, `code:${id}`, open, hidden, bg) }, width, `toggle-code-${n}`)
               ) : block.kind === 'heading' ? (
                 headingRow({ Box, Text }, block.text, inlineLook, width, `toggle-heading-${n}`)
               ) : block.kind === 'callout' ? (
                 calloutCard({ Box, Text }, block, inlineLook, width, `toggle-callout-${n}`)
+              ) : block.kind === 'rule' ? (
+                ruleRow({ Box, Text }, inlineLook, width, `toggle-rule-${n}`)
+              ) : block.kind === 'footnotes' ? (
+                footnoteRows({ Box, Text }, block.notes, inlineLook, `toggle-notes-${n}`)
+              ) : block.kind === 'details' ? (
+                detailsCard({ Box, Text }, block.body, flips.tools.includes(`details:${id}`), detailsToggle(parts, `details:${id}`, block.summary, flips.tools.includes(`details:${id}`)), inlineLook, width, `toggle-details-${n}`)
               ) : (
                 tableBlock({ Box, Text }, block.table, inlineLook, `toggle-table-${n}`, width - TABLE_INDENT)
               )}
@@ -711,6 +750,20 @@ function moreToggle({ Client }: Pick<Rows, 'Client'>, id: string, isOpen: boolea
       width={cells(label) + 4}
       height={1}
       props={{ id: `${MORE}${id}`, label, lead: arrow, leadColor: THEME.accent, isOpen: false, bg, idle: THEME.muted, nerd: look.nerd, still, tip: { glyph: arrow, label, text: isOpen ? text.tipShowLess : text.tipShowAll } } satisfies EntryProps}
+    />
+  )
+}
+
+// A <details> summary as the control that opens and folds its card: the chevron in accent, the summary in the body color.
+function detailsToggle({ Client }: Pick<Rows, 'Client'>, id: string, summary: string, isOpen: boolean) {
+  const arrow = isOpen ? '▾' : '▸'
+  return (
+    <Client
+      key={`toggle-details-${id}`}
+      module="./entry.tsx"
+      width={cells(summary) + 4}
+      height={1}
+      props={{ id: `${MORE}${id}`, label: summary, lead: arrow, leadColor: THEME.accent, isOpen: false, bg: THEME.bg, idle: THEME.onSurface, nerd: look.nerd, still, tip: { glyph: arrow, label: summary, text: isOpen ? text.tipShowLess : text.tipShowAll } } satisfies EntryProps}
     />
   )
 }
@@ -1293,6 +1346,8 @@ export const register: Register = (on, options) => {
       const message = e.data as BarMessage
       if (message?.type === 'fold') await flip($, message.kind, message.id)
       if (clicked?.type === 'menu-entry' && clicked.id.startsWith(MORE)) await flip($, 'tools', clicked.id.slice(MORE.length))
+      const chart = clicked?.type === 'menu-entry' && clicked.id.startsWith(DIAGRAM) ? clicked.id.slice(DIAGRAM.length) : ''
+      if (chart && codes.has(chart)) await openDiagram($, chart, codes.get(chart)!)
       const block = clicked?.type === 'menu-entry' && clicked.id.startsWith(COPY_CODE) ? clicked.id.slice(COPY_CODE.length) : ''
       const code = block ? codes.get(block) : undefined
       if (code !== undefined) {
