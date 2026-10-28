@@ -2,13 +2,19 @@
 // Tests handoff prompt building, word clamping, thread parsing and the wrap-up band's drawing.
 import { expect, mock, test } from 'claude-code/testing'
 
-import { buildPrompt, clampWords, compactNote, isFresh, parseNames, parseThreads, scopeNote, skillBody } from '../hooks/handoff'
+import { NAMES_RULE, buildPrompt, clampWords, compactNote, isFresh, parseNames, parseThreads, scopeNote, skillBody } from '../hooks/handoff'
 import { CAPS, THEME } from '../hooks/theme'
 import Choice from '../hooks/choice'
 import { showNumber, stepNumber, stepOf } from '../hooks/settings'
 declare const setTimeout: (run: (value: unknown) => void, ms: number) => unknown
 
 const SKILL = '---\nname: session-handoff\ndescription: x\n---\n\n# session-handoff\n\nWrite one message.'
+test('the naming rule follows the language the user writes in and rules out others', () => {
+  expect(NAMES_RULE).toContain('the language the user writes in')
+  expect(NAMES_RULE).toContain('never another language')
+  expect(NAMES_RULE).not.toContain("session's language")
+})
+
 const USAGE = { input_tokens: 0, output_tokens: 0, cache_read_input_tokens: 0, cache_creation_input_tokens: 0 }
 const BAND = (isWorking = false) =>
   ({

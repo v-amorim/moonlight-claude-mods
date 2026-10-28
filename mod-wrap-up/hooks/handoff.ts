@@ -68,7 +68,7 @@ const MAX_THREADS = 4
 export const NAME_MAX = 16
 
 // The card and the automatic handoff ask for names with the same words.
-export const NAMES_RULE = `name two sessions for /rename: "this" is the work this session did, "next" is the work a fresh session picks up. Each name starts with the issue key when the session names one, then one or two words in the session's language, at most ${NAME_MAX} characters.`
+export const NAMES_RULE = `name two sessions for /rename: "this" is the work this session did, "next" is the work a fresh session picks up. Each name starts with the issue key when the session names one, then one or two words in the language the user writes in (never another language, and keep English engineering terms such as deploy, cache or mpv as they are), at most ${NAME_MAX} characters.`
 
 // The /rename names for the session being left and the fresh one; empty when Haiku proposed none that fits.
 export type Names = { this: string; next: string }
