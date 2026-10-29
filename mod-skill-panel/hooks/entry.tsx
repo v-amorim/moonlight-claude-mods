@@ -8,7 +8,7 @@ import { CAPS, mix, THEME, WASH } from './theme'
 // color: open text (a red Run); idle: closed text, muted unless set; isBusy shimmers the label until the click's result lands.
 // still: the mod's animations setting is off, so nothing shimmers and the hover color switches at once.
 // lead: a bare glyph before the label in leadColor (after a space, none when tight: the cap is the gap); subLead: an icon before it as a rounded subpill in subLeadColor;
-// badge: a count after it in its own pill. Subpills are capped where `nerd` has the caps.
+// keycap: a hotkey before the label as a keycap one step above bg; badge: a count after it in its own pill. Subpills are capped where `nerd` has the caps.
 // tight: no label padding; tip: posts `tip` instead of `menu-hover`; rail: a divider (a Text between Clients squeezes them); rule: a full-width hairline.
 // spinner: the braille dots lead the label in accent while work runs (write the label without its …); still holds the first frame.
 export type EntryProps = {
@@ -24,7 +24,9 @@ export type EntryProps = {
   leadColor?: string
   subLead?: string
   subLeadColor?: string
+  keycap?: string
   badge?: { text: string; color: string; bg: string }
+  lift?: { scope: string; bg: string; lead?: string; label?: string } // the fill (and lead or label colour) while the hover scope is lit; the pill's caps light under the same scope
   nerd?: boolean
   tight?: boolean
   tip?: Tip
@@ -45,7 +47,7 @@ export const entryCells = (props: EntryProps) => {
   const cells = (text: string) => [...text].length
   const leadText = props.lead ?? (props.spinner ? SPIN_FRAMES[0]! : '')
   const lead = leadText ? cells(leadText) + (props.tight ? 0 : 1) : 0
-  return lead + (props.subLead ? cells(props.subLead) + 2 : 0) + cells(entryText(props)) + (props.badge ? cells(props.badge.text) + 2 : 0)
+  return lead + (props.subLead ? cells(props.subLead) + 2 : 0) + (props.keycap ? cells(props.keycap) + 2 : 0) + cells(entryText(props)) + (props.badge ? cells(props.badge.text) + 2 : 0)
 }
 
 // A hovered control's glyph, label and what it does; the pane footer and the band's tip row both show it.
@@ -202,37 +204,41 @@ const Entry: ClientModule<EntryProps, State> = (props, surface) => {
   const text = entryText(props)
   const isShimmering = !props.still && (props.isBusy || isPressed(surface.state, props))
   const phase = surface.state?.phase ?? 0
+  const litAs = (color?: string) => (props.lift ? { hover: { scope: props.lift.scope, backgroundColor: props.lift.bg, ...(color ? { color } : {}) } } : {})
+  const lit = litAs()
   const label = isShimmering ? (
     <Box key="label" flexDirection="row">
       {[...text].map((char, at) => (
-        <Text key={`c${at}`} color={shimmerColor(at, phase, text.length)} backgroundColor={props.bg}>
+        <Text key={`c${at}`} color={shimmerColor(at, phase, text.length)} backgroundColor={props.bg} {...lit}>
           {char}
         </Text>
       ))}
     </Box>
   ) : (
-    <Text key="label" color={hoverMix(props.isOpen ? (props.color ?? THEME.onSurface) : (props.idle ?? THEME.muted), THEME.accent, surface.state?.level ?? 0)} bold={props.isOpen && Boolean(props.idle)} backgroundColor={props.bg}>
+    <Text key="label" color={hoverMix(props.isOpen ? (props.color ?? THEME.onSurface) : (props.idle ?? THEME.muted), THEME.accent, surface.state?.level ?? 0)} bold={props.isOpen && Boolean(props.idle)} backgroundColor={props.bg} {...litAs(props.lift?.label)}>
       {text.split(style.marks.sep).flatMap((part, at) => (at === 0 ? [part] : [<Text key={`sep-${at}`} color={style.colors.pills.separator}>{style.marks.sep}</Text>, part]))}
     </Text>
   )
   const lead = props.spinner ? SPIN_FRAMES[props.still ? 0 : (surface.state?.spin ?? 0) % SPIN_FRAMES.length] : props.lead
-  if (!lead && !props.subLead && !props.badge) return isShimmering ? <Box flexDirection="row">{label}</Box> : label
+  if (!lead && !props.subLead && !props.keycap && !props.badge) return isShimmering ? <Box flexDirection="row">{label}</Box> : label
 
-  const sub = (key: string, text: string, color: string, bg: string) => (
+  // A count badge is the neutral Badge, so only the leading icon is bold.
+  const sub = (key: string, text: string, color: string, bg: string, bold: boolean) => (
     <Box key={key} flexDirection="row">
-      {props.nerd ? <Text key={`${key}-left`} color={bg} backgroundColor={props.bg}>{CAPS.left}</Text> : null}
-      <Text key={`${key}-text`} color={color} backgroundColor={bg} bold>{props.nerd ? text : ` ${text} `}</Text>
-      {props.nerd ? <Text key={`${key}-right`} color={bg} backgroundColor={props.bg}>{CAPS.right}</Text> : null}
+      {props.nerd ? <Text key={`${key}-left`} color={bg} backgroundColor={props.bg} {...lit}>{CAPS.left}</Text> : null}
+      <Text key={`${key}-text`} color={color} backgroundColor={bg} bold={bold}>{props.nerd ? text : ` ${text} `}</Text>
+      {props.nerd ? <Text key={`${key}-right`} color={bg} backgroundColor={props.bg} {...lit}>{CAPS.right}</Text> : null}
     </Box>
   )
   const subHue = props.subLeadColor ?? THEME.accent
   const { badge } = props
   return (
     <Box flexDirection="row">
-      {lead ? <Text key="lead" color={props.spinner ? THEME.accent : (props.leadColor ?? THEME.accent)} backgroundColor={props.bg}>{props.tight ? lead : ` ${lead}`}</Text> : null}
-      {props.subLead ? sub('sub-lead', props.subLead, subHue, mix(subHue, props.bg, WASH)) : null}
+      {lead ? <Text key="lead" color={props.spinner ? THEME.accent : (props.leadColor ?? THEME.accent)} backgroundColor={props.bg} {...litAs(props.lift?.lead)}>{props.tight ? lead : ` ${lead}`}</Text> : null}
+      {props.subLead ? sub('sub-lead', props.subLead, subHue, mix(subHue, props.bg, WASH), true) : null}
+      {props.keycap ? sub('keycap', props.keycap, THEME.onSurface, props.bg === THEME.surface3 ? THEME.lifted : THEME.surface3, false) : null}
       {label}
-      {badge ? sub('badge', badge.text, badge.color, badge.bg) : null}
+      {badge ? sub('badge', badge.text, badge.color, badge.bg, false) : null}
     </Box>
   )
 }

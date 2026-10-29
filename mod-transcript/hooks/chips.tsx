@@ -6,7 +6,7 @@ import { cells } from './cells'
 import { HOVER_STEPS, HOVER_TICK_MS, hoverMix, postTip, stepToward } from './entry'
 import style from './style'
 import text from './text'
-import { CAPS, mix, THEME, WASH } from './theme'
+import { CAPS, THEME } from './theme'
 
 export type Chip = { kind: keyof typeof style.colors.kinds; mark: string; label: string; count: number; added: number; removed: number; isOpen: boolean }
 
@@ -98,7 +98,8 @@ const Chips: ClientModule<ChipsProps, State> = (props, surface) => {
       {chips.map(chip => {
         const fill = chip.isOpen ? THEME.surface3 : THEME.surface2
         const { hue } = style.colors.kinds[chip.kind]
-        const wash = mix(hue, fill, WASH)
+        // The kind's hue lives only in its mark; the count is the neutral Badge, one step above the chip.
+        const badge = chip.isOpen ? THEME.lifted : THEME.surface3
         const label = hoverMix(chip.isOpen ? THEME.onSurface : THEME.muted, THEME.accent, state.levels[chip.kind] ?? 0)
         const cap = (side: string, key: string, color: string) => nerd ? <Text key={key} color={color}>{side}</Text> : <Box key={key} backgroundColor={color}><Text> </Text></Box>
         return (
@@ -107,9 +108,9 @@ const Chips: ClientModule<ChipsProps, State> = (props, surface) => {
             <Box key={`${chip.kind}-body`} flexDirection="row" backgroundColor={fill}>
               <Text color={hue}>{`${chip.mark} `}</Text>
               <Text color={label} bold={chip.isOpen}>{`${chip.label} `}</Text>
-              {cap(left, `${chip.kind}-badge-left`, wash)}
-              <Box key={`${chip.kind}-badge`} backgroundColor={wash}><Text color={hue} bold>{String(chip.count)}</Text></Box>
-              {cap(right, `${chip.kind}-badge-right`, wash)}
+              {cap(left, `${chip.kind}-badge-left`, badge)}
+              <Box key={`${chip.kind}-badge`} backgroundColor={badge}><Text color={THEME.muted}>{String(chip.count)}</Text></Box>
+              {cap(right, `${chip.kind}-badge-right`, badge)}
               {stat(chip) ? (
                 <Text key={`${chip.kind}-stat`}>
                   <Text color={THEME.good}>{chip.added ? ` +${chip.added}` : ''}</Text>

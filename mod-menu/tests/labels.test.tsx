@@ -5,7 +5,7 @@ import { expect, test } from 'claude-code/testing'
 import { entryCells } from '../hooks/entry'
 import { labelsOf, menuEntry, PILL, pillRow, splitRow } from '../hooks/pills'
 import style from '../hooks/style'
-import { decodeAll, mix, THEME, WASH } from '../hooks/theme'
+import { decodeAll, THEME } from '../hooks/theme'
 
 const els: any = { Box: (props: any) => props, Text: (props: any) => props, Client: (props: any) => props }
 
@@ -49,13 +49,14 @@ test('an entry with no icon of its own, or a lead the caller set, is left as it 
   expect(entryProps(menuEntry(els, true, 'skills', { label: 'Skills', isOpen: false, lead: '*' })).label).toBe('Skills')
 })
 
-test('the open pane draws like an On switch, text in ok on ok washed into the group fill; closed entries stay as they were', () => {
+test('the open pane is a lifted pill in primary-70; a closed entry rests on the group fill and lifts under the pointer', () => {
   const open = entryProps(menuEntry(els, true, 'skills', { label: 'Skills', isOpen: true }))
-  expect(open.bg).toBe(mix(THEME.ok, PILL.primary, WASH))
+  expect(open.bg).toBe(THEME.lifted)
   expect(open.color).toBe(THEME.ok)
   const closed = entryProps(menuEntry(els, true, 'skills', { label: 'Skills', isOpen: false }))
   expect(closed.bg).toBe(PILL.primary)
   expect(closed.color).toBeUndefined()
+  expect(closed.lift).toEqual({ scope: 'menu-closed-skills', bg: THEME.lifted })
 })
 
 test('every menu icon is one private-use code point, so it takes one cell', () => {

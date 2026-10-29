@@ -77,10 +77,11 @@ export function welcomeCard(elements: Elements, look: Look, { showFontTip, still
     { Box, Text },
     look.nerd,
     THEME.surface3,
-    Button ? <Button key="card-welcome-open" label={look.nerd ? `${gear} ${text.cardOpenSetup}` : ` ${gear} ${text.cardOpenSetup} `} plain hover={{ scope: OPEN_SETUP_SCOPE, color: THEME.accent, inverse: true }} onPress={onOpen} /> : null,
+    // Swapped on purpose: the engine inverts a Button under the pointer, which lands it as accent on surface-4.
+    Button ? <Button key="card-welcome-open" label={look.nerd ? `${gear} ${text.cardOpenSetup}` : ` ${gear} ${text.cardOpenSetup} `} plain hover={{ scope: OPEN_SETUP_SCOPE, color: THEME.lifted, backgroundColor: THEME.accent }} onPress={onOpen} /> : null,
     OPEN_SETUP_SCOPE,
     cardFill(),
-    THEME.accent,
+    THEME.lifted,
   )
   const skip: ButtonSpec = { id: 'card-welcome-skip', label: text.cardNotNow, tip: { glyph: bare(look.glyph.close), label: text.cardNotNow, text: text.tipCardWelcomeSkip } }
   return (

@@ -4,7 +4,7 @@ import type { RenderElement } from 'claude-code'
 
 import { entryCells, type EntryProps } from './entry'
 import { agoText, clockText, splitPath, vscodeHref } from './guard'
-import { cardFill, sepText, subpill, titleEdge, type Look } from './look'
+import { cardFill, sepText, titleEdge, type Look } from './look'
 import style from './style'
 import text from './text'
 import { CAPS, fill as slot, MARK, THEME } from './theme'
@@ -51,6 +51,17 @@ function linkPill({ Link, Text }: Pick<Parts, 'Link' | 'Text'>, href: string, la
   )
 }
 
+// The other session's prompt number as the neutral Badge: surface-3, muted text.
+function promptBadge({ Box, Text }: Pick<Parts, 'Box' | 'Text'>, nerd: boolean, on: string, label: string) {
+  return (
+    <Box key="guard-head-prompt" flexDirection="row" flexShrink={0}>
+      {nerd ? <Text key="guard-head-prompt-left" color={THEME.surface3} backgroundColor={on}>{CAPS.left}</Text> : null}
+      <Text key="guard-head-prompt-text" color={THEME.muted} backgroundColor={THEME.surface3}>{nerd ? label : ` ${label} `}</Text>
+      {nerd ? <Text key="guard-head-prompt-right" color={THEME.surface3} backgroundColor={on}>{CAPS.right}</Text> : null}
+    </Box>
+  )
+}
+
 // Rows the card takes, border included: head, file, the blank row and the actions (or the field and its hint).
 const CARD_ROWS = 6
 // The card keeps its blank row only where the band has room for it above the pill row.
@@ -75,7 +86,7 @@ export function holdCard(
       <Box key="guard-head-left" flexDirection="row" columnGap={1} flexShrink={1}>
         <Box key="guard-head-label" flexShrink={1}><Text color={THEME.muted} wrap="truncate-end">{text.card.head}</Text></Box>
         <Box key="guard-head-name" flexShrink={0}><Text color={THEME.onSurface} bold>{shownName}</Text></Box>
-        {view.prompt === undefined ? null : subpill({ Box, Text }, look.nerd, bg, slot(text.card.prompt, { n: view.prompt }), 'guard-head-prompt')}
+        {view.prompt === undefined ? null : promptBadge({ Box, Text }, look.nerd, bg, slot(text.card.prompt, { n: view.prompt }))}
         {view.more > 0 ? <Box key="guard-head-more" flexShrink={0}><Text color={THEME.muted}>{view.more === 1 ? text.card.moreOne : slot(text.card.moreMany, { n: view.more })}</Text></Box> : null}
       </Box>
       <Box key="guard-head-when" flexGrow={1} flexShrink={0} justifyContent="flex-end">
@@ -92,7 +103,7 @@ export function holdCard(
 
   // The digit chip and its label in one entry; a Button nobody sees carries the digit, since only a Button takes a hotkey and a visible one inverts under the pointer.
   const choice = (id: string, label: string, digit: string, tipBody: string) => {
-    const props = { id, label, isOpen: false, bg, subLead: digit, subLeadColor: THEME.onSurface, idle: THEME.muted, still, nerd: look.nerd, tip: { glyph: digit, label, text: tipBody } } satisfies EntryProps
+    const props = { id, label, isOpen: false, bg, keycap: digit, idle: THEME.muted, still, nerd: look.nerd, tip: { glyph: digit, label, text: tipBody } } satisfies EntryProps
     return (
       <Box key={`${id}-pad`} flexDirection="row">
         <Client key={id} module="./entry.tsx" width={entryCells(props)} height={1} props={props} />
@@ -114,7 +125,7 @@ export function holdCard(
   )
 
   const hint = (id: string, key: string, label: string, tipBody: string) => {
-    const props = { id, label, isOpen: false, bg, subLead: key, subLeadColor: THEME.onSurface, idle: THEME.muted, still, nerd: look.nerd, tip: { glyph: key, label, text: tipBody } } satisfies EntryProps
+    const props = { id, label, isOpen: false, bg, keycap: key, idle: THEME.muted, still, nerd: look.nerd, tip: { glyph: key, label, text: tipBody } } satisfies EntryProps
     return <Client key={id} module="./entry.tsx" width={entryCells(props)} height={1} props={props} />
   }
   const isEmpty = view.draft.trim() === ''

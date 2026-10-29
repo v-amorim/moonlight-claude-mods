@@ -2,8 +2,7 @@
 // Reads skill frontmatter, groups skills by tag and builds colored tag badges.
 import style from './style'
 import text from './text'
-import { mix } from './entry'
-import { CAPS, THEME } from './theme'
+import { CAPS, MARK, THEME } from './theme'
 
 export const PERSONAL = 'personal'
 
@@ -42,9 +41,6 @@ export const groupSkills = (skills: Skill[]) => {
   return [...groups].map(([tag, members]) => ({ tag, swatch: swatchFor(tag), skills: members }))
 }
 
-// The share of the tag's own hue left in the badge, as the panel's tag pills tint theirs.
-export const TAG_WASH = 0.72
-
 export const knownTag = (tag: string) => (TAG_ORDER.includes(tag) ? tag : PERSONAL)
 
 // The typeahead collapses whitespace runs (a no-break space too), so the padding is the blank braille cell.
@@ -70,16 +66,15 @@ export function paintsDescriptions(version: string | undefined) {
 
 export type BadgeLook = { nerd: boolean; colored: boolean }
 
-// A tinted pill in the tag's hue where the typeahead draws color codes, else the bracketed icon and name.
+// The neutral Badge with the tag's hue as its dot where the typeahead draws color codes, else the bracketed icon and name.
 export function badge(tag: string, { nerd, colored }: BadgeLook) {
   const known = knownTag(tag)
   const { hex, icon } = swatchFor(known)
   const name = tagName(known)
   const pad = PAD.repeat(nameWidth() - name.length)
   if (!colored) return `[${icon} ${name}]${pad}`
-  const wash = mix(hex, THEME.bg, TAG_WASH)
-  const body = `${bgOf(wash)}${fgOf(hex)}${nerd ? '' : ' '}${icon} ${name}${nerd ? '' : ' '}\x1b[39m\x1b[49m`
-  const caps = nerd ? [`${fgOf(wash)}${CAPS.left}\x1b[39m`, `${fgOf(wash)}${CAPS.right}\x1b[39m`] : ['', '']
+  const body = `${bgOf(THEME.surface3)}${fgOf(hex)}${nerd ? '' : ' '}${MARK.stopOpen}${fgOf(THEME.muted)} ${name}${nerd ? '' : ' '}\x1b[39m\x1b[49m`
+  const caps = nerd ? [`${fgOf(THEME.surface3)}${CAPS.left}\x1b[39m`, `${fgOf(THEME.surface3)}${CAPS.right}\x1b[39m`] : ['', '']
   return `${caps[0]}${body}${caps[1]}${pad}`
 }
 

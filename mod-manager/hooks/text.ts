@@ -85,6 +85,7 @@ export default {
   "spendReset": "Reset",
   "tipSpendReset": "clears this mod's spend counts",
   "tipOpen": "opens this mod's page and settings",
+  "openChip": "Open ›",
   "tipApply": "runs every line above, then reloads",
   "stateOn": "On",
   "stateOff": "Off",

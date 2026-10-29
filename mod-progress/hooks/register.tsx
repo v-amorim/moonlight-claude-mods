@@ -6,13 +6,13 @@ import { bridgeOn, endBridge, startBridge, type BridgeRecord } from './bridge'
 import { entryCells, isTipMessage, tipText, type EntryMessage, type EntryProps, type Tip, type TipMessage } from './entry'
 import { cardFill, detectNerd, FOOTER_ROWS, lookFor, paneFooter, section, withMark, type IconMode } from './look'
 import { foldTip, layoutLoops, type LoopsMessage, type LoopsProps } from './loops'
-import { labelsOf, menuEntry, PILL, pill, pillRow, splitRow, tabRow, tipLine } from './pills'
+import { badgeOf, labelsOf, menuEntry, PILL, pill, pillRow, splitRow, tabRow, tipLine } from './pills'
 import { addBg, appendTail, applyCall, applyStep, applyTask, bandSummary, bgIdOf, bgOutputOf, bgStartOf, buildRows, emptySnap, endBg, endOfStatus, finishAgent, findBg, firstLine, gatesStemIn, cardWidth, HELD_LINES, hasRunningBg, isGatesPath, MAIN_GATES, mergeStamps, outputRoom, pageOf, parseGates, resyncBg, settle, stemOf, TAIL_LINES, waitingCount, wipeBg, type AgentLite, type BgTask, type Gate, type Snap, type Tail, type Usage, type UsageLite } from './progress'
 import { stopLine, stopOf } from './stop'
 import { choiceBar, settingChoice, settingsBody } from './settings'
 import text from './text'
 import type { TimelineProps } from './timeline'
-import { fill, MARK, mix, statusColor, THEME, WASH } from './theme'
+import { fill, MARK, statusColor, THEME } from './theme'
 import { TOAST_MS, ToastList, toastCards } from './toasts'
 
 // The icons setting (userConfig), fixed per activation: a change reloads the mod.
@@ -742,7 +742,8 @@ export const register: Register = (on, options) => {
     const summary = bandSummary(rows)
     const stop = stopLine(current.stop, now)
     const { group, row, rest, tip } = splitRow(await next(e))
-    const badge = summary.count > 0 ? { badge: { text: String(summary.count), color: THEME.accent, bg: mix(THEME.accent, shown ? mix(THEME.ok, PILL.primary, WASH) : PILL.primary, WASH) } } : {}
+    // The count is the neutral Badge on whatever the entry sits on: the group fill, or the lifted pill once the pane is open.
+    const badge = summary.count > 0 ? { badge: badgeOf(String(summary.count), shown ? THEME.lifted : PILL.primary) } : {}
     const waiting = waitingCount(rows)
     const pillTip = stop?.line ?? (summary.total > 0 ? `${fill(text.tipPillGates, summary)}${waiting > 0 ? ` ${fill(text.tipPillWaiting, { sep: MARK.sep, n: waiting })}` : ''}` : text.tipPill)
     const entry = menuEntry({ Box, Client, Text }, nerd, 'progress', { label: text.pillLabel, labels, isOpen: shown, idle: THEME.pill, still, nerd, tip: { glyph: look.glyph.icon.Agent ?? look.glyph.mark.agent ?? look.glyph.title, label: text.pillLabel, text: pillTip }, ...badge })
@@ -965,8 +966,8 @@ export const register: Register = (on, options) => {
             <Box key="view-pill" flexShrink={0}>
               {/* A Button, not a Client: ui.view is refused unless a real press is behind it. */}
               {pill({ Box, Text }, look.nerd, THEME.surface3, (
-                <Button key="view-switch" label={look.nerd ? `${MARK.open} ${switchLabel}` : ` ${MARK.open} ${switchLabel} `} plain hover={{ scope: 'view-pill-box', color: THEME.accent, inverse: true }} onPress={switchView} />
-              ), 'view-pill-box', THEME.surface1, THEME.accent)}
+                <Button key="view-switch" label={look.nerd ? `${MARK.open} ${switchLabel}` : ` ${MARK.open} ${switchLabel} `} plain hover={{ scope: 'view-pill-box', color: THEME.lifted, backgroundColor: THEME.accent }} onPress={switchView} />
+              ), 'view-pill-box', THEME.surface1, THEME.lifted)}
             </Box>
           ) : null}
         </Box>

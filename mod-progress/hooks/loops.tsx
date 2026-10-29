@@ -139,7 +139,6 @@ const Loops: ClientModule<LoopsProps, SpinState> = (props, surface) => {
           <Text key={`${key}-mark`} color={mark.color}>{mark.glyph}</Text>
           <Box key={`${key}-name`} flexGrow={1} flexShrink={1}>
             <Text wrap="truncate-end">
-              <Text color={row.hue}>{`${own.agentDot} `}</Text>
               <Text color={isHover || isViewed ? THEME.accent : THEME.onSurface} bold>{row.name}</Text>
               <Text color={THEME.muted}>{row.description ? ` ${row.description}` : ''}</Text>
             </Text>
@@ -157,7 +156,8 @@ const Loops: ClientModule<LoopsProps, SpinState> = (props, surface) => {
       const gates = countGates(row.gates)
       const gauge = row.percent === undefined ? 0 : Math.round((row.percent / 100) * marks.gaugeCells)
       const countText = ` ${fill(text.gatesCount, { done: gates.done, total: gates.total })}${row.isPhaseDone ? ` ${MARK.sep} ${text.phaseDone}` : ''}`
-      const before = [row.model ? 2 + [...info.name].length + (level ? 2 : 0) : 0, row.percent === undefined ? 0 : 2 + 3 + marks.gaugeCells + fill(text.gaugePercent, { percent: row.percent }).length].filter(cols => cols > 0)
+      // A badge is its caps, its dot and a space, then its name.
+      const before = [row.model ? 4 + [...info.name].length : 0, row.model && level ? 4 + [...row.effort!].length : 0, row.percent === undefined ? 0 : 2 + 3 + marks.gaugeCells + fill(text.gaugePercent, { percent: row.percent }).length].filter(cols => cols > 0)
       // The card's lead and padding, the pills before this one with their gaps, this pill's caps and count, the fold toggle, and a column of slack.
       const room = width - 4 - before.reduce((sum, cols) => sum + cols + 1, 0) - 2 - [...countText].length - (row.tasks.length > 0 ? [...foldText(row)].length : 0) - 1
       const cells = stripCells(row.gates, room)
@@ -168,10 +168,17 @@ const Loops: ClientModule<LoopsProps, SpinState> = (props, surface) => {
       return frame(
         <Box key={`${key}-row`} flexDirection="row" flexGrow={1}>
         <Box key={`${key}-body`} flexDirection="row" columnGap={1} paddingLeft={2}>
+          {/* Model and effort are neutral Badges: their hue lives only in the dot. */}
           {row.model ? pill(`${key}-model`, on, (
-            <Text color={info.hue} bold>
-              {info.name}
-              {level ? <Text color={level.color}>{` ${level.glyph}`}</Text> : null}
+            <Text>
+              <Text color={info.hue}>{own.agentDot}</Text>
+              <Text color={THEME.muted}>{` ${info.name}`}</Text>
+            </Text>
+          )) : null}
+          {row.model && level ? pill(`${key}-effort`, on, (
+            <Text>
+              <Text color={level.color}>{own.agentDot}</Text>
+              <Text color={THEME.muted}>{` ${row.effort}`}</Text>
             </Text>
           )) : null}
           {row.percent === undefined ? null : pill(`${key}-gauge`, on, (

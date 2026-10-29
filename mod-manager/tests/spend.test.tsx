@@ -96,7 +96,7 @@ async function pane($: any, on: any, spend?: string) {
 const openPage = (ui: any) => ui.pointer({ in: 'list-dir', type: 'down', button: 'left', x: 10, y: 0 })
 const hoverCost = async (ui: any) => {
   await ui.resize({ columns: 60, rows: 2, in: 'list-dir' })
-  await ui.pointer({ in: 'list-dir', type: 'move', x: 60 - 6 - 3 + 1, y: 0 })
+  await ui.pointer({ in: 'list-dir', type: 'move', x: 60 - (1 + 8) - 3 + 1, y: 0 })
 }
 
 test('the cost pill tip leads with the spend line and still says the mod costs', { options: { icons: 'safe' } }, async ($, on) => {

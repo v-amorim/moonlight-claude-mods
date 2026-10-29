@@ -2,10 +2,8 @@
 // Lays out and draws the tag cloud of skill chips with hover and click.
 import type { ClientModule, RenderChildren } from 'claude-code'
 
-import { HOVER_STEPS, HOVER_TICK_MS, hoverMix, mix, postTip, stepToward } from './entry'
-import { subpill } from './look'
-import { TAG_WASH } from './tags'
-import { CAPS, THEME } from './theme'
+import { HOVER_STEPS, HOVER_TICK_MS, hoverMix, postTip, stepToward } from './entry'
+import { CAPS, MARK, THEME } from './theme'
 
 export type CloudGroup = { tag: string; label: string; icon: string; hex: string; tip: string; skills: { index: number; name: string; tip: string }[] }
 
@@ -20,15 +18,15 @@ type Placed = { x: number; width: number; index: number; name: string; tip: stri
 // Cells a pill takes around its text: both caps in Nerd mode, a space each side in safe mode.
 const ENDS = 2
 
-// A tag's icon as a subpill: its cap, the icon and its cap, or the icon padded by a space each side.
-const ICON_CELLS = 3
+// A tag's hue dot and the space after it.
+const DOT_CELLS = 2
 
 // The pointer's target: a chip is its index, a tag pill is -2 minus its group, nothing is -1.
 const tagTarget = (group: number) => -2 - group
 
 // The tag pill column, then each group's skills as chips that wrap under it to the next row; a faint rule between groups.
 export function layoutCloud(groups: CloudGroup[], width: number) {
-  const lead = Math.max(0, ...groups.map(group => ENDS + ICON_CELLS + 1 + group.label.length)) + 1
+  const lead = Math.max(0, ...groups.map(group => ENDS + DOT_CELLS + group.label.length)) + 1
   const rows: { group: number; chips: Placed[]; isRule?: boolean }[] = []
   groups.forEach((group, at) => {
     if (at > 0) rows.push({ group: -1, chips: [], isRule: true })
@@ -115,16 +113,17 @@ const Cloud: ClientModule<CloudProps, State> = (props, surface) => {
         if (row.isRule) return <Text key={`row-${at}`} color={THEME.border}>{'─'.repeat(width)}</Text>
         const group = groups[row.group]
         const tagLevel = levels[tagTarget(row.group)] ?? 0
-        const tagFill = group ? hoverMix(mix(group.hex, THEME.surface1, TAG_WASH), THEME.lifted, tagLevel) : THEME.surface1
+        // A tag is the neutral Badge: its group's hue lives only in the dot.
+        const tagFill = hoverMix(THEME.surface3, THEME.lifted, tagLevel)
         return (
           <Box key={`row-${at}`} flexDirection="row">
             <Box key={`row-${at}-lead`} width={lead} flexShrink={0}>
               {group
                 ? pill(`tag-${at}`, tagFill, (
-                    <Box key={`tag-${at}-label`} flexDirection="row">
-                      {subpill({ Box, Text }, nerd, tagFill, group.icon, `tag-${at}-icon`, group.hex)}
-                      <Text color={hoverMix(group.hex, THEME.accent, tagLevel)}>{` ${group.label}`}</Text>
-                    </Box>
+                    <Text key={`tag-${at}-label`}>
+                      <Text color={group.hex}>{MARK.stopOpen}</Text>
+                      <Text color={hoverMix(THEME.muted, THEME.accent, tagLevel)}>{` ${group.label}`}</Text>
+                    </Text>
                   ))
                 : null}
             </Box>

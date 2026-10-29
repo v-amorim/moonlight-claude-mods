@@ -2,7 +2,7 @@
 // Draws the setup rows: the tick lists of mods to install or update, the Checked list and the Apply lines.
 import type { ClientModule, RenderElement } from 'claude-code'
 
-import { HOVER_STEPS, HOVER_TICK_MS, hoverMix, mix, postTip, stepToward } from './entry'
+import { HOVER_STEPS, HOVER_TICK_MS, hoverMix, postTip, stepToward } from './entry'
 import { fadeLevels, isFading } from './list'
 import { cardFill } from './look'
 import type { Check, Step } from './plan'
@@ -15,9 +15,6 @@ export type PickRow = { key: string; name: string; detail: string; ticked: boole
 export type PickMessage = { type: 'pick'; key: string; kind: 'install' | 'update' }
 
 export type PickProps = { kind: 'install' | 'update'; rows: PickRow[]; nameWidth: number; on: string; nerd: boolean; tipGlyph: string; tip: string; still?: boolean }
-
-// A status tag keeps 15% of its colour: the share of the card fill it is washed into.
-const TAG_WASH = 0.85
 
 type State = { row: number; levels: Record<number, number> }
 
@@ -56,7 +53,7 @@ const PickList: ClientModule<PickProps, State> = (props, surface) => {
     <Box flexDirection="column">
       {rows.map((row, at) => {
         const level = levels[at] ?? 0
-        const bg = hoverMix(cardFill(), THEME.lifted, level)
+        const bg = hoverMix(cardFill(), THEME.surface2, level)
         const fill = row.ticked ? THEME.surface3 : THEME.surface2
         const end = (side: string, key: string) => <Text key={key} color={fill} backgroundColor={nerd ? bg : fill}>{nerd ? side : ' '}</Text>
         return (
@@ -85,17 +82,23 @@ const PickList: ClientModule<PickProps, State> = (props, surface) => {
 
 type Elements = { Box: (props: any) => RenderElement; Text: (props: any) => RenderElement }
 
-// The Checked list (the Receipt): each line wrapped whole, its status tag on the right, square on a 15% tint of its colour.
-export function checkedRows({ Box, Text }: Elements, tags: { ok: string; warn: string }, checks: Check[]) {
+// The Checked list (the Receipt): each line wrapped whole, its status on the right as the neutral Badge led by an ok or warn dot.
+export function checkedRows({ Box, Text }: Elements, nerd: boolean, tags: { ok: string; warn: string }, checks: Check[]) {
   return checks.map((check, at) => {
     const hue = check.ok ? THEME.ok : THEME.warn
+    const end = (side: string, key: string) => <Text key={key} color={THEME.surface3} backgroundColor={nerd ? cardFill() : THEME.surface3}>{nerd ? side : ' '}</Text>
     return (
       <Box key={`checked-${at}`} flexDirection="row" columnGap={1}>
         <Box key={`checked-${at}-line`} flexGrow={1} flexShrink={1}>
           <Text color={THEME.muted} wrap="wrap">{check.line}</Text>
         </Box>
-        <Box key={`checked-${at}-tag`} flexShrink={0}>
-          <Text color={hue} backgroundColor={mix(hue, cardFill(), TAG_WASH)}>{` ${check.ok ? tags.ok : tags.warn} `}</Text>
+        <Box key={`checked-${at}-tag`} flexShrink={0} flexDirection="row">
+          {end(CAPS.left, `checked-${at}-tag-left`)}
+          <Text key={`checked-${at}-tag-body`} backgroundColor={THEME.surface3}>
+            <Text color={hue}>{MARK.stopOpen}</Text>
+            <Text color={THEME.muted}>{` ${check.ok ? tags.ok : tags.warn}`}</Text>
+          </Text>
+          {end(CAPS.right, `checked-${at}-tag-right`)}
         </Box>
       </Box>
     )

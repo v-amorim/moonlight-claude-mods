@@ -1,6 +1,6 @@
 {
   "name": "mod-wrap-up",
-  "version": "1.3.6",
+  "version": "1.4.0",
   "description": "Wrap up: hand off to a fresh session (summarize, /clear, fill the handoff) or fill a /compact that keeps what you pick",
   "license": "MIT",
   "author": {

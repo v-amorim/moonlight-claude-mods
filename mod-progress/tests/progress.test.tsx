@@ -328,6 +328,19 @@ test('the pane draws a card per loop and a click opens its gates', async ($, on)
   await ui.unmount()
 })
 
+test('model and effort are neutral badges whose hue is only the dot, and the title has no model dot', async ($, on) => {
+  stubEngine(on)
+  await $.session.start({ cwd: '/w' } as never)
+  const ui = await $.ui.mount(PANE)
+  const list = JSON.stringify(await ui.drawn({ in: 'loops' }))
+  expect(list).toContain(`{"type":"Text","props":{"color":"${modelInfo('claude-opus-5-5').hue}"},"children":["●"]},{"type":"Text","props":{"color":"${THEME.muted}"},"children":[" Opus 5.5"]}`)
+  expect(list).toContain(`{"type":"Text","props":{"color":"#CA5FA6"},"children":["●"]},{"type":"Text","props":{"color":"${THEME.muted}"},"children":[" xhigh"]}`)
+  expect(list).not.toContain('◉')
+  expect(list).not.toContain(`"color":"${modelInfo('claude-opus-5-5').hue}","bold":true`)
+  expect(list.match(/"children":\["●"\]/g)).toHaveLength(3)
+  await ui.unmount()
+})
+
 test('the card of the agent whose transcript is in view carries the cursor', async ($, on) => {
   stubEngine(on)
   await $.session.start({ cwd: '/w' } as never)

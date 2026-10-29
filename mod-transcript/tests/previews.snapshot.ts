@@ -520,18 +520,17 @@ export const snapshot: Snapshot = {
             },
             {
               "text": "\ue0b6",
-              "color": "#484e69",
+              "color": "surface3",
               "bg": "surface2"
             },
             {
               "text": "1",
-              "color": "secondary",
-              "bg": "#484e69",
-              "bold": true
+              "color": "muted",
+              "bg": "surface3"
             },
             {
               "text": "\ue0b4",
-              "color": "#484e69",
+              "color": "surface3",
               "bg": "surface2"
             },
             {
@@ -570,18 +569,17 @@ export const snapshot: Snapshot = {
             },
             {
               "text": "\ue0b6",
-              "color": "#5c5043",
+              "color": "surface3",
               "bg": "surface2"
             },
             {
               "text": "1",
-              "color": "warn",
-              "bg": "#5c5043",
-              "bold": true
+              "color": "muted",
+              "bg": "surface3"
             },
             {
               "text": "\ue0b4",
-              "color": "#5c5043",
+              "color": "surface3",
               "bg": "surface2"
             },
             {
@@ -796,17 +794,16 @@ export const snapshot: Snapshot = {
             },
             {
               "text": " ",
-              "bg": "#484e69"
+              "bg": "surface3"
             },
             {
               "text": "1",
-              "color": "secondary",
-              "bg": "#484e69",
-              "bold": true
+              "color": "muted",
+              "bg": "surface3"
             },
             {
               "text": " ",
-              "bg": "#484e69"
+              "bg": "surface3"
             },
             {
               "text": " +2",
@@ -842,17 +839,16 @@ export const snapshot: Snapshot = {
             },
             {
               "text": " ",
-              "bg": "#5c5043"
+              "bg": "surface3"
             },
             {
               "text": "1",
-              "color": "warn",
-              "bg": "#5c5043",
-              "bold": true
+              "color": "muted",
+              "bg": "surface3"
             },
             {
               "text": " ",
-              "bg": "#5c5043"
+              "bg": "surface3"
             },
             {
               "text": " ",
@@ -1082,18 +1078,17 @@ export const snapshot: Snapshot = {
             },
             {
               "text": "\ue0b6",
-              "color": "#484e69",
+              "color": "surface3",
               "bg": "surface2"
             },
             {
               "text": "1",
-              "color": "secondary",
-              "bg": "#484e69",
-              "bold": true
+              "color": "muted",
+              "bg": "surface3"
             },
             {
               "text": "\ue0b4",
-              "color": "#484e69",
+              "color": "surface3",
               "bg": "surface2"
             },
             {
@@ -1132,18 +1127,17 @@ export const snapshot: Snapshot = {
             },
             {
               "text": "\ue0b6",
-              "color": "#5c5043",
+              "color": "surface3",
               "bg": "surface2"
             },
             {
               "text": "1",
-              "color": "warn",
-              "bg": "#5c5043",
-              "bold": true
+              "color": "muted",
+              "bg": "surface3"
             },
             {
               "text": "\ue0b4",
-              "color": "#5c5043",
+              "color": "surface3",
               "bg": "surface2"
             },
             {
@@ -1358,17 +1352,16 @@ export const snapshot: Snapshot = {
             },
             {
               "text": " ",
-              "bg": "#484e69"
+              "bg": "surface3"
             },
             {
               "text": "1",
-              "color": "secondary",
-              "bg": "#484e69",
-              "bold": true
+              "color": "muted",
+              "bg": "surface3"
             },
             {
               "text": " ",
-              "bg": "#484e69"
+              "bg": "surface3"
             },
             {
               "text": " +2",
@@ -1404,17 +1397,16 @@ export const snapshot: Snapshot = {
             },
             {
               "text": " ",
-              "bg": "#5c5043"
+              "bg": "surface3"
             },
             {
               "text": "1",
-              "color": "warn",
-              "bg": "#5c5043",
-              "bold": true
+              "color": "muted",
+              "bg": "surface3"
             },
             {
               "text": " ",
-              "bg": "#5c5043"
+              "bg": "surface3"
             },
             {
               "text": " ",

@@ -935,7 +935,7 @@ test('a band tip whose entry was redrawn while hovered clears after 5 s with no 
   expect(await showsNow()).toBe(false)
 })
 
-const LIFTED = '#2F3654'
+const ROW_HOVER = '#1C2033'
 const CARD_FILL = '#1a1e30'
 const ACCENT = '#7386D0'
 
@@ -963,18 +963,18 @@ function rowSurface() {
   return { running, surface, props, send: (event: any) => pointer(event), bg: (row: any) => row.backgroundColor as string }
 }
 
-test('the pointer lights a whole timeline row, lifted with accent text, and the light fades out in steps', () => {
+test('the pointer lights a whole timeline row one step up with accent text, and the light fades out in steps', () => {
   const { running, surface, props, send, bg } = rowSurface()
   expect(bg(Row(props, surface))).toBe(CARD_FILL)
   send({ type: 'enter', x: 3, y: 0 })
   const lit: any = Row(props, surface)
-  expect(bg(lit)).toBe(LIFTED)
+  expect(bg(lit)).toBe(ROW_HOVER)
   expect(lit.children.map((part: any) => part.color)).toEqual([ACCENT, ACCENT, ACCENT])
   send({ type: 'leave', x: 0, y: 0 })
-  expect(bg(Row(props, surface))).toBe(LIFTED)
+  expect(bg(Row(props, surface))).toBe(ROW_HOVER)
   ;[...running].forEach(fn => fn())
   const mid = bg(Row(props, surface))
-  expect([LIFTED, CARD_FILL]).not.toContain(mid)
+  expect([ROW_HOVER, CARD_FILL]).not.toContain(mid)
   ;[...running].forEach(fn => fn())
   expect(bg(Row(props, surface))).toBe(CARD_FILL)
   expect(running.size).toBe(0)
@@ -986,9 +986,9 @@ test('with animations off a timeline row goes back to rest at once', { options: 
   const panel = await pane($)
   const row = 'headsup-note-n1-1'
   await panel.pointer({ in: row, type: 'enter', x: 3, y: 0 })
-  expect(await drawn(panel, row)).toContain(LIFTED)
+  expect(await drawn(panel, row)).toContain(ROW_HOVER)
   await panel.pointer({ in: row, type: 'leave', x: 0, y: 0 })
-  expect(await drawn(panel, row)).not.toContain(LIFTED)
+  expect(await drawn(panel, row)).not.toContain(ROW_HOVER)
   await panel.unmount()
 })
 

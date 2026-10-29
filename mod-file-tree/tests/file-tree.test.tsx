@@ -353,7 +353,8 @@ test('icons=nerd leads the kinds and the title with Nerd icons', { options: { ic
   expect(JSON.stringify(await ui.drawn({ in: 'list-0' }))).toContain(`${nf(0xe609)} `)
   // The view bar carries labels only: an icon subpill changed the options' widths and shifted the bar on every switch.
   const replayTab = JSON.stringify(await ui.drawn({ in: 'tab-replay' }))
-  expect(replayTab).toContain(' Replay ')
+  // On Nerd an idle option is tight: its caps stand in the padding cells, so it can lift to surface-4 under the pointer.
+  expect(replayTab).toContain('["Replay"]')
   expect(replayTab).not.toContain(nf(0xea82))
   const list = JSON.stringify(await ui.drawn({ in: 'list-0' }))
   expect(list).toContain(`"color":"${THEME.accent}","backgroundColor":"${THEME.surface3}"},"children":["↗"]`)
@@ -445,11 +446,12 @@ for (const nerd of [false, true]) {
     const ui = pointing(await $.ui.mount({ ...(PANE as object), requestId: 'filetree-settings' } as never))
     const bar = await drawnText(ui, await ui.find({ key: 'setting-0-bar' }))
     const [left, right] = [nf(0xe0b6), nf(0xe0b4)]
-    expect(bar).toBe(nerd ? `${left}${left}one${right} two  three ${right}` : '  one  two  three  ')
+    // On Nerd every option is capped: the chosen one in surface-4, the idle ones in the track's colour until the pointer lifts them.
+    expect(bar).toBe(nerd ? `${left}${left}one${right}${left}two${right}${left}three${right}${right}` : '  one  two  three  ')
     // The hit area of an option is the cells its own Client draws, whatever the caps around it.
     for (const [at, word] of ['one', 'two', 'three'].entries()) {
       const width = cells(await drawnText(ui, await ui.find({ key: `setting-0-option-${at}` })))
-      expect(width).toBe(word.length + (word === 'one' && nerd ? 0 : 2))
+      expect(width).toBe(word.length + (nerd ? 0 : 2))
       for (const x of [0, width - 1]) await ui.pointer({ in: `setting-0-option-${at}`, type: 'down', button: 'left', x, y: 0 })
     }
     expect(saved).toEqual(['one', 'one', 'two', 'two', 'three', 'three'])

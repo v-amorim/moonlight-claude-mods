@@ -575,12 +575,12 @@ function checksSection({ Box, Text }: Pick<Elements, 'Box' | 'Text'>, list: Chec
   )
 }
 
-// Counts and sizes in a line get the warning color.
+// Counts and sizes in a line are muted: they are figures, not a status.
 const FIGURE = /(\d[\d.,]*\s(?:[KMGT]?B|files?|folders?|commits?|paths?|entr(?:y|ies)|branch(?:es)?|statements?)\b)/
 const NOT_LOST = [text.preview.searchesUnder, text.preview.reaches, text.preview.statements]
 
 function figures(Text: Elements['Text'], text: string, key: string) {
-  return text.split(FIGURE).map((part, index) => (index % 2 ? <Text key={`${key}-${index}`} color={THEME.warn}>{part}</Text> : part))
+  return text.split(FIGURE).map((part, index) => (index % 2 ? <Text key={`${key}-${index}`} color={THEME.muted}>{part}</Text> : part))
 }
 
 // Moonlight syntax roles for a shell command; the risky part reads as risk.
@@ -669,7 +669,7 @@ function holdCard({ Box, Button, Client, Input, Text }: Elements & { Button: (pr
   // The entry draws the action; a Button nobody sees carries its digit, since only a Button takes a hotkey and a visible one inverts under the pointer.
   const entry = (id: string, label: string, hotkey: string, tipLabel: string, tipBody: string, tipGlyph: string, color?: string) => (
     <Box key={`${id}-pad`} flexDirection="row">
-      {pill({ Box, Text }, look.nerd, THEME.surface3, <Client key={id} module="./entry.tsx" height={1} props={{ id, label, isOpen: true, bg: THEME.surface3, subLead: hotkey, nerd: look.nerd, tip: { glyph: tipGlyph, label: tipLabel, text: tipBody }, ...(color ? { color } : {}), still }} />, `${id}-pill`, fill)}
+      {pill({ Box, Text }, look.nerd, THEME.surface3, <Client key={id} module="./entry.tsx" height={1} props={{ id, label, isOpen: true, bg: THEME.surface3, keycap: hotkey, nerd: look.nerd, tip: { glyph: tipGlyph, label: tipLabel, text: tipBody }, ...(color ? { color } : {}), still }} />, `${id}-pill`, fill)}
       <Box key={`${id}-key`} width={0} height={0} overflow="hidden">
         <Button key={`${id}-hotkey`} label={label} hotkey={hotkey} plain onPress={() => onKey(id)} />
       </Box>
@@ -677,7 +677,7 @@ function holdCard({ Box, Button, Client, Input, Text }: Elements & { Button: (pr
   )
 
   const hint = (id: string, key: string, label: string, tipBody: string) => {
-    const props = { id, label, isOpen: false, bg: fill, subLead: key, subLeadColor: THEME.onSurface, idle: THEME.muted, still, nerd: look.nerd, tip: { glyph: key, label, text: tipBody } } satisfies EntryProps
+    const props = { id, label, isOpen: false, bg: fill, keycap: key, idle: THEME.muted, still, nerd: look.nerd, tip: { glyph: key, label, text: tipBody } } satisfies EntryProps
     return <Client key={id} module="./entry.tsx" width={entryCells(props)} height={1} props={props} />
   }
   const isEmpty = (state.draft ?? '').trim() === ''
@@ -1198,7 +1198,7 @@ export const register: Register = (on, options) => {
               touches.push(
                 <Text key={`file-${index}-${drawn}`} wrap="wrap">
                   <Text key={`file-${index}-${drawn}-name`} color={color}>{`  ${file.name}`}</Text>
-                  <Text key={`file-${index}-${drawn}-size`} color={THEME.warn}>{`  ${file.detail}`}</Text>
+                  <Text key={`file-${index}-${drawn}-size`} color={THEME.muted}>{`  ${file.detail}`}</Text>
                 </Text>,
               )
               drawn++

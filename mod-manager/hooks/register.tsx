@@ -875,6 +875,7 @@ export const register: Register = (on, options) => {
             nerd: look.nerd,
             switchTip: { glyph: bare(look.glyph.on), label: '', text: text.tipSwitch },
             openTip: text.tipOpen,
+            openChip: text.openChip,
             costGlyph: look.glyph.icon.cost!,
             costLabel: text.costTitle,
           } satisfies ListProps}
@@ -999,10 +1000,11 @@ export const register: Register = (on, options) => {
         { Box, Text },
         look.nerd,
         THEME.surface3,
-        <Button key="open-plugin" label={look.nerd ? `${bare(look.glyph.go)} ${text.openPlugin}` : ` ${bare(look.glyph.go)} ${text.openPlugin} `} plain hover={{ scope: 'open-plugin-pill', color: THEME.accent, inverse: true }} onPress={() => openPlugin($)} />,
+        // Swapped on purpose: the engine inverts a Button under the pointer, which lands it as accent on surface-4.
+        <Button key="open-plugin" label={look.nerd ? `${bare(look.glyph.go)} ${text.openPlugin}` : ` ${bare(look.glyph.go)} ${text.openPlugin} `} plain hover={{ scope: 'open-plugin-pill', color: THEME.lifted, backgroundColor: THEME.accent }} onPress={() => openPlugin($)} />,
         'open-plugin-pill',
         cardFill(),
-        THEME.accent,
+        THEME.lifted,
       )
     )
     const updatesCard = section(
@@ -1049,7 +1051,7 @@ export const register: Register = (on, options) => {
               'apply',
               text.checkedTitle,
               <Box key="apply-body" flexDirection="column">
-                {checkedRows({ Box, Text }, { ok: text.tagOk, warn: text.tagWarn }, checks)}
+                {checkedRows({ Box, Text }, look.nerd, { ok: text.tagOk, warn: text.tagWarn }, checks)}
               </Box>,
             ),
             section(

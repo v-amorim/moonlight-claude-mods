@@ -342,7 +342,8 @@ test('an open call line draws like an On switch (ok text on ok washed into the s
   expect(parts.every(part => part.color === THEME.ok)).toBe(true)
   expect(drawn).toMatch(/"key":"toggle-call-0-time-body","height":1,"backgroundColor":"#252A42"/)
   expect(drawn).not.toContain(THEME.lifted)
-  expect(await chipsOf(prompt)).not.toContain(THEME.lifted)
+  // The open kind chip's count badge sits one step up, on surface-4; no chip body is lifted.
+  expect(await chipsOf(prompt)).not.toMatch(new RegExp(`"key":"[a-z]+-body","flexDirection":"row","backgroundColor":"${THEME.lifted}"`))
 })
 
 test('with animations off every animated Client is drawn still, and by default none is', { options: { animations: false } }, async ($, on) => {

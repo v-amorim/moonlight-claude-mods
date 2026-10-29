@@ -63,7 +63,8 @@ test('tags: default personal, explicit tag, unknown fallback, malformed skipped'
   expect(plain).not.toContain('\x1b')
   expect(plain.endsWith(' Does X')).toBe(true)
   const pill = markDescription('Does X', 'review', { nerd: false, colored: true })
-  expect(pill).toContain('\x1b[38;2;209;168;255m ∴ review ')
+  // The neutral Badge: surface-3 fill, the tag's hue only in the dot, the name muted.
+  expect(pill).toContain('\x1b[48;2;37;42;66m\x1b[38;2;209;168;255m ●\x1b[38;2;155;163;196m review ')
   expect(pill.endsWith(' Does X')).toBe(true)
   expect(markDescription('Does X', 'review', { nerd: true, colored: true })).toContain(String.fromCodePoint(0xe0b6))})
 
@@ -152,7 +153,8 @@ test('panel lists skill groups and a press fills the prompt', async ($, on) => {
 
   // One row per tag: its pill, then its chips; the card shows the first skill.
   const cloud = JSON.stringify(await ui.drawn({ in: 'skills-cloud' }))
-  expect(cloud).toContain(' ∴ ')
+  expect(cloud).toContain(`"children":["${MARK.stopOpen}"]`)
+  expect(cloud).toContain('" review"')
   expect(cloud).toContain('rev')
   expect(cloud).toContain('plain')
   expect(await ui.find({ type: 'Text', text: '/rev' })).toBeDefined()
@@ -626,10 +628,13 @@ test('a tag pill lights on hover and its tip reaches the footer', { options: { a
   await ui.unmount()
 })
 
-test('on Nerd a tag pill leads with its icon as a capped subpill', { options: { icons: 'nerd' } }, async ($, on) => {
+test('on Nerd a tag pill is a capped neutral badge led by its hue dot, with no icon subpill', { options: { icons: 'nerd' } }, async ($, on) => {
   const ui = await ready($, on)
-  expect(JSON.stringify(await ui.drawn({ in: 'skills-cloud' }))).toContain(`"key":"tag-0-icon"`)
-  expect(JSON.stringify(await ui.drawn({ in: 'skills-cloud' }))).toContain(String.fromCodePoint(0xe0b6))
+  const drawn = JSON.stringify(await ui.drawn({ in: 'skills-cloud' }))
+  expect(drawn).not.toContain(`"key":"tag-0-icon"`)
+  expect(drawn).toContain(String.fromCodePoint(0xe0b6))
+  expect(drawn).toContain(`"children":["${MARK.stopOpen}"]`)
+  expect(drawn).toContain(`"backgroundColor":"${THEME.surface3}"`)
   await ui.unmount()
 })
 

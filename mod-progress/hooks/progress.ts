@@ -376,7 +376,6 @@ export type Row = {
   description: string
   status: Status
   model: string
-  hue: string
   // The workflow run this agent belongs to; the rows of one run sit together.
   run?: string
   effort: string | undefined
@@ -455,7 +454,6 @@ export function buildRows(snap: Snap, list: AgentLite[], usage: UsageLite | unde
     description: shownDescription(main, mainStatus, doing?.subject ?? mainTask),
     status: mainStatus,
     model: model ?? '',
-    hue: modelInfo(model).hue,
     effort: main.effort,
     percent: usage?.percent ?? percent(main, window),
     tokens: main.tokens,
@@ -486,7 +484,6 @@ export function buildRows(snap: Snap, list: AgentLite[], usage: UsageLite | unde
       description: shownDescription(loop, status, info.description),
       status,
       model: loop.model ?? '',
-      hue: modelInfo(loop.model).hue,
       ...(loop.workflow ? { run: loop.workflow.runId } : {}),
       effort: loop.effort,
       percent: percent(loop, windowFor(loop.model, model, usage?.window, loop.context)),

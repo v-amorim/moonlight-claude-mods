@@ -10,10 +10,10 @@ import { byTurn, canFork, CLEAR_AFTER_PROMPTS, emptySaved, KNOWN_KEPT, pack, rec
 import { countSpawn, countTool, endTurn, receiptLine, receiptOf, startTurn, type Open, type Receipt } from './receipt'
 import { recordSpend } from './spend'
 import { isPrompt, PLACEHOLDER, PromptNumbers } from './prompts'
-import { labelsOf, menuEntry, pill, PILL, pillRow, splitRow, tabRow, tipLine } from './pills'
+import { badgeOf, iconChip, labelsOf, menuEntry, pill, PILL, pillRow, splitRow, tabRow, tipLine } from './pills'
 import { actionReveals, settingChoice, settingsBody, type Action, type Previews } from './settings'
 import text from './text'
-import { fill, MARK, mix, statusColor, THEME, WASH } from './theme'
+import { fill, MARK, statusColor, THEME } from './theme'
 import type { RowProps } from './timeline'
 import { TOAST_MS, ToastList, toastCards } from './toasts'
 import { bytesOf, CHUNK_BYTES, chunkArgv, feedLines, utf8Length, WHOLE_READ_BYTES } from './transcript'
@@ -849,7 +849,8 @@ export const register: Register = (on, options) => {
     const labels = labelsOf((await $.state.get({ plugin: 'mod-menu', key: 'labels' })).value)
     const { group, row, rest, tip } = splitRow(await next(e))
     const unread = unreadCount(saved.notes)
-    const badge = unread > 0 ? { badge: { text: String(unread), color: THEME.accent, bg: mix(THEME.accent, isShown ? mix(THEME.ok, PILL.primary, WASH) : PILL.primary, WASH) } } : {}
+    // The count is the neutral Badge on whatever the entry sits on: the group fill, or the lifted pill once the pane is open.
+    const badge = unread > 0 ? { badge: badgeOf(String(unread), isShown ? THEME.lifted : PILL.primary) } : {}
     // Opening the pane from here queues nothing, so the entry stays live mid-turn.
     const entry = menuEntry({ Box, Client, Text }, nerd, 'headsup', { label: text.pillLabel, isOpen: isShown, idle: THEME.pill, isBusy: isOpening || isChecking || rewriting !== '', still, nerd, tip: { glyph: nerd ? bare(look.glyph.warn) : MARK.bullet, label: text.pillLabel, text: receipt ? receiptLine(receipt) : text.tipPill }, labels, ...badge })
 
@@ -935,9 +936,11 @@ export const register: Register = (on, options) => {
             <Client key={`headsup-note-${found.id}`} module="./timeline.tsx" height={1} props={{ id: `headsup-note-${found.id}`, time: ` ${time} `, mark: ` ${found.isRead && !isSelected ? MARK.stop : MARK.stopOpen}`, summary: ` ${fit(found.learn, room).padEnd(room)} `, isSelected, isUnread: !found.isRead, still, tip: { glyph: bare(look.glyph.expanded), label: text.noteLabel, text: text.tipNote } } satisfies RowProps} />
             <Box key={`note-gap-${found.id}`} flexGrow={1} />
             <Box key={`note-jump-pill-${found.id}`} flexShrink={0}>
-              {pill({ Box, Text }, nerd, THEME.surface3, (
-                <Button key={`note-jump-${found.id}`} label={nerd ? MARK.open : ` ${MARK.open} `} plain hover={{ scope: `note-jump-box-${found.id}`, color: THEME.accent, inverse: true }} onPress={() => jump($, found.turn, found.promptId ?? '')} />
-              ), `note-jump-box-${found.id}`, cardFill(), THEME.accent)}
+              {iconChip({ Box, Text }, nerd, `note-jump-box-${found.id}`, cardFill(),
+                <Button key={`note-jump-${found.id}`} label={nerd ? MARK.open : ` ${MARK.open} `} plain hover={{ scope: `note-jump-box-${found.id}`, color: THEME.accent }} onPress={() => jump($, found.turn, found.promptId ?? '')} />,
+                <Button key={`note-jump-grown-${found.id}`} label={` ${MARK.open} ${text.jumpLabel} `} plain hover={{ scope: `note-jump-grown-${found.id}`, color: THEME.lifted, backgroundColor: THEME.accent }} onPress={() => jump($, found.turn, found.promptId ?? '')} />,
+                true,
+              )}
             </Box>
           </Box>
         )

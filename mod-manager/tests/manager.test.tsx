@@ -1023,9 +1023,9 @@ test('with no cost in any mod the list draws no pill and no blank', { options: {
 
 test('hovering the cost pill shows its summary in the pane footer, and the name still shows its own tip', { options: { icons: 'safe' } }, async ($, on) => {
   const ui = await costPane($, on)
-  // The pill sits right: the width less the version and its gap, less the pill's own cells.
+  // The pill sits right: the width less the version column (as wide as the 8-cell Open chip) and its gap, less the pill's own cells.
   await (ui as any).resize({ columns: 60, rows: 2, in: 'list-dir' })
-  await ui.pointer({ in: 'list-dir', type: 'move', x: 60 - 6 - 3 + 1, y: 0 })
+  await ui.pointer({ in: 'list-dir', type: 'move', x: 60 - (1 + 8) - 3 + 1, y: 0 })
   expect(await ui.find({ type: 'Text', text: ' Costs' })).toBeDefined()
   expect(await ui.find({ type: 'Text', text: ` · calls a model and spends tokens, its page says how to turn it off` })).toBeDefined()
   await ui.pointer({ in: 'list-dir', type: 'move', x: 10, y: 0 })

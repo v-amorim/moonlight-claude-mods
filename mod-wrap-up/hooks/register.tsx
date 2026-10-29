@@ -4,7 +4,7 @@ import type { ConfigValue, EngineInterface, ModelCompleteRequest, ModelCompleteR
 
 import { AUTO_SYSTEM, autoPrompt, capWords, clampCompactAt, clampCompactTokens, clampEvery, emptyLedger, flip, gatherFragments, isDue, ledgerMarkdown, MAX_PENDING, mergeDelta, mergeFragments, parseRelated, pendingCandidates, parseUpdate, readLedger, RELATED_SYSTEM, relatedPrompt, restoreContext, shortGoal, shouldCompact, yieldsToManual, countGates, type Carry, type CompactMarks, type Fragment, type GatesRun, type Ledger } from './ledger'
 import { ALSO_KEEP, buildPrompt, clampWords, compactNote, FORK_FAILURES, isFresh, parseNames, parseThreads, scopeNote, threadsPrompt, THREADS_SYSTEM, transcriptText, type AlsoId, type Names, type Thread } from './handoff'
-import { cardFill, detectNerd, FOOTER_ROWS, lookFor, paneFooter, sepText, subpill, titleEdge, type IconMode, withMark } from './look'
+import { cardFill, detectNerd, FOOTER_ROWS, lookFor, paneFooter, sepText, titleEdge, type IconMode, withMark } from './look'
 import { isTipMessage, tipText, type EntryMessage, type EntryProps, type Tip, type TipMessage } from './entry'
 import { choiceCells, type ChoiceProps } from './choice'
 import { labelsOf, PILL, pill, pillRow, splitRow, tabRow, tipLine } from './pills'
@@ -924,12 +924,10 @@ function countdownCard({ Box, Button, Text }: Elements & { Button: (props: any) 
       <Box key="wrap-up-countdown-text" flexGrow={1} flexShrink={1}>
         <Text color={THEME.onSurface} wrap="truncate-end">{line}</Text>
       </Box>
+      {/* The glyph rides in the label so the whole pill lights; the hover is swapped because the engine inverts a Button under the pointer. */}
       {pill({ Box, Text }, look.nerd, THEME.surface3, (
-        <Box key="wrap-up-countdown-body" flexDirection="row" backgroundColor={THEME.surface3}>
-          {subpill({ Box, Text }, look.nerd, THEME.surface3, bare(look.glyph.close), 'wrap-up-countdown-close')}
-          <Button key="wrap-up-countdown-cancel" label={look.nerd ? ` ${text.card.cancel}` : ` ${text.card.cancel} `} plain hover={{ scope, color: THEME.accent, inverse: true }} onPress={onCancel} />
-        </Box>
-      ), scope, cardFill(), THEME.accent)}
+        <Button key="wrap-up-countdown-cancel" label={look.nerd ? `${bare(look.glyph.close)} ${text.card.cancel}` : ` ${bare(look.glyph.close)} ${text.card.cancel} `} plain hover={{ scope, color: THEME.lifted, backgroundColor: THEME.accent }} onPress={onCancel} />
+      ), scope, cardFill(), THEME.lifted)}
     </Box>
   )
 }

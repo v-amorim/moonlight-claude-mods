@@ -118,7 +118,9 @@ test('the timeline lists prompts and the turn of the open one, a click opens a s
   expect(JSON.stringify(await ui.drawn({ in: 'timeline-after' }))).toContain('second prompt')
   // Safe mode pads the jump glyph inside its pill, since it has no rounded caps.
   expect(await ui.find({ type: 'Button', text: ' ↗ ' })).toBeDefined()
-  expect(JSON.stringify(await ui.drawn())).toContain('open-jump-box-body')
+  expect(JSON.stringify(await ui.drawn())).toContain('open-jump-box-rest')
+  // The chip shown under the pointer names the jump.
+  expect(await ui.find({ type: 'Button', text: ' ↗ Jump ' })).toBeDefined()
   expect(JSON.stringify(await ui.drawn())).toContain('scrolls the transcript to this prompt')
   expect(((await ui.drawn()) as { props: { backgroundColor?: string } }).props.backgroundColor).toBe(THEME.bg)
   await ui.press({ key: 'open-jump' })

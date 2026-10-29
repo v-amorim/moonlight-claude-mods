@@ -45,7 +45,7 @@ const Row: ClientModule<RowProps, State> = (props, surface) => {
 
   // Selected is accent and bold, an unread note onSurface, a read one muted: the mark says the same, so no state rides on one cue.
   const rest = props.isSelected ? THEME.accent : props.isUnread ? THEME.onSurface : THEME.muted
-  const bg = hoverMix(cardFill(), THEME.lifted, level)
+  const bg = hoverMix(cardFill(), THEME.surface2, level)
   const tone = (from: string) => hoverMix(from, THEME.accent, level)
   const markRest = props.isSelected || props.isUnread ? THEME.accent : THEME.muted
 

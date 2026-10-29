@@ -36,16 +36,24 @@ const mount = async ($: any, on: any) => {
   return $.ui.mount({ plugin: 'mod-manager', surface: 'terminal', component: 'Pane', requestId: 'manager', props: { title: 'Mods', isFocused: false, bodyColumns: 80, placement: 'dock', scroll: { offset: 0, bodyRows: 30 }, view: {} } } as never) as Promise<any>
 }
 
-test('the row under the pointer draws a lifted background with accent text, and the lift leaves with the pointer', { options: { animations: false } }, async ($, on) => {
+test('the row under the pointer lights one step up with an Open chip for its version, its switch lifts again with a white knob, and both leave with the pointer', { options: { animations: false } }, async ($, on) => {
   const ui = await mount($, on)
   const rest = JSON.stringify(await ui.drawn({ in: 'list-dir' }))
+  expect(rest).not.toContain(THEME.surface2)
   expect(rest).not.toContain(THEME.lifted)
+  expect(rest).not.toContain('Open ›')
   await ui.pointer({ in: 'list-dir', type: 'move', x: 12, y: 0 })
-  const lit = JSON.stringify(await ui.drawn({ in: 'list-dir' }))
-  expect(lit).toContain(THEME.lifted)
-  expect(lit).toContain(THEME.accent)
+  const row = JSON.stringify(await ui.drawn({ in: 'list-dir' }))
+  expect(row).toContain(THEME.surface2)
+  expect(row).toContain(`"color":"${THEME.accent}","backgroundColor":"${THEME.lifted}"},"children":["Open ›"]`)
+  await ui.pointer({ in: 'list-dir', type: 'move', x: 1, y: 0 })
+  const onSwitch = JSON.stringify(await ui.drawn({ in: 'list-dir' }))
+  expect(onSwitch).not.toContain('Open ›')
+  expect(onSwitch).toContain(`"color":"${THEME.onSurface}","backgroundColor":"${THEME.lifted}"`)
   await ui.pointer({ in: 'list-dir', type: 'leave', x: 0, y: 0 })
-  expect(JSON.stringify(await ui.drawn({ in: 'list-dir' }))).not.toContain(THEME.lifted)
+  const left = JSON.stringify(await ui.drawn({ in: 'list-dir' }))
+  expect(left).not.toContain(THEME.surface2)
+  expect(left).not.toContain(THEME.lifted)
   await ui.unmount()
 })
 

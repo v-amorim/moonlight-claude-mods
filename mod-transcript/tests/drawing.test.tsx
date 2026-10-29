@@ -659,14 +659,16 @@ const kindChips = (still: boolean) => ({
   ],
 }) as never
 
-test('a kind chip lights its label under the pointer, keeps its tip, and fades back; the open chip is surface3, never lifted', () => {
+test('a kind chip lights its label under the pointer, keeps its tip, and fades back; the open chip is surface3, never lifted, its count a neutral badge', () => {
   const line = fakeSurface()
   const posts: any[] = []
   line.surface.post = (data: any) => posts.push(data)
   const props = kindChips(false)
   const drawn = () => JSON.stringify(Chips(props, line.surface))
   const rest = drawn()
-  expect(rest).not.toContain(THEME.lifted)
+  // Only the open chip's count badge sits one step up, on surface-4; no chip body is lifted.
+  expect(rest).not.toMatch(new RegExp(`"key":"[a-z]+-body","flexDirection":"row","backgroundColor":"${THEME.lifted}"`))
+  expect(rest).toMatch(new RegExp(`"key":"[a-z]+-badge","backgroundColor":"${THEME.lifted}"`))
   expect(rest).toContain(`"backgroundColor":"${THEME.surface3}"`)
   expect(rest).toContain(`"backgroundColor":"${THEME.surface2}"`)
   expect(rest).not.toContain(`"color":"${THEME.accent}"`)

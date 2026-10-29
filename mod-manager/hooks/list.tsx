@@ -13,7 +13,8 @@ import { CAPS, MARK, THEME } from './theme'
 export type Row = { index: number; name: string; version: string; enabled: boolean; commands: string[]; hasSettings: boolean; update?: string; cost?: string }
 
 // gear marks a mod with settings, icon leads each name (empty in safe mode); nameWidth lines the columns up; still: hover switches at once.
-export type ListProps = { rows: Row[]; gear: string; icon: string; nameWidth: number; nerd: boolean; switchTip: Tip; openTip: string; costGlyph: string; costLabel: string; still?: boolean }
+// openChip: the words that stand in for the version while a row is lit, saying a click opens the mod's page.
+export type ListProps = { rows: Row[]; gear: string; icon: string; nameWidth: number; nerd: boolean; switchTip: Tip; openTip: string; openChip: string; costGlyph: string; costLabel: string; still?: boolean }
 
 // The pointer's row and part post a tip (id manager-row-<index>), which also tells the pane which mod's card to show.
 export type ListMessage = { type: 'select'; index: number } | { type: 'toggle'; index: number }
@@ -38,10 +39,10 @@ export const isFading = (levels: Record<number, number>, hovered: number) => Obj
 // Each list's fade timer runs only while a hover is moving: an idle list ticking costs a wakeup.
 const fades = new WeakMap<object, () => void>()
 
-// One row per mod: the switch pill turns it on or off, the rest of the row opens its page; the row under the pointer lights as a lifted row with accent text.
+// One row per mod: the switch pill turns it on or off, the rest of the row opens its page; the row under the pointer lights one step up with accent text.
 const ModList: ClientModule<ListProps, State> = (props, surface) => {
   const { Box, Text } = surface.elements
-  const { rows, gear, icon, nameWidth, nerd, switchTip, openTip, costGlyph, costLabel, still } = props
+  const { rows, gear, icon, nameWidth, nerd, switchTip, openTip, openChip, costGlyph, costLabel, still } = props
   // A Client takes no hover prop, so it tracks the row under the pointer itself.
   const hovered = surface.state?.row ?? -1
   const levels = surface.state?.levels ?? {}
@@ -49,7 +50,9 @@ const ModList: ClientModule<ListProps, State> = (props, surface) => {
   // The badges sit right, before the version padded to one width; a column no row uses is left out, a row without its badge keeps the blank.
   const hasCost = rows.some(row => row.cost)
   const hasGear = rows.some(row => row.hasSettings)
-  const versionWidth = Math.max(...rows.map(row => row.version.length))
+  // The version column is as wide as the Open chip that replaces it on a lit row, so nothing shifts under the pointer.
+  const chipCells = [...openChip].length + 2
+  const versionWidth = Math.max(chipCells, ...rows.map(row => row.version.length))
   const costStart = surface.columns - (1 + versionWidth) - (hasGear ? COST_CELLS + 1 : 0) - COST_CELLS
 
   surface.onPointer(event => {
@@ -82,8 +85,12 @@ const ModList: ClientModule<ListProps, State> = (props, surface) => {
     <Box flexDirection="column">
       {rows.map((row, at) => {
         const level = levels[at] ?? 0
-        const bg = hoverMix(cardFill(), THEME.lifted, level)
-        const end = (side: string, key: string) => <Text key={key} color={THEME.surface3} backgroundColor={nerd ? bg : THEME.surface3}>{nerd ? side : ' '}</Text>
+        // The row hovers one step above the card, so its surface-4 switch still stands out.
+        const bg = hoverMix(cardFill(), THEME.surface2, level)
+        // The switch is a control of its own: under the pointer its track fills to surface-4 and its knob turns white.
+        const isSwitchHovered = at === hovered && surface.state?.zone === 0
+        const track = isSwitchHovered ? THEME.lifted : THEME.surface3
+        const end = (side: string, key: string) => <Text key={key} color={track} backgroundColor={nerd ? bg : track}>{nerd ? side : ' '}</Text>
         // An off mod's name dims too, so its state never rests on the switch alone.
         const nameColor = hoverMix(row.enabled ? THEME.onSurface : THEME.muted, THEME.accent, level)
         return (
@@ -93,8 +100,8 @@ const ModList: ClientModule<ListProps, State> = (props, surface) => {
               {end(CAPS.left, `switch-${at}-left`)}
               {/* The switch: `━━●` on, `●━━` off, the knob joined to the line. */}
               {row.enabled
-                ? [<Text key={`switch-${at}-line`} color={THEME.accent} backgroundColor={THEME.surface3}>{MARK.track}</Text>, <Text key={`switch-${at}`} color={THEME.ok} backgroundColor={THEME.surface3}>{MARK.knob}</Text>]
-                : [<Text key={`switch-${at}`} color={style.colors.pills.readout} backgroundColor={THEME.surface3}>{MARK.knob}</Text>, <Text key={`switch-${at}-line`} color={THEME.trackOff} backgroundColor={THEME.surface3}>{MARK.track}</Text>]}
+                ? [<Text key={`switch-${at}-line`} color={THEME.accent} backgroundColor={track}>{MARK.track}</Text>, <Text key={`switch-${at}`} color={isSwitchHovered ? THEME.onSurface : THEME.ok} backgroundColor={track}>{MARK.knob}</Text>]
+                : [<Text key={`switch-${at}`} color={isSwitchHovered ? THEME.onSurface : style.colors.pills.readout} backgroundColor={track}>{MARK.knob}</Text>, <Text key={`switch-${at}-line`} color={THEME.trackOff} backgroundColor={track}>{MARK.track}</Text>]}
               {end(CAPS.right, `switch-${at}-right`)}
             </Box>
             <Box key={`row-${at}-name`} flexShrink={0}>
@@ -122,7 +129,16 @@ const ModList: ClientModule<ListProps, State> = (props, surface) => {
               </Box>
             ) : null}
             <Box key={`row-${at}-version`} flexShrink={0} paddingLeft={1}>
-              <Text color={THEME.muted}>{row.version.padStart(versionWidth)}</Text>
+              {at === hovered && surface.state?.zone === 1 ? (
+                <Text key={`row-${at}-open`}>
+                  <Text backgroundColor={bg}>{' '.repeat(versionWidth - chipCells)}</Text>
+                  <Text color={THEME.lifted} backgroundColor={nerd ? bg : THEME.lifted}>{nerd ? CAPS.left : ' '}</Text>
+                  <Text color={THEME.accent} backgroundColor={THEME.lifted}>{openChip}</Text>
+                  <Text color={THEME.lifted} backgroundColor={nerd ? bg : THEME.lifted}>{nerd ? CAPS.right : ' '}</Text>
+                </Text>
+              ) : (
+                <Text color={THEME.muted}>{row.version.padStart(versionWidth)}</Text>
+              )}
             </Box>
           </Box>
         )

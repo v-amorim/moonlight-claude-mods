@@ -526,7 +526,7 @@ function listRows(current: Log, rows: ReturnType<typeof rowsOf>, glyphs: Look, w
       guides,
       lead,
       mark,
-      markColor: row.isDir ? THEME.folder : THEME.accent,
+      markColor: THEME.accent,
       name: shown,
       tone: !entry ? 'dir' : isLive ? 'live' : STATUS[entry.kind].tone,
       add,
@@ -534,7 +534,7 @@ function listRows(current: Log, rows: ReturnType<typeof rowsOf>, glyphs: Look, w
       status,
       pad: width - used - cells(shown),
       endMark: row.isDir ? glyphs.glyph.reveal : MARK.open,
-      endColor: row.isDir ? THEME.folder : THEME.accent,
+      endColor: THEME.accent,
       tip: row.isDir ? text.folderRowTip : entry?.kind === 'read' ? text.readRowTip : text.fileRowTip,
       tipLabel: row.isDir ? text.folderRowLabel : entry?.kind === 'read' ? text.readRowLabel : text.fileRowLabel,
       openTip: row.isDir ? text.openFolderTip : text.openFileTip,
@@ -586,7 +586,7 @@ async function openingPane($: EngineInterface) {
   if (!(await isOpen($, PANE))) endOpening($)
 }
 
-// The share of each status color left in its legend pill.
+// The share of a stepper mark's color left in its trailing badge.
 const LEGEND_WASH = 0.72
 
 // A settings card's click: its row, saved through /config; a saved change reloads this mod.
@@ -1016,10 +1016,15 @@ export const register: Register = (on, options) => {
           <Box key="legend" flexDirection="column">
             <Box key="legend-row" flexDirection="row" columnGap={1}>
               {(['changed', 'added', 'read'] as const).map(tone =>
-                pill({ Box, Text }, look.nerd, mix(NAME_COLOR[tone], THEME.bg, LEGEND_WASH), <Text color={NAME_COLOR[tone]}>{look.nerd ? text.legend[tone] : ` ${text.legend[tone]} `}</Text>, `legend-${tone}`, THEME.bg),
+                pill({ Box, Text }, look.nerd, THEME.surface3, (
+                  <Text key={`legend-${tone}-body`}>
+                    <Text color={NAME_COLOR[tone]}>{look.nerd ? MARK.stopOpen : ` ${MARK.stopOpen}`}</Text>
+                    <Text color={THEME.muted}>{look.nerd ? ` ${text.legend[tone]}` : ` ${text.legend[tone]} `}</Text>
+                  </Text>
+                ), `legend-${tone}`, THEME.bg),
               )}
               <Box key="legend-gap" flexGrow={1} />
-              {pill({ Box, Text }, look.nerd, THEME.surface3, entry('session-reveal', text.sessionFolder, false, THEME.surface3, { idle: THEME.onSurface, subLead: look.glyph.icon.folder ?? look.glyph.reveal, subLeadColor: THEME.folder, tip: { glyph: look.glyph.icon.folder ?? look.glyph.reveal, label: text.sessionFolder, text: text.sessionFolderTip } }), 'session-reveal-pill', THEME.bg)}
+              {pill({ Box, Text }, look.nerd, THEME.surface3, entry('session-reveal', text.sessionFolder, false, THEME.surface3, { idle: THEME.onSurface, subLead: look.glyph.icon.folder ?? look.glyph.reveal, subLeadColor: THEME.accent, tip: { glyph: look.glyph.icon.folder ?? look.glyph.reveal, label: text.sessionFolder, text: text.sessionFolderTip } }), 'session-reveal-pill', THEME.bg)}
             </Box>
           </Box>
         ) : null}

@@ -6,7 +6,7 @@ import { bridgeOn, endBridge, startBridge, type BridgeRecord } from './bridge'
 import { cardSpace, HEAD_ROWS, stickyCard } from './card'
 import { isTipMessage, type EntryMessage, type EntryProps, type Tip } from './entry'
 import { cardFill, detectNerd, FOOTER_ROWS, lookFor, paneFooter, section, sepText, titleEdge, withMark, type IconMode } from './look'
-import { labelsOf, menuEntry, pill, pillRow, splitRow, tabRow, tipLine } from './pills'
+import { iconChip, labelsOf, menuEntry, pill, pillRow, splitRow, tabRow, tipLine } from './pills'
 import { settingChoice, settingsBody } from './settings'
 import { TOAST_MS, ToastList, toastCards } from './toasts'
 import { promptsOf, promptText, rowKey, targetOf, TranscriptRows, type Prompt } from './prompts'
@@ -715,11 +715,13 @@ export const register: Register = (on, options) => {
                 {stats}
               </Box>
               {/* A Button, not an Entry: a transcript scroll needs the person's press, and a Client click is refused as not person-initiated. */}
-              {/* A Button takes no color prop; its scoped hover inverts it, so the whole pill lights with its caps. */}
               <Box key="open-jump-pill" flexShrink={0}>
-                {pill({ Box, Text }, look.nerd, THEME.surface3, (
-                  <Button key="open-jump" label={look.nerd ? MARK.open : ` ${MARK.open} `} plain hover={{ scope: 'open-jump-box', color: THEME.accent, inverse: true }} onPress={() => jump($, selected)} />
-                ), 'open-jump-box', THEME.surface1, THEME.accent)}
+                {iconChip({ Box, Text }, look.nerd, 'open-jump-box', THEME.surface1,
+                  <Button key="open-jump" label={look.nerd ? MARK.open : ` ${MARK.open} `} plain hover={{ scope: 'open-jump-box', color: THEME.accent }} onPress={() => jump($, selected)} />,
+                  // The engine inverts a Button under the pointer, so its hover is the look swapped: it lands as accent on surface-4.
+                  <Button key="open-jump-grown" label={` ${MARK.open} ${text.jumpLabel} `} plain hover={{ scope: 'open-jump-grown', color: THEME.lifted, backgroundColor: THEME.accent }} onPress={() => jump($, selected)} />,
+                  true,
+                )}
               </Box>
             </Box>
           ) : null,

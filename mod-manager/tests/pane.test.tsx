@@ -1,8 +1,7 @@
 // mod-manager / tests/pane.test.tsx, by v-amorim: the setup sections, the Apply card and its run
 import { expect, test } from 'claude-code/testing'
 
-import { cardFill } from '../hooks/look'
-import { mix, THEME } from '../hooks/theme'
+import { THEME } from '../hooks/theme'
 
 const neutral = (path: string) => path.replace(/\\/g, '/').replace(/^[A-Za-z]:/, '')
 // The kit's types declare no timer globals, yet the runtime has them.
@@ -275,10 +274,12 @@ test('apply: checked list shows the version, the marketplace and the font, a mis
   // The font is not a Nerd Font here: a warn-colored miss, not an error.
   const miss = await eventually(ui, () => ui.find({ type: 'Text', text: 'No Nerd Font found, icons stay plain' }))
   expect(miss).toBeDefined()
-  const warn = await ui.find({ type: 'Text', text: ' warn ' })
-  expect(warn?.props.color).toBe(THEME.warn)
-  expect(warn?.props.backgroundColor).toBe(mix(THEME.warn, cardFill(), 0.85))
-  expect((await ui.find({ type: 'Text', text: ' ok ' }))?.props.color).toBe(THEME.ok)
+  // Each tag is the neutral Badge: a muted word on surface-3, its status only in the dot that leads it.
+  const drawn = JSON.stringify(await ui.drawn())
+  expect(drawn).toContain(`"props":{"color":"${THEME.muted}"},"children":[" warn"]`)
+  expect(drawn).toContain(`"props":{"color":"${THEME.muted}"},"children":[" ok"]`)
+  expect(drawn).toContain(`"props":{"color":"${THEME.warn}"},"children":["●"]`)
+  expect(drawn).toContain(`"props":{"color":"${THEME.ok}"},"children":["●"]`)
   expect(await ui.find({ key: 'sec-about' })).toBeDefined()
   expect(await ui.find({ type: 'Text', text: /^About to$/ })).toBeDefined()
   // Read once per pane open, however often the pane redraws.

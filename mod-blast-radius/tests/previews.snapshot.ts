@@ -46,7 +46,7 @@ export const snapshot: Snapshot = {
             },
             {
               "text": "3.1 MB",
-              "color": "warn"
+              "color": "muted"
             }
           ]
         },
@@ -62,18 +62,17 @@ export const snapshot: Snapshot = {
             },
             {
               "text": "\ue0b6",
-              "color": "#3b446a",
+              "color": "lifted",
               "bg": "surface3"
             },
             {
               "text": "1",
-              "color": "accent",
-              "bg": "#3b446a",
-              "bold": true
+              "color": "onSurface",
+              "bg": "lifted"
             },
             {
               "text": "\ue0b4",
-              "color": "#3b446a",
+              "color": "lifted",
               "bg": "surface3"
             },
             {
@@ -96,18 +95,17 @@ export const snapshot: Snapshot = {
             },
             {
               "text": "\ue0b6",
-              "color": "#3b446a",
+              "color": "lifted",
               "bg": "surface3"
             },
             {
               "text": "2",
-              "color": "accent",
-              "bg": "#3b446a",
-              "bold": true
+              "color": "onSurface",
+              "bg": "lifted"
             },
             {
               "text": "\ue0b4",
-              "color": "#3b446a",
+              "color": "lifted",
               "bg": "surface3"
             },
             {
@@ -130,18 +128,17 @@ export const snapshot: Snapshot = {
             },
             {
               "text": "\ue0b6",
-              "color": "#3b446a",
+              "color": "lifted",
               "bg": "surface3"
             },
             {
               "text": "3",
-              "color": "accent",
-              "bg": "#3b446a",
-              "bold": true
+              "color": "onSurface",
+              "bg": "lifted"
             },
             {
               "text": "\ue0b4",
-              "color": "#3b446a",
+              "color": "lifted",
               "bg": "surface3"
             },
             {
@@ -196,7 +193,7 @@ export const snapshot: Snapshot = {
             },
             {
               "text": "3.1 MB",
-              "color": "warn"
+              "color": "muted"
             }
           ]
         },
@@ -207,9 +204,8 @@ export const snapshot: Snapshot = {
             },
             {
               "text": " 1 ",
-              "color": "accent",
-              "bg": "#3b446a",
-              "bold": true
+              "color": "onSurface",
+              "bg": "lifted"
             },
             {
               "text": " Cancel ",
@@ -221,9 +217,8 @@ export const snapshot: Snapshot = {
             },
             {
               "text": " 2 ",
-              "color": "accent",
-              "bg": "#3b446a",
-              "bold": true
+              "color": "onSurface",
+              "bg": "lifted"
             },
             {
               "text": " Details ",
@@ -235,9 +230,8 @@ export const snapshot: Snapshot = {
             },
             {
               "text": " 3 ",
-              "color": "accent",
-              "bg": "#3b446a",
-              "bold": true
+              "color": "onSurface",
+              "bg": "lifted"
             },
             {
               "text": " Delete cache.db ",

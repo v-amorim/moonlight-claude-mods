@@ -193,10 +193,10 @@ function world(on: (event: string, handler: (...args: any[]) => unknown) => void
 }
 
 const click = (band: any, key: string) => band.pointer({ type: 'down', x: 1, y: 0, button: 'left', in: key })
-// The entry's label Text: the first Text it drew outside its subpill and its badge.
+// The entry's label Text: the first Text it drew outside its subpill, keycap and badge.
 type Drawn = { type: string; props: Record<string, any>; children?: unknown[] }
 const labelNode = (node: Drawn): Drawn | undefined => {
-  if (node.props?.key === 'sub-lead' || node.props?.key === 'badge') return undefined
+  if (node.props?.key === 'sub-lead' || node.props?.key === 'keycap' || node.props?.key === 'badge') return undefined
   if (node.type === 'Text') return node
   for (const child of node.children ?? []) {
     const found = child && typeof child === 'object' ? labelNode(child as Drawn) : undefined
@@ -675,7 +675,7 @@ test('Cancel comes first, Details second, the consequence last, each a numbered 
     expect(at('blast-cancel-pill')).toBeGreaterThan(-1)
     expect(at('blast-cancel-pill')).toBeLessThan(at('blast-details-pill'))
     expect(at('blast-details-pill')).toBeLessThan(at('blast-run-pill'))
-    for (const digit of ['1', '2', '3']) expect(tree).toContain(`"subLead":"${digit}"`)
+    for (const digit of ['1', '2', '3']) expect(tree).toContain(`"keycap":"${digit}"`)
     // No keycap box of its own and no divider between the pills.
     expect(tree).not.toContain('\u2502')
     expect(tree).not.toContain('blast-cancel-cap')

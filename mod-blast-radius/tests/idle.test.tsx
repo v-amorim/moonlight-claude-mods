@@ -72,7 +72,7 @@ function world(on: (event: string, handler: (...args: any[]) => unknown) => void
 const click = (band: any, key: string) => band.pointer({ type: 'down', x: 1, y: 0, button: 'left', in: key })
 type Drawn = { type: string; props: Record<string, any>; children?: unknown[] }
 const labelNode = (node: Drawn): Drawn | undefined => {
-  if (node.props?.key === 'sub-lead' || node.props?.key === 'badge' || node.props?.key === 'lead') return undefined
+  if (node.props?.key === 'sub-lead' || node.props?.key === 'keycap' || node.props?.key === 'badge' || node.props?.key === 'lead') return undefined
   if (node.type === 'Text') return node
   for (const child of node.children ?? []) {
     const found = child && typeof child === 'object' ? labelNode(child as Drawn) : undefined

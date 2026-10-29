@@ -3,6 +3,7 @@
 import { expect, mock, test } from 'claude-code/testing'
 
 import { cleanReason, findConflict, shortPath, splitPath, titleOf, vscodeHref } from '../hooks/guard'
+import { THEME } from '../hooks/theme'
 
 const PLUGIN = 'mod-collision-guard'
 const NOW = 1_800_000_000_000
@@ -149,6 +150,10 @@ for (const mode of ['nerd', 'safe'] as const) {
     const name = (await ui.find({ type: 'Text', text: /^other$/ })) as { props: { bold?: boolean } }
     expect(name.props.bold).toBe(true)
     expect(await textOf(ui, /#12/)).toBe(mode === 'nerd' ? '#12' : ' #12 ')
+    // The prompt number is the neutral Badge, not an accent subpill.
+    const prompt = (await ui.find({ type: 'Text', text: /#12/ })) as { props: { color?: string; backgroundColor?: string; bold?: boolean } }
+    expect(prompt.props).toMatchObject({ color: THEME.muted, backgroundColor: THEME.surface3 })
+    expect(prompt.props.bold).toBeUndefined()
     expect(await textOf(ui, /^\+2 more sessions$/)).toBeDefined()
     expect(await textOf(ui, /^4 min ago/)).toMatch(/^4 min ago · \d\d:\d\d$/)
 
@@ -166,7 +171,7 @@ for (const mode of ['nerd', 'safe'] as const) {
     expect(at('guard-cancel-pad')).toBeGreaterThan(-1)
     expect(at('guard-cancel-pad')).toBeLessThan(at('guard-worktree-pad'))
     expect(at('guard-worktree-pad')).toBeLessThan(at('guard-proceed-pad'))
-    for (const digit of ['1', '2', '3']) expect(tree).toContain(`"subLead":"${digit}"`)
+    for (const digit of ['1', '2', '3']) expect(tree).toContain(`"keycap":"${digit}"`)
     expect(await ui.find({ key: 'guard-reason' })).toBeUndefined()
 
     await click(ui, 'guard-proceed')
@@ -270,8 +275,8 @@ test('outside a git repo the card offers no worktree, and Proceed is 2', async (
   const { pending, ui } = await held($, on, { [`${DIR}/other.json`]: edit('other', 4, '/scratch/notes.ts') }, {}, '/scratch/notes.ts')
   const tree = JSON.stringify(await ui.drawn())
   expect(tree).not.toContain('guard-worktree')
-  expect(tree).toContain('"subLead":"2"')
-  expect(tree).not.toContain('"subLead":"3"')
+  expect(tree).toContain('"keycap":"2"')
+  expect(tree).not.toContain('"keycap":"3"')
   expect(await textOf(ui, /Move to a worktree/)).toBeUndefined()
   await ui.press({ key: 'guard-proceed-hotkey' })
   await pending
@@ -373,9 +378,9 @@ test('Cancel opens the reason field in place of the actions, with its hints', as
   for (const key of ['guard-cancel', 'guard-worktree', 'guard-proceed', 'guard-cancel-hotkey', 'guard-worktree-hotkey', 'guard-proceed-hotkey']) expect(await ui.find({ key })).toBeUndefined()
   const hints = JSON.stringify(await ui.drawn())
   expect(hints).toContain('"label":"skip"')
-  expect(hints).toContain('"subLead":"Enter"')
+  expect(hints).toContain('"keycap":"Enter"')
   expect(hints).toContain('"label":"back to the choices"')
-  expect(hints).toContain('"subLead":"Esc"')
+  expect(hints).toContain('"keycap":"Esc"')
   // The head and the file stay above the field.
   expect(await textOf(ui, /^Another open session/)).toBeDefined()
   expect(w.ran).toEqual([])
@@ -524,9 +529,9 @@ test('a failed check draws the same card with only Cancel and Proceed, and Cance
   const tree = JSON.stringify(await ui.drawn())
   expect(tree).toContain('"href":"vscode://file/work/app.ts"')
   expect(tree).not.toContain('guard-worktree')
-  expect(tree).toContain('"subLead":"1"')
-  expect(tree).toContain('"subLead":"2"')
-  expect(tree).not.toContain('"subLead":"3"')
+  expect(tree).toContain('"keycap":"1"')
+  expect(tree).toContain('"keycap":"2"')
+  expect(tree).not.toContain('"keycap":"3"')
   expect(tree.indexOf('guard-cancel-pad')).toBeLessThan(tree.indexOf('guard-proceed-pad'))
   await click(ui, 'guard-cancel')
   await ui.input({ key: REASON, text: '', kind: 'submit' })
