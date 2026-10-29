@@ -38,16 +38,16 @@ export default {
     "back": "back to the choices"
   },
   "refusal": {
-    "cancel": "the person pressed Cancel",
-    "cancelWhy": "the person cancelled and said why: \"{said}\"",
+    "cancel": "the user pressed Cancel",
+    "cancelWhy": "the user cancelled and said why: \"{said}\"",
     "interrupted": "the turn was interrupted",
     "error": "Blast radius hit an error while holding it",
     "none": "no answer was recorded"
   },
   "deny": {
-    "held": "Blast radius held this command and did not run it: {why}. Do not retry it unless the person asks you to.",
-    "heldWhy": "Blast radius held this command and did not run it: {why}. Reason: {reason}. It would have: {summary}. Do not retry it unless the person asks you to.",
-    "idle": "Blast radius held this command and the person did not answer for {minutes} minutes. The command did not run. Do not rephrase it to try again: a changed command opens a new card. Carry on with any work that does not need it; if there is none, tell the person the command is waiting for them to run or cancel from the chip, and stop."
+    "held": "Blast radius held this command and did not run it: {why}. Do not retry it unless the user asks you to.",
+    "heldWhy": "Blast radius held this command and did not run it: {why}. Reason: {reason}. It would have: {summary}. Do not retry it unless the user asks you to.",
+    "idle": "Blast radius held this command and the user did not answer for {minutes} minutes. The command did not run. Do not rephrase it to try again: a changed command opens a new card. Carry on with any work that does not need it; if there is none, tell the user the command is waiting for them to run or cancel from the chip, and stop."
   },
   "waiting": {
     "approve": { "one": "Approve {n} command", "many": "Approve {n} commands" },
@@ -57,7 +57,7 @@ export default {
     "answered": { "one": "Answered · waiting for Claude", "many": "{n} answered · waiting for Claude" },
     "approvedNote": "Approved. It runs when Claude asks for it again.",
     "answeredNote": "Answered. Claude is told when it asks for it again.",
-    "nudge": "The person approved a command blast-radius held earlier. If it is still needed, run it again exactly as written below, so the stored approval applies. If it is no longer needed, because it was done another way or superseded, say so and do not run it.\n\n```\n{command}\n```"
+    "nudge": "The user approved a command blast-radius held earlier. If it is still needed, run it again exactly as written below, so the stored approval applies. If it is no longer needed, because it was done another way or superseded, say so and do not run it.\n\n```\n{command}\n```"
   },
   "atLeast": "at least ",
   "orMore": " or more",

@@ -162,7 +162,7 @@ test('a card nobody answers for the set time refuses the call with the idle word
   const result = (await call) as { deny: string }
   expect(seen.ran).toBe(0)
   expect(result.deny).toBe(
-    'Blast radius held this command and the person did not answer for 10 minutes. The command did not run. Do not rephrase it to try again: a changed command opens a new card. Carry on with any work that does not need it; if there is none, tell the person the command is waiting for them to run or cancel from the chip, and stop.',
+    'Blast radius held this command and the user did not answer for 10 minutes. The command did not run. Do not rephrase it to try again: a changed command opens a new card. Carry on with any work that does not need it; if there is none, tell the user the command is waiting for them to run or cancel from the chip, and stop.',
   )
   expect(result.deny).not.toMatch(/do not retry/i)
 })
@@ -300,7 +300,7 @@ test('a stored Cancel with a reason refuses the next identical call with that re
   seen.argv.length = 0
   const result = JSON.stringify(await $.tool.call({ tool: 'Bash', command: COMMAND }))
   expect(seen.ran).toBe(0)
-  expect(result).toContain('the person cancelled and said why: \\"wrong folder\\"')
+  expect(result).toContain('the user cancelled and said why: \\"wrong folder\\"')
   expect(result).toContain('Reason: Recursive deletion')
   expect(seen.argv).toEqual([])
   await band.redraw()
@@ -431,7 +431,7 @@ test('a click on the quiet chip toasts and opens no card; its hover tip says the
 })
 
 const nudgeFor = (command: string) =>
-  `The person approved a command blast-radius held earlier. If it is still needed, run it again exactly as written below, so the stored approval applies. If it is no longer needed, because it was done another way or superseded, say so and do not run it.\n\n\`\`\`\n${command}\n\`\`\``
+  `The user approved a command blast-radius held earlier. If it is still needed, run it again exactly as written below, so the stored approval applies. If it is no longer needed, because it was done another way or superseded, say so and do not run it.\n\n\`\`\`\n${command}\n\`\`\``
 
 test('Run on a reopened card nudges the session once, with the exact command in a code block', IDLE, async ($, on) => {
   const { seen, clock } = world(on)

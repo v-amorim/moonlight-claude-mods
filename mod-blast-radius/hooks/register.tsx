@@ -1057,7 +1057,7 @@ export const register: Register = (on, options) => {
     try {
       outcome = (await useStored($, next, judged.command)) ?? (await holdRisky($, next, judged.risk, judged.command))
     } catch {
-      outcome = { deny: 'Blast radius hit an error while checking this command and did not run it. Do not retry it unless the person asks you to.' }
+      outcome = { deny: 'Blast radius hit an error while checking this command and did not run it. Do not retry it unless the user asks you to.' }
     }
     // next runs outside the try, so an error from the command itself passes through unchanged.
     if (outcome === 'run') return next(e)

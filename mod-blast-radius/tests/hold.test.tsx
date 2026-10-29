@@ -453,7 +453,7 @@ test('typing a reason turns skip into send, and Enter with text denies with the 
   await band.unmount()
 
   expect(seen.ran).toBe(0)
-  expect(result).toContain('the person cancelled and said why: \\"wrong folder, it is \\\\\\"dist2\\\\\\"\\".')
+  expect(result).toContain('the user cancelled and said why: \\"wrong folder, it is \\\\\\"dist2\\\\\\"\\".')
   expect(result).toContain('Reason: Recursive deletion')
   expect(result).toContain('Do not retry it')
   expect(result).not.toContain('pressed Cancel')
@@ -465,7 +465,7 @@ test('Enter on an empty field denies as before, with no reason', async ($, on) =
   const result = JSON.stringify(await call)
   await band.unmount()
 
-  expect(result).toContain('the person pressed Cancel. Reason: Recursive deletion')
+  expect(result).toContain('the user pressed Cancel. Reason: Recursive deletion')
   expect(result).not.toContain('said why')
 })
 
@@ -523,7 +523,7 @@ test('Cancel refuses the call with a reason Claude reads, and the command never 
   const result = JSON.stringify(await call)
 
   expect(seen.ran).toBe(0)
-  expect(result).toContain('the person pressed Cancel')
+  expect(result).toContain('the user pressed Cancel')
   expect(result).toContain('Reason: Recursive deletion')
   expect(result).toContain('delete 2 files and 1 folder')
   expect(result).toContain('Do not retry it')
