@@ -162,7 +162,7 @@ test('a card nobody answers for the set time refuses the call with the idle word
   const result = (await call) as { deny: string }
   expect(seen.ran).toBe(0)
   expect(result.deny).toBe(
-    "Blast radius held this command and the person did not answer for 10 minutes. The command did not run. Carry on with any work that does not need it, and ask to run it again after the person's next message.",
+    'Blast radius held this command and the person did not answer for 10 minutes. The command did not run. Do not rephrase it to try again: a changed command opens a new card. Carry on with any work that does not need it; if there is none, tell the person the command is waiting for them to run or cancel from the chip, and stop.',
   )
   expect(result.deny).not.toMatch(/do not retry/i)
 })
@@ -430,7 +430,10 @@ test('a click on the quiet chip toasts and opens no card; its hover tip says the
   await quiet.unmount()
 })
 
-test('Run on a reopened card nudges the session once, with the command on one line', IDLE, async ($, on) => {
+const nudgeFor = (command: string) =>
+  `The person approved a command blast-radius held earlier. If it is still needed, run it again exactly as written below, so the stored approval applies. If it is no longer needed, because it was done another way or superseded, say so and do not run it.\n\n\`\`\`\n${command}\n\`\`\``
+
+test('Run on a reopened card nudges the session once, with the exact command in a code block', IDLE, async ($, on) => {
   const { seen, clock } = world(on)
   await timeOut($, clock, seen, 'rm -rf   build\n')
   const band = await $.ui.mount({ plugin: PLUGIN, surface: 'terminal', ...BAND })
@@ -439,7 +442,23 @@ test('Run on a reopened card nudges the session once, with the command on one li
   expect(seen.sent).toEqual([])
   await click(band, 'blast-run')
   await sleep(20)
-  expect(seen.sent).toEqual(['Approved in blast-radius: `rm -rf build`. Run it now.'])
+  expect(seen.sent).toEqual([nudgeFor('rm -rf   build')])
+  await band.unmount()
+})
+
+test('a command longer than 80 characters reaches the nudge whole, and retried from it the stored Run applies', IDLE, async ($, on) => {
+  const { seen, clock } = world(on)
+  const long = `rm -rf ${'build/'.repeat(20)}cache\n`
+  expect(long.trimEnd().length).toBeGreaterThan(80)
+  await timeOut($, clock, seen, long)
+  const band = await $.ui.mount({ plugin: PLUGIN, surface: 'terminal', ...BAND })
+  await click(band, 'blast-wait')
+  await click(band, 'blast-run')
+  await sleep(20)
+  expect(seen.sent).toEqual([nudgeFor(long.trimEnd())])
+  expect(seen.sent[0]).not.toMatch(/\.\.\./)
+  await $.tool.call({ tool: 'Bash', command: long.trimEnd() })
+  expect(seen.ran).toBe(1)
   await band.unmount()
 })
 

@@ -42,6 +42,8 @@ type Held = { command: string; risk: Risk; report: Report | null; plain: Plain |
 // Commands whose card timed out, by exact text: the chip lists them and a stored answer waits for the next identical call.
 type Waiting = { held: Held; answer: { decision: 'run' | 'cancel'; reason?: string } | null }
 const waiting = new Map<string, Waiting>()
+// Trailing whitespace is dropped from the key: a command retried from the nudge's code block loses its final newline.
+const keyOf = (command: string) => command.trimEnd()
 const WAIT_CHIP = 'blast-wait'
 
 const MORE = 'blast-more'
@@ -806,10 +808,10 @@ async function choose($: EngineInterface, id: string) {
 async function keepStored($: EngineInterface) {
   const card = held
   if (!card?.isStored || card.decision === null) return
-  const entry = waiting.get(card.command)
+  const entry = waiting.get(keyOf(card.command))
   if (entry) entry.answer = { decision: card.decision === 'run' ? 'run' : 'cancel', ...(card.reason ? { reason: card.reason } : {}) }
-  // Queued by the engine until the session is idle; Claude then retries the exact command and the stored Run applies. Cancel sends nothing.
-  if (entry && card.decision === 'run') void Promise.resolve().then(() => $.prompt.submit({ text: fill(text.waiting.nudge, { command: oneLine(card.command) }) })).catch(() => undefined)
+  // Queued until the session is idle; it carries the full command because the stored answer matches only that exact text.
+  if (entry && card.decision === 'run') void Promise.resolve().then(() => $.prompt.submit({ text: fill(text.waiting.nudge, { command: card.command.trimEnd() }) })).catch(() => undefined)
   held = null
   hovered = null
   if (await isPaneOpen($, LIST_PANE).catch(() => false)) {
@@ -928,7 +930,7 @@ async function holdRisky($: EngineInterface, next:{ signal: AbortSignal }, risk:
     return 'run'
   }
   if (mine.decision === 'idle') {
-    waiting.set(command, { held: mine, answer: null })
+    waiting.set(keyOf(command), { held: mine, answer: null })
     return { deny: fill(text.deny.idle, { minutes: idleMs / 60000 }) }
   }
   const why = mine.decision === 'cancel' && mine.reason ? fill(text.refusal.cancelWhy, { said: mine.reason }) : refusal(mine.decision)
@@ -937,7 +939,7 @@ async function holdRisky($: EngineInterface, next:{ signal: AbortSignal }, risk:
 
 // Claude asks again for a command whose card timed out: the answer stored for that exact text applies, once. No answer means a fresh card.
 async function useStored($: EngineInterface, next: { signal: AbortSignal }, command: string): Promise<'run' | { deny: string } | null> {
-  while (held?.isStored && held.command === command) {
+  while (held?.isStored && keyOf(held.command) === keyOf(command)) {
     if (next.signal.aborted) return { deny: fill(text.deny.held, { why: refusal('interrupted') }) }
     try {
       await pause($)
@@ -945,9 +947,9 @@ async function useStored($: EngineInterface, next: { signal: AbortSignal }, comm
       return { deny: fill(text.deny.held, { why: refusal('error') }) }
     }
   }
-  const entry = waiting.get(command)
+  const entry = waiting.get(keyOf(command))
   if (!entry) return null
-  waiting.delete(command)
+  waiting.delete(keyOf(command))
   $.ui.invalidate('ui.render')
   if (!entry.answer) return null
   if (entry.answer.decision === 'run') {
