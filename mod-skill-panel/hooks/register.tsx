@@ -4,15 +4,15 @@ import type { ConfigValue, EngineInterface, Register } from 'claude-code'
 
 import { layoutCloud, type CloudGroup, type CloudMessage, type CloudProps } from './cloud'
 import { groupSkills, markDescription, paintsDescriptions, readFrontmatter, type Skill } from './tags'
-import { fill, MARK, statusColor, THEME } from './theme'
+import { fill, MARK, THEME } from './theme'
 import text from './text'
 import { tagName } from './tags'
 import { groupAgents, modelHue, readAgent, type Agent } from './agents'
 import { cardSpace, HEAD_ROWS, stickyCard } from './card'
 import { isTipMessage, type EntryMessage, type EntryProps, type Tip } from './entry'
-import { cardFill, detectNerd, FOOTER_ROWS, lookFor, paneFooter, sepText, section, titleEdge, withMark, type IconMode } from './look'
+import { cardFill, detectNerd, FOOTER_ROWS, lookFor, paneFooter, section, titleEdge, withMark, type IconMode } from './look'
 import { labelsOf, menuEntry, pillRow, splitRow, tabRow, tipLine } from './pills'
-import { settingChoice, settingsBody } from './settings'
+import { openSetting, settingChoice, settingsBody } from './settings'
 import { TOAST_MS, ToastList, toastCards } from './toasts'
 
 const homeOf = async ($: EngineInterface) => ((await $.env.get('USERPROFILE')) ?? (await $.env.get('HOME')) ?? '').replace(/\\/g, '/')
@@ -416,6 +416,7 @@ export const register: Register = (on, options) => {
     }
     if (message?.type === 'menu-entry' && message.id === 'skills-tab') await showView($, 'skills')
     if (message?.type === 'menu-entry' && message.id === 'skills-agents') await showView($, 'agents')
+    openSetting($, e.data)
     const change = settingChoice(e.data)
     if (change) await saveSetting($, change.key, change.value)
 
@@ -443,10 +444,9 @@ export const register: Register = (on, options) => {
       return (
         <Box flexDirection="column" backgroundColor={THEME.bg} paddingX={1} minHeight={e.props.scroll.bodyRows}>
           {tabRow({ Box, Client, Text }, look.nerd, tabs('settings'), still)}
-          {sepText({ Text }, withMark(look, note) || fill(text.settingsHint, { sep: MARK.sep }), statusColor(note), 'settings-status', { wrap: 'truncate-end' })}
-          <Box marginTop={0}>{settingsBody({ Box, Button, Client, Text }, look, { rows, actions: [], working: false, run: async () => {}, still })}</Box>
+          {settingsBody({ Box, Button, Client, Text }, look, { rows, actions: [], working: false, run: async () => {}, still, mod: 'mod-skill-panel' })}
           <Box key="footer-space" height={FOOTER_ROWS} flexShrink={0} />
-          {paneFooter({ Box, Text }, hoveredTip, e.props.bodyColumns, e.props.scroll)}
+          {paneFooter({ Box, Text }, hoveredTip, e.props.bodyColumns, e.props.scroll, [], { hint: fill(text.settingsHint, { sep: MARK.sep }), status: withMark(look, note) })}
         </Box>
       )
     }
@@ -506,13 +506,14 @@ export const register: Register = (on, options) => {
     return (
       <Box flexDirection="column" backgroundColor={THEME.bg} paddingX={1} minHeight={e.props.scroll.bodyRows}>
         {tabRow({ Box, Client, Text }, look.nerd, tabs(view), still)}
-        {sepText({ Text }, withMark(look, note) || fill(view === 'agents' ? text.agentsHint : text.hint, { sep: MARK.sep }), statusColor(note), 'status', { wrap: 'truncate-end' })}
-        {empty ? <Text color={THEME.muted}>{fill(text.noAgents, { folders: agentFolders.join(' or ') })}</Text> : null}
-        {noSkills ? <Text color={THEME.muted}>{text.noSkills}</Text> : null}
         {card ? cardSpace({ Box }, cardRows) : null}
-        {noSkills ? null : section({ Box, Text }, look, 'cloud', '', '', (
-          <Client key={`${view}-cloud`} module="./cloud.tsx" height={layoutCloud(cloud, width).rows.length} props={{ groups: cloud, width, selected: view === 'agents' ? selectedAgent : selected, nerd: look.nerd, still } satisfies CloudProps} />
-        ))}
+        {section({ Box, Text }, look, 'cloud', view === 'agents' ? 'Agent' : 'skill', view === 'agents' ? text.allAgents : text.allSkills, (
+          empty || noSkills ? (
+            <Text color={THEME.muted}>{empty ? fill(text.noAgents, { folders: agentFolders.join(' or ') }) : text.noSkills}</Text>
+          ) : (
+            <Client key={`${view}-cloud`} module="./cloud.tsx" height={layoutCloud(cloud, width).rows.length} props={{ groups: cloud, width, selected: view === 'agents' ? selectedAgent : selected, nerd: look.nerd, still } satisfies CloudProps} />
+          )
+        ), THEME.accent, { hint: String(view === 'agents' ? agents.length : listed().length) })}
         {card
           ? [stickyCard({ Box, Text }, e.props.scroll.offset, e.props.bodyColumns, cardRows, (
               <Box key="card-body" flexDirection="column">
@@ -536,7 +537,7 @@ export const register: Register = (on, options) => {
               </Box>]
           : null}
         <Box key="footer-space" height={FOOTER_ROWS} flexShrink={0} />
-        {paneFooter({ Box, Text }, hoveredTip, e.props.bodyColumns, e.props.scroll)}
+        {paneFooter({ Box, Text }, hoveredTip, e.props.bodyColumns, e.props.scroll, [], { hint: fill(view === 'agents' ? text.agentsHint : text.hint, { sep: MARK.sep }), status: withMark(look, note) })}
       </Box>
     )
   })

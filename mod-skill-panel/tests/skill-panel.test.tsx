@@ -407,7 +407,7 @@ test('the title tabs swap the sidebar and its settings, and a settings pill save
   await ui.unmount()
 
   const settings = await $.ui.mount(pane('skill-panel-settings'))
-  expect(await settings.find({ type: 'Text', text: 'Animations' })).toBeDefined()
+  expect(JSON.stringify(await settings.drawn({ in: 'setting-name-0' }))).toContain(' Animations ')
   await pointing(settings).pointer({ in: 'setting-0-flip', type: 'down', button: 'left', x: 1, y: 0 })
   expect(saved).toEqual([['mod-skill-panel.animations', false]])
   await pointing(settings).pointer({ in: 'skills-tab', type: 'down', button: 'left', x: 1, y: 0 })
@@ -703,5 +703,27 @@ test('the menu entry drops its label when mod-menu says labels never, on Nerd on
   const entry = JSON.stringify(await ui.drawn({ in: 'menu-entry-skills' }))
   expect(entry).not.toContain('Skills')
   expect(entry).toContain(decodeAll((style.glyphs.nerd.icon as Record<string, string>)['menu-skills']!))
+  await ui.unmount()
+})
+
+test('the Settings view draws the gear active and a Skills view draws it at rest', async ($, on) => {
+  on('config.list', () => ({ value: [] }))
+  const skills = await skillsPane($, on)
+  const rest = JSON.stringify(await skills.drawn({ in: 'skills-settings' }))
+  expect(rest).not.toContain(THEME.ok)
+  await skills.unmount()
+  const settings = await $.ui.mount({ plugin: 'mod-skill-panel', surface: 'terminal', component: 'Pane', requestId: 'skill-panel-settings', props: { title: 'Settings', isFocused: true, bodyColumns: 60, placement: 'dock', scroll: { offset: 0, bodyRows: 30 }, view: {} } } as never)
+  const active = JSON.stringify(await settings.drawn({ in: 'skills-settings' }))
+  expect(active).toContain(THEME.ok)
+  expect(active).toContain(THEME.lifted)
+  await settings.unmount()
+})
+
+test('the hint draws in the pinned footer, not under the tabs, and the titled box carries its count', async ($, on) => {
+  const ui = await skillsPane($, on)
+  expect(await ui.find({ key: 'status' })).toBeUndefined()
+  expect(JSON.stringify(await ui.find({ key: 'pane-footer' }))).toContain('Click a skill to add it')
+  expect(await ui.find({ key: 'footer-status' })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: 'All skills' })).toBeDefined()
   await ui.unmount()
 })
