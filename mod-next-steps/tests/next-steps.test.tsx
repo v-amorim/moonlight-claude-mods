@@ -2,6 +2,8 @@
 // Tests the suggestion band: generation after a turn, filling the prompt, clearing and failures.
 import { expect, mock, test as kitTest, type TestRest } from 'claude-code/testing'
 
+import { THEME } from '../hooks/theme'
+
 // The side check is opt-in, so these tests turn it on unless a test sets its own value.
 const test = (name: string, ...rest: TestRest) => {
   const [settings, body] = rest.length === 1 ? [{}, rest[0]] : rest
@@ -64,6 +66,13 @@ test('while the suggestions are being written, a shimmering line says they are c
   expect(await ui.find({ key: 'steps-waiting' })).toBeUndefined()
   expect(await rowsOf(ui)).toContain('Add a test')
   await ui.unmount()
+})
+
+test('the request carries the language rule', async ($, on) => {
+  const { clock, asked } = setup(on, () => answered('add a test'))
+  await $.turn.complete(DONE as never)
+  await clock.settle()
+  expect(asked[0]).toContain("Write in the language the user writes in, judged from the user's most recent messages; keep code, paths, commands, identifiers and engineering jargon engineers say in English (commit, branch, deploy, snapshot) in English.")
 })
 
 test('suggestions appear after turn.complete, tidied and capped at the count', async ($, on) => {
@@ -355,10 +364,15 @@ for (const icons of ['nerd', 'safe']) {
       props: { title: 'mod-next-steps', isFocused: false, bodyColumns: 80, placement: 'dock', scroll: { offset: 0, bodyRows: 30 }, view: {} },
     } as never)
     const lead = icons === 'nerd' ? String.fromCodePoint(0xf0493) : '⊛'
+    // The lone view is the mod name segment; the gear chip is pinned right, active and carries the gear.
     const tab = JSON.stringify(await ui.drawn({ in: 'mod-next-steps-settings-tab' }))
-    expect(tab).toMatch(/Next steps [^]*"#3B446A"[^]*·[^]* Settings/)
+    expect(JSON.stringify(await ui.drawn({ in: 'mod-next-steps-settings-tab-name' }))).toContain('Next steps')
+    expect(tab).toContain(THEME.ok)
     expect(tab).toContain(lead)
-    expect(await ui.find({ type: 'Text', text: /Suggest next steps/ })).toBeDefined()
+    expect(await ui.find({ key: 'status' })).toBeUndefined()
+    expect(JSON.stringify(await ui.find({ key: 'pane-footer' }))).toContain('Click a setting to change it')
+    expect(JSON.stringify(await ui.drawn())).toContain('mod-next-steps')
+    expect(JSON.stringify(await ui.drawn({ in: 'setting-name-0' }))).toContain('Suggest next steps')
     expect(await ui.find({ type: 'Text', text: /Not mine/ })).toBeUndefined()
 
     const pointing = ui as typeof ui & { pointer(e: object): Promise<void> }

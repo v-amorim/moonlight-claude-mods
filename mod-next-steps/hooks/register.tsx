@@ -2,9 +2,9 @@
 // Registers the mod: wires the suggestion band, settings pane, commands and toasts.
 import type { ConfigValue, EngineInterface, Register, RenderChildren } from 'claude-code'
 
-import { cardFill, detectNerd, FOOTER_ROWS, lookFor, paneFooter, sepText, titleEdge, type IconMode, withMark } from './look'
-import { settingChoice, settingsBody, type Action, type Previews, type Range } from './settings'
-import { fill, MARK, statusColor, THEME } from './theme'
+import { cardFill, detectNerd, FOOTER_ROWS, lookFor, paneFooter, titleEdge, type IconMode, withMark } from './look'
+import { openSetting, settingChoice, settingsBody, type Action, type Previews, type Range } from './settings'
+import { fill, MARK, THEME } from './theme'
 import { isTipMessage, tipText, type EntryMessage, type EntryProps, type Tip, type TipMessage } from './entry'
 import { pill, pillRow, splitRow, tabRow, tipLine } from './pills'
 import { TOAST_MS, ToastList, toastCards } from './toasts'
@@ -120,7 +120,10 @@ function loadLook($: EngineInterface) {
 const question = (limit: number) =>
   `Suggest up to ${limit} short prompts I might send you next, given this conversation. ` +
   `Each is one line under 80 characters, written the way I would type it. ` +
-  `Reply with the prompts only, one per line, no numbering, no quotes, no commentary.`
+  `Reply with the prompts only, one per line, no numbering, no quotes, no commentary. ` +
+  LANGUAGE_RULE
+
+const LANGUAGE_RULE = "Write in the language the user writes in, judged from the user's most recent messages; keep code, paths, commands, identifiers and engineering jargon engineers say in English (commit, branch, deploy, snapshot) in English."
 
 function parseSteps(text: string, limit: number) {
   const lines = text
@@ -308,6 +311,7 @@ export const register: Register = (on, options) => {
       $.ui.invalidate('ui.render')
       return next(e)
     }
+    openSetting($, e.data)
     const change = settingChoice(e.data)
     if (change) await saveSetting($, change.key, change.value)
     const clicked = e.data as EntryMessage
@@ -420,11 +424,10 @@ export const register: Register = (on, options) => {
 
     return (
       <Box flexDirection="column" backgroundColor={THEME.bg} paddingX={1} minHeight={e.props.scroll.bodyRows}>
-        {tabRow({ Box, Client, Text }, look.nerd, [{ id: 'mod-next-steps-settings-tab', label: `${text.paneHeading} ${MARK.sep} ${text.paneHeadingSettings}`, icon: look.glyph.gear, isOpen: true, tip: { glyph: look.glyph.gear, label: text.paneHeadingSettings, text: text.tipTabSettings } }], still)}
-        {sepText({ Text }, withMark(look, note) || `${text.statusHint} ${MARK.sep} ${text.statusReload}`, statusColor(note), 'status', { wrap: 'truncate-end' })}
-        {settingsBody({ Box, Button, Client, Text }, look, { rows, actions, working, run, previews, fields, still: still, tips: text.settingTips })}
+        {tabRow({ Box, Client, Text }, look.nerd, [{ id: 'mod-next-steps-settings-tab', label: `${text.paneHeading} ${MARK.sep} ${text.paneHeadingSettings}`, icon: look.glyph.icon['next-steps'] ?? '', isOpen: true, tip: { glyph: look.glyph.gear, label: text.paneHeadingSettings, text: text.tipTabSettings } }], still)}
+        {settingsBody({ Box, Button, Client, Text }, look, { rows, actions, working, run, previews, fields, still: still, tips: text.settingTips, mod: 'mod-next-steps' })}
         <Box key="footer-space" height={FOOTER_ROWS} flexShrink={0} />
-        {paneFooter({ Box, Text }, hoveredTip(), e.props.bodyColumns, e.props.scroll)}
+        {paneFooter({ Box, Text }, hoveredTip(), e.props.bodyColumns, e.props.scroll, [], { hint: `${text.statusHint} ${MARK.sep} ${text.statusReload}`, status: withMark(look, note) })}
       </Box>
     )
   })
