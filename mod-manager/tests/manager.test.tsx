@@ -389,7 +389,10 @@ test('pane lists mods on the terminal and a toggle press plans the change', asyn
 
   const dirs = () => String(JSON.parse(files[settingsPath]!).env.CLAUDE_CODE_PLUGIN_DIRS)
   expect(JSON.stringify(await ui.drawn({ in: 'manager-tab' }))).toContain('3')
-  // The count beside the tab is muted text, not a pill.
+  // The on and off counts are the muted hint in the first list box's title; the hint sits in the pinned footer.
+  expect(JSON.stringify(await ui.find({ key: 'list-dir-edge' }))).toMatch(/2 on[^]*1 off/)
+  expect(JSON.stringify(await ui.find({ key: 'pane-footer' }))).toContain('Click a switch to toggle')
+  expect(await ui.find({ key: 'list-note' })).toBeUndefined()
   expect(await ui.find({ type: 'Text', text: '2 on' })).toBeDefined()
   // Rows group by source, and nothing toggled yet means nothing to reload.
   expect(await ui.find({ type: 'Text', text: /^Yours$/ })).toBeDefined()
@@ -422,7 +425,7 @@ test('pane lists mods on the terminal and a toggle press plans the change', asyn
   expect(await ui.find({ key: 'hover-card' })).toBeUndefined()
   // The card keeps its place above the list with a hint, so the list never jumps.
   expect(await ui.find({ type: 'Text', text: 'Point at a mod to read what it does' })).toBeDefined()
-  expect(JSON.stringify(await ui.drawn())).toContain('"top":3')
+  expect(JSON.stringify(await ui.drawn())).toContain('"top":2')
   await ui.pointer({ in: 'list-dir', type: 'move', x: 12, y: 0 })
   expect(await ui.find({ type: 'Text', text: 'alpha does a thing' })).toBeDefined()
   expect(await ui.find({ key: 'hover-card' })).toBeDefined()
@@ -442,6 +445,11 @@ test('pane lists mods on the terminal and a toggle press plans the change', asyn
   await ui.pointer({ in: 'list-dir', type: 'down', button: 'left', x: 12, y: 1 })
   expect(await ui.find({ type: 'Text', text: /beta does a thing/ })).toBeDefined()
   expect(JSON.stringify(await ui.drawn({ in: 'manager-page' }))).toContain('Beta')
+  // The page is a second view in the head row, open and lit; the footer carries the page hint.
+  expect(JSON.stringify(await ui.drawn({ in: 'manager-page' }))).toContain(THEME.ok)
+  expect(JSON.stringify(await ui.drawn({ in: 'manager-tab' }))).not.toContain(THEME.ok)
+  expect(JSON.stringify(await ui.find({ key: 'pane-footer' }))).toContain('Click the Mods tab to return to the list')
+  expect(await ui.find({ key: 'page-note' })).toBeUndefined()
   await ui.pointer({ in: 'manager-tab', type: 'down', button: 'left', x: 1, y: 0 })
   expect(await ui.find({ type: 'Text', text: '3 on' })).toBeDefined()
   await ui.unmount()
@@ -564,7 +572,7 @@ test("a mod page shows a number with its title's unit and steps it inside the ra
   } as never))
   await ui.pointer({ in: 'list-dir', type: 'down', button: 'left', x: 12, y: 0 })
 
-  expect(await ui.find({ type: 'Text', text: /^Mark$/ })).toBeDefined()
+  expect(JSON.stringify(await ui.drawn({ in: 'setting-name-0' }))).toContain(' Mark ')
   expect(await ui.find({ type: 'Text', text: /^ ?400K tokens ?$/ })).toBeDefined()
   await ui.pointer({ in: 'setting-0-up', type: 'down', button: 'left', x: 1, y: 0 })
   expect(saved).toEqual([['alpha.mark', 450_000]])
@@ -626,10 +634,13 @@ test('a mod page changes its settings, runs its actions, and holds them while Cl
   await ui.pointer({ in: 'list-dir', type: 'down', button: 'left', x: 12, y: 0 })
 
   // Only alpha's own rows show, and a click saves through /config.
-  expect(await ui.find({ type: 'Text', text: /^Loud$/ })).toBeDefined()
-  expect(await ui.find({ type: 'Text', text: /^Not alpha$/ })).toBeUndefined()
-  // The example card for the current value comes from the mod's showcase.json, as in its own panel.
+  expect(JSON.stringify(await ui.drawn({ in: 'setting-name-0' }))).toContain(' Loud ')
+  expect(await ui.find({ key: 'setting-name-1' })).toBeUndefined()
+  // The example card for the current value comes from the mod's showcase.json, as in its own panel, once the label is clicked.
+  expect(await ui.find({ type: 'Text', text: /^quiet example$/ })).toBeUndefined()
+  await ui.pointer({ in: 'setting-name-0', type: 'down', button: 'left', x: 1, y: 0 })
   expect(await ui.find({ type: 'Text', text: /^quiet example$/ })).toBeDefined()
+  expect(saved).toEqual([])
   await ui.pointer({ in: 'setting-0-flip', type: 'down', button: 'left', x: 1, y: 0 })
   expect(saved).toEqual([['alpha.loud', true]])
   expect(await ui.find({ type: 'Text', text: /Loud saved/ })).toBeDefined()
@@ -687,16 +698,117 @@ test('a text setting its mod edits in its own panel gets an open pill that runs 
 
   expect(await ui.find({ type: 'Text', text: /Open in Alpha settings/ })).toBeDefined()
   expect((await ui.findAll({ type: 'Text', text: /Open in Alpha settings/ })).length).toBe(1)
+  expect(await ui.find({ type: 'Text', text: /^Picked in a panel$/ })).toBeUndefined()
+  await ui.pointer({ in: 'setting-name-0', type: 'down', button: 'left', x: 1, y: 0 })
   expect(await ui.find({ type: 'Text', text: /^Picked in a panel$/ })).toBeDefined()
+  await ui.pointer({ in: 'setting-name-1', type: 'down', button: 'left', x: 1, y: 0 })
   expect(await ui.find({ type: 'Text', text: /Plain text · edit it in \/config/ })).toBeDefined()
   await ui.press({ key: 'setting-editor-0' })
   expect(ran).toEqual(['alpha settings'])
+  await ui.pointer({ in: 'setting-name-0', type: 'down', button: 'left', x: 1, y: 0 })
 
   // Another mod's command would only queue mid-turn, so the pill waits.
   await $.turn.start({ turnId: 't1' } as never)
   await ui.redraw()
   expect(await ui.find({ type: 'Text', text: /Open in Alpha settings/ })).toBeUndefined()
   expect(await ui.find({ type: 'Text', text: /Picked in a panel · available once Claude is idle/ })).toBeDefined()
+  await ui.unmount()
+})
+
+const LONG = 'Shouts every word it reads back to you in capital letters, loudly, so a quiet room notices it straight away and everyone looks up from their screens at once'
+
+// A mod page for `name` with two boolean settings, opened from the list; `saved` collects what a click writes.
+async function settingsPage($: any, on: any, name: string) {
+  const { files } = disk({
+    [`/h/.claude/mods/${name}/.claude-plugin/plugin.json`]: JSON.stringify({ name, description: `${name} does a thing`, version: '1.0.0', userConfig: { loud: { type: 'boolean', title: 'Loud', description: LONG, default: false }, calm: { type: 'boolean', title: 'Calm', description: 'Keeps quiet', default: true } } }),
+  })
+  const saved: unknown[] = []
+  on('fs.read', (_$: unknown, e: { path: string }) => {
+    const path = neutral(e.path)
+    if (!(path in files)) throw new Error('ENOENT')
+    return { value: files[path]! }
+  })
+  on('fs.list', () => ({ value: [{ name, kind: 'dir', size: 0, mtimeMs: 0, isLink: false }] }))
+  on('env.get', (_$: unknown, e: { name: string }) => ({ value: e.name === 'USERPROFILE' ? '/h' : undefined }))
+  on('ui.open', () => ({ value: { isPlaced: true } }))
+  on('ui.panes', () => ({ value: [] }))
+  on('config.list', () => ({
+    value: [
+      { key: `${name}.loud`, label: 'Loud', description: LONG, kind: 'boolean', value: false, provider: { kind: 'plugin', name }, isLocked: false },
+      { key: `${name}.calm`, label: 'Calm', description: 'Keeps quiet', kind: 'boolean', value: true, provider: { kind: 'plugin', name }, isLocked: false },
+    ] as never,
+  }))
+  on('config.set', (_$: unknown, e: { key: string; value: unknown }) => {
+    saved.push([e.key, e.value])
+    return { value: e.value }
+  })
+  on('ui.render', ($$: any, e: any) => {
+    const { Text } = $$.ui.resolve(e)
+    return <Text>base</Text>
+  })
+  await $.command.run({ command: 'mod-manager' } as never)
+  const ui = withPointer(await $.ui.mount({ plugin: 'mod-manager', surface: 'terminal', component: 'Pane', requestId: 'manager', props: { title: 'Mods', isFocused: false, bodyColumns: 80, placement: 'dock', scroll: { offset: 0, bodyRows: 40 }, view: {} } } as never))
+  await ui.pointer({ in: 'list-dir', type: 'down', button: 'left', x: 12, y: 0 })
+  return { ui, saved }
+}
+
+test('a setting opens its description on a click of its label, one at a time, and the click changes no value', { options: { icons: 'safe' } }, async ($, on) => {
+  const { ui, saved } = await settingsPage($, on, 'alpha')
+  const click = (key: string) => ui.pointer({ in: key, type: 'down', button: 'left', x: 1, y: 0 })
+  const head = async (at: number) => JSON.stringify(await ui.drawn({ in: `setting-name-${at}` }))
+  // Closed by default: both labels lead with the closed chevron and no description is drawn.
+  expect(await head(0)).toContain('▸')
+  expect(await head(1)).toContain('▸')
+  expect(await ui.find({ type: 'Text', text: /^Keeps quiet$/ })).toBeUndefined()
+
+  // A click opens that one (chevron down, label accent, description under the row).
+  await click('setting-name-1')
+  expect(await head(1)).toContain('▾')
+  expect(await head(1)).toContain(`"color":"${THEME.accent}"`)
+  expect(await ui.find({ type: 'Text', text: /^Keeps quiet$/ })).toBeDefined()
+
+  // A click on another closes the first.
+  await click('setting-name-0')
+  expect(await head(0)).toContain('▾')
+  expect(await head(1)).toContain('▸')
+  expect(await ui.find({ type: 'Text', text: /^Keeps quiet$/ })).toBeUndefined()
+  expect(await ui.find({ type: 'Text', text: new RegExp(`^${LONG}`) })).toBeDefined()
+
+  // A second click closes it.
+  await click('setting-name-0')
+  expect(await head(0)).toContain('▸')
+  expect(await ui.find({ type: 'Text', text: new RegExp(`^${LONG}`) })).toBeUndefined()
+  expect(saved).toEqual([])
+  await ui.unmount()
+})
+
+test('a setting row fills to surface2 under its own hover scope', { options: { icons: 'safe' } }, async ($, on) => {
+  const { ui } = await settingsPage($, on, 'alpha')
+  expect(JSON.stringify(await ui.drawn())).toContain(`"hover":{"scope":"setting-row-0","backgroundColor":"${THEME.surface2}"}`)
+  expect(JSON.stringify(await ui.drawn({ in: 'setting-name-0' }))).toContain('"scope":"setting-row-0"')
+  await ui.unmount()
+})
+
+test('a long hovered tip takes the hint and the status row, then the footer shows both again', { options: { icons: 'safe' } }, async ($, on) => {
+  const { ui } = await settingsPage($, on, 'alpha')
+  expect(JSON.stringify(await ui.find({ key: 'footer-tip' }))).toContain('"height":1')
+  expect(await ui.find({ key: 'footer-status' })).toBeDefined()
+  await ui.pointer({ in: 'setting-0-flip', type: 'move', x: 1, y: 0 })
+  const tip = JSON.stringify(await ui.find({ key: 'footer-tip' }))
+  expect(tip).toContain('"height":2')
+  expect(tip).toContain('"children":["a quiet room notices it straight away')
+  expect(await ui.find({ key: 'footer-status' })).toBeUndefined()
+  expect((await ui.find({ key: 'pane-footer' }))?.props.height).toBe(3)
+  await ui.pointer({ in: 'setting-0-flip', type: 'leave', x: 1, y: 0 })
+  expect(await ui.find({ key: 'footer-status' })).toBeDefined()
+  await ui.unmount()
+})
+
+test('a mod with no icon of its own keeps the generic mod icon on its tab and About card', { options: { icons: 'nerd' } }, async ($, on) => {
+  const { ui } = await settingsPage($, on, 'alpha')
+  const generic = String.fromCodePoint(0xf12e)
+  expect(JSON.stringify(await ui.drawn({ in: 'manager-page' }))).toContain(generic)
+  expect(JSON.stringify(await ui.find({ key: 'page-about-edge' }))).toContain(generic)
   await ui.unmount()
 })
 

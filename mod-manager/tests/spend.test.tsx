@@ -102,7 +102,11 @@ const hoverCost = async (ui: any) => {
 test('the cost pill tip leads with the spend line and still says the mod costs', { options: { icons: 'safe' } }, async ($, on) => {
   const { ui } = await pane($, on, JSON.stringify(FILE))
   await hoverCost(ui)
-  expect(await ui.find({ type: 'Text', text: ` · ${LINE} · calls a model and spends tokens, its page says how to turn it off` })).toBeDefined()
+  // The long tip wraps onto the status row: its first words on the tip row, the rest on a second one.
+  const tip = JSON.stringify(await ui.find({ key: 'footer-tip' }))
+  expect(tip).toContain('"height":2')
+  expect(tip).toContain('about $0.37 (710K in ')
+  expect(tip).toContain('"children":["model and spends tokens, its page says how to turn it off"]')
   await ui.unmount()
 })
 

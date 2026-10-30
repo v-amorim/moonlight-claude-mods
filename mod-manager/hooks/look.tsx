@@ -171,27 +171,59 @@ export function sepText({ Text }: Pick<Elements, 'Text'>, text: string, color: s
   )
 }
 
-// The footer rows every pane reserves at its bottom: a rule, then the hovered control's glyph, label and what it does.
-export const FOOTER_ROWS = 2
+// The footer rows every pane reserves at its bottom: a rule, the hint or the hovered control's tip, then the status line.
+export const FOOTER_ROWS = 3
 
 // A Button cannot post a tip, so its tip is drawn hidden and shown by the hover group the Button's pill shares.
 export type Reveal = { scope: string; tip: Tip }
 
-const tipRow = ({ Box, Text }: Elements, key: string, tip: Tip | null, columns: number, extra: Record<string, unknown> = {}) => (
-  <Box key={key} flexDirection="row" paddingX={1} width={columns} height={1} backgroundColor={THEME.bg} {...extra}>
-    {tip ? <Text color={THEME.accent} backgroundColor={THEME.bg}>{tip.glyph}</Text> : null}
-    {tip ? <Box flexShrink={0}><Text color={THEME.onSurface} backgroundColor={THEME.bg}>{` ${tip.label}`}</Text></Box> : null}
-    {tip ? sepText({ Text }, ` ${MARK.sep} ${tip.text}`, THEME.muted, `${key}-text`, { backgroundColor: THEME.bg, wrap: 'truncate-end' }) : <Text backgroundColor={THEME.bg}> </Text>}
-  </Box>
-)
+const cells = (text: string) => [...text].length
 
-// Pinned at the pane bottom (scroll offset plus body rows) on its own background, so no row shows through; the row under the rule stays blank with no tip, so nothing jumps.
-export function paneFooter(elements: Elements, tip: Tip | null, columns: number, scroll: { offset: number; bodyRows: number }, reveals: Reveal[] = []) {
+// The words of `text` that fit `room` cells, then the rest.
+function firstLine(text: string, room: number): [string, string] {
+  const words = text.split(' ')
+  let line = ''
+  let at = 0
+  while (at < words.length && cells(line ? `${line} ${words[at]}` : words[at]!) <= room) line = line ? `${line} ${words[at++]}` : words[at++]!
+  return [line, words.slice(at).join(' ')]
+}
+
+// A tip may wrap onto a second row (the status row's place) and is cut after it; the hint is one row.
+const tipRow = ({ Box, Text }: Elements, key: string, tip: Tip | null, columns: number, extra: Record<string, unknown> = {}, hint = '') => {
+  if (!tip) {
+    return (
+      <Box key={key} flexDirection="row" paddingX={1} width={columns} height={1} backgroundColor={THEME.bg} {...extra}>
+        {hint ? sepText({ Text }, hint, style.colors.pills.readout, `${key}-hint`, { backgroundColor: THEME.bg, wrap: 'truncate-end' }) : <Text backgroundColor={THEME.bg}> </Text>}
+      </Box>
+    )
+  }
+  const [head, rest] = firstLine(tip.text, Math.max(1, columns - 2 - cells(tip.glyph) - cells(` ${tip.label}`) - 3))
+  return (
+    <Box key={key} flexDirection="column" paddingX={1} width={columns} height={2} backgroundColor={THEME.bg} {...extra}>
+      <Box key={`${key}-first`} flexDirection="row">
+        <Text color={THEME.accent} backgroundColor={THEME.bg}>{tip.glyph}</Text>
+        <Box flexShrink={0}><Text color={THEME.onSurface} backgroundColor={THEME.bg}>{` ${tip.label}`}</Text></Box>
+        {sepText({ Text }, ` ${MARK.sep} ${head}`, THEME.muted, `${key}-text`, { backgroundColor: THEME.bg, wrap: 'truncate-end' })}
+      </Box>
+      {rest ? sepText({ Text }, rest, THEME.muted, `${key}-more`, { backgroundColor: THEME.bg, wrap: 'truncate-end' }) : <Text backgroundColor={THEME.bg}> </Text>}
+    </Box>
+  )
+}
+
+export type FooterLines = { hint?: string; status?: string }
+
+// Pinned at the pane bottom on its own background: under the rule the hovered tip (two rows, then cut), else the dim `hint` and then `status`; empty rows stay blank.
+export function paneFooter(elements: Elements, tip: Tip | null, columns: number, scroll: { offset: number; bodyRows: number }, reveals: Reveal[] = [], { hint = '', status = '' }: FooterLines = {}) {
   const { Box, Text } = elements
   return (
     <Box key="pane-footer" position="absolute" top={Math.max(0, scroll.offset + scroll.bodyRows - FOOTER_ROWS)} left={0} width={columns} height={FOOTER_ROWS} flexDirection="column" backgroundColor={THEME.bg}>
       <Text key="footer-rule" color={THEME.border} backgroundColor={THEME.bg}>{MARK.rule.repeat(Math.max(1, columns))}</Text>
-      {tipRow(elements, 'footer-tip', tip, columns)}
+      {tipRow(elements, 'footer-tip', tip, columns, {}, hint)}
+      {tip ? null : (
+        <Box key="footer-status" flexDirection="row" paddingX={1} width={columns} height={1} backgroundColor={THEME.bg}>
+          {status ? sepText({ Text }, status, style.colors.pills.readout, 'footer-status-text', { backgroundColor: THEME.bg, wrap: 'truncate-end' }) : <Text backgroundColor={THEME.bg}> </Text>}
+        </Box>
+      )}
       {reveals.map((reveal, at) =>
         tipRow(elements, `footer-reveal-${at}`, reveal.tip, columns, { position: 'absolute', top: 1, left: 0, display: 'none', hover: { scope: reveal.scope, display: 'flex' } }),
       )}

@@ -5,7 +5,7 @@ export default {
   "paneTitle": "Mods",
   "panelWaiting": "Window too narrow for Mods. Type /mod-manager to open it anyway.",
   "pillTip": "Mods: turn each mod on or off and open its settings",
-  "onCount": "{on} on",
+  "onOffCount": "{on} on {sep} {off} off",
   "cardEmpty": "Point at a mod to read what it does",
   "listHint": "Click a switch to toggle {sep} a name to open its page",
   "noMods": "No mods found.",

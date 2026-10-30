@@ -1,6 +1,6 @@
 {
   "name": "mod-manager",
-  "version": "1.3.0",
+  "version": "2.0.0",
   "description": "Lists every mod, installs the ones you tick, turns them on or off, updates them, and shows what each does",
   "license": "MIT",
   "author": {

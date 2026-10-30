@@ -5,8 +5,8 @@ import type { RenderElement } from 'claude-code'
 import { cardFill } from './look'
 import { THEME } from './theme'
 
-// Rows above the card: the heading, the status line and the gap under them.
-export const HEAD_ROWS = 3
+// Rows above the card: the head row and the gap under it.
+export const HEAD_ROWS = 2
 
 type Elements = { Box: (props: any) => RenderElement; Text: (props: any) => RenderElement }
 

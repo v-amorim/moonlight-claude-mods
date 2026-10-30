@@ -6,13 +6,13 @@ import { catalogOf, catalogState, discover, featuresOf, marketOf, refreshCatalog
 import { checkedOf, planOf, runSteps, type Step } from './plan'
 import { OPEN_SETUP_SCOPE, signatureOf, updatesCard, welcomeCard } from './cards'
 import { checkedRows, planRows, type PickMessage, type PickProps } from './setup'
-import { fill, MARK, statusColor, THEME } from './theme'
+import { fill, MARK, THEME } from './theme'
 import text from './text'
 import { isTipMessage, type EntryMessage, type EntryProps, type Tip } from './entry'
 import { labelsOf, menuEntry, pill, pillRow, splitRow, tabRow, tipLine } from './pills'
 import { TOAST_MS, ToastList, toastCards } from './toasts'
 import { cardFill, cardGap, detectNerd, FOOTER_ROWS, lookFor, paneFooter, section, sepText, titleEdge, type IconMode, type Reveal, withMark } from './look'
-import { actionReveals, choiceBar, editorReveals, hairline, settingChoice, settingHead, settingsBody, type Action } from './settings'
+import { actionReveals, choiceBar, editorReveals, hairline, settingChoice, settingHead, settingsBody, openSetting, type Action } from './settings'
 import { cardSpace, HEAD_ROWS, stickyCard } from './card'
 import { costPill } from './cost'
 import { readSpend, resetSpend, spendLine, type Spend } from './spend'
@@ -371,6 +371,24 @@ const openPage = ($: EngineInterface, index: number) => {
 }
 
 // The panel's title: the list as a tab with its count; on a mod's page a click on it goes back.
+// The glyph-set key of a mod's own icon: its menu entry's (`menu-<id>`) or, for a settings-only mod, its name; the generic mod icon otherwise.
+const OWN_ICON: Record<string, string> = {
+  'mod-skill-panel': 'menu-skills',
+  'mod-prompts': 'menu-prompts',
+  'mod-file-tree': 'menu-filetree',
+  'mod-progress': 'menu-progress',
+  'mod-heads-up': 'menu-headsup',
+  'mod-collision-guard': 'collision-guard',
+  'mod-model-effort': 'model-effort',
+  'mod-next-steps': 'next-steps',
+  'mod-transcript': 'transcript',
+  'mod-wrap-up': 'wrap-up',
+}
+const iconOf = (name: string) => {
+  const key = OWN_ICON[name]
+  return key && look.glyph.icon[key] ? key : 'mod'
+}
+
 const listTab = (isShown: boolean) => ({ id: 'manager-tab', label: text.paneTitle, icon: look.glyph.icon.mod ?? look.glyph.title, isOpen: isShown, count: mods.length, tip: { glyph: look.glyph.title, label: text.paneTitle, text: isShown ? text.tipTabList : text.tipTabBack } })
 
 // A saved change reloads that mod, which redraws its page with the new value.
@@ -654,6 +672,7 @@ export const register: Register = (on, options) => {
     if (message?.type === 'menu-entry' && message.id === 'manager-apply') await applyChanges($)
     if (message?.type === 'menu-entry' && message.id.startsWith('card-')) await cardClick($, message.id)
     if (message?.type === 'menu-entry' && message.id === 'manager-tab' && page >= 0) openPage($, -1)
+    openSetting($, e.data)
     const change = settingChoice(e.data)
     if (change) await saveSetting($, change.key, change.value)
 
@@ -696,11 +715,11 @@ export const register: Register = (on, options) => {
     // @ts-expect-error The host's types omit Client from a Pane's elements, yet a Pane draws it.
     const { Box, Button, Client, Link, Text } = $.ui.resolve(e)
     const redraw = () => $.ui.invalidate('ui.render')
-    const frame = (children: RenderChildren, reveals: Reveal[] = []) => (
+    const frame = (children: RenderChildren, reveals: Reveal[] = [], footer: { hint?: string; status?: string } = {}) => (
       <Box flexDirection="column" backgroundColor={THEME.bg} paddingX={1} minHeight={e.props.scroll.bodyRows}>
         {children}
         <Box key="footer-space" height={FOOTER_ROWS} flexShrink={0} />
-        {paneFooter({ Box, Text }, paneTip, e.props.bodyColumns, e.props.scroll, reveals)}
+        {paneFooter({ Box, Text }, paneTip, e.props.bodyColumns, e.props.scroll, reveals, footer)}
       </Box>
     )
 
@@ -786,21 +805,21 @@ export const register: Register = (on, options) => {
           )
         : null
       return frame([
-        <Box key="page-head" flexDirection="row" columnGap={1}>
-          {tabRow({ Box, Client, Text }, look.nerd, [listTab(false), { id: 'manager-page', label: shownName(mod.name), icon: look.glyph.icon.mod ?? look.glyph.title, isOpen: true, tip: { glyph: look.glyph.title, label: shownName(mod.name), text: text.tipTabPage } }], still)}
-          {sepText({ Text }, `${MARK.sep} ${mod.enabled ? text.stateOn : text.stateOff}`, mod.enabled ? THEME.ok : THEME.muted, 'page-state')}
+        <Box key="page-head" flexDirection="row">
+          {tabRow({ Box, Client, Text }, look.nerd, [listTab(false), { id: 'manager-page', label: shownName(mod.name), icon: look.glyph.icon[iconOf(mod.name)] ?? look.glyph.title, isOpen: true, tip: { glyph: look.glyph.title, label: shownName(mod.name), text: text.tipTabPage } }], still)}
         </Box>,
-        sepText({ Text }, withMark(look, note) || hint, statusColor(note), 'page-note', { wrap: 'truncate-end' }),
         section(
           { Box, Text },
           look,
           'page-about',
-          'mod',
+          iconOf(mod.name),
           fill(text.pageTitle, { name: shownName(mod.name), sep: MARK.sep, version: mod.version }),
           <Box key="page-about-body" flexDirection="column">
             <Text color={THEME.muted}>{mod.description}</Text>
             {mod.showcase?.tagline ? <Text color={THEME.secondary}>{mod.showcase.tagline}</Text> : null}
           </Box>,
+          THEME.accent,
+          { hint: mod.enabled ? text.stateOn : text.stateOff },
         ),
         mod.showcase?.cost
           ? section(
@@ -819,7 +838,7 @@ export const register: Register = (on, options) => {
           : null,
         spendCard,
         mod.enabled || mod.settings === 0 ? (
-          settingsBody({ Box, Button, Client, Text }, look, { rows, actions, working, run, previews: mod.showcase?.previews, fields: mod.fields, editors, still })
+          settingsBody({ Box, Button, Client, Text }, look, { rows, actions, working, run, previews: mod.showcase?.previews, fields: mod.fields, editors, still, mod: mod.name })
         ) : (
           <Box key="page-off" flexDirection="column">
             {cardGap({ Box, Text }, 'page-off')}
@@ -827,7 +846,7 @@ export const register: Register = (on, options) => {
           </Box>
         ),
         section({ Box, Text }, look, 'features', 'features', text.sectionFeatures, features.length ? featureRows : <Text color={THEME.muted}>{text.noFeatures}</Text>),
-      ], [...actionReveals(actions, look, working), ...editorReveals(rows, editors, look, working)])
+      ], [...actionReveals(actions, look, working), ...editorReveals(rows, editors, look, working)], { hint, status: withMark(look, note) })
     }
 
     if (!catalogLoaded) await loadSetup($)
@@ -841,7 +860,7 @@ export const register: Register = (on, options) => {
     }
 
     // One section per source, so a row needs no "yours" or "installed" label of its own.
-    const group = (source: ModInfo['source'], title: string, icon: string) => {
+    const group = (source: ModInfo['source'], title: string, icon: string, hint = '') => {
       const members = mods.map((item, index) => ({ item, index })).filter(({ item }) => item.isOwn === (source === 'dir'))
       if (members.length === 0) return null
       return section(
@@ -880,10 +899,13 @@ export const register: Register = (on, options) => {
             costLabel: text.costTitle,
           } satisfies ListProps}
         />,
+        THEME.accent,
+        { hint },
       )
     }
     const applyLabel = fill(text.applyAction, { n: steps.length })
     const onCount = mods.filter(isOn).length
+    const counts = fill(text.onOffCount, { on: onCount, off: mods.length - onCount, sep: MARK.sep })
 
     // The sticky card above the list keeps its space while nothing is hovered, so the list never jumps.
     const shownAt = hovering >= 0 ? hovering : heldCard
@@ -1083,20 +1105,18 @@ export const register: Register = (on, options) => {
         : null
 
     return frame([
-      <Box key="list-head" flexDirection="row" columnGap={1}>
+      <Box key="list-head" flexDirection="row">
         {tabRow({ Box, Client, Text }, look.nerd, [listTab(true)], still)}
-        <Text key="on-count" color={THEME.muted}>{fill(text.onCount, { on: onCount })}</Text>
       </Box>,
-      sepText({ Text }, withMark(look, note) || fill(text.listHint, { sep: MARK.sep }), statusColor(note), 'list-note', { wrap: 'truncate-end' }),
       cardSpace({ Box }, cardRows),
       mods.length === 0 ? <Text key="list-empty" color={THEME.muted}>{text.noMods}</Text> : null,
-      group('dir', text.sectionYours, 'mod'),
-      group('installed', text.sectionInstalled, 'installed'),
+      group('dir', text.sectionYours, 'mod', counts),
+      group('installed', text.sectionInstalled, 'installed', mods.some(item => item.isOwn) ? '' : counts),
       notInstalledCard,
       iconsCard,
       updatesCard,
       applyCard ? <Box key="apply-cards" flexDirection="column">{applyCard}</Box> : null,
       hoverCard(),
-    ], isBusy ? [] : [{ scope: 'open-plugin-pill', tip: { glyph: bare(look.glyph.go), label: text.openPlugin, text: text.tipOpenPlugin } }])
+    ], isBusy ? [] : [{ scope: 'open-plugin-pill', tip: { glyph: bare(look.glyph.go), label: text.openPlugin, text: text.tipOpenPlugin } }], { hint: fill(text.listHint, { sep: MARK.sep }), status: withMark(look, note) })
   })
 }
