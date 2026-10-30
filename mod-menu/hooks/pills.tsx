@@ -166,25 +166,51 @@ export function pillRow(elements: Elements & { Client?: (props: any) => RenderEl
   )
 }
 
-// One chip per view of a panel (its list, its settings), standing in for the title: id, label, icon glyph, an optional count and an optional hover tip.
-export type Tab = { id: string; label: string; icon: string; isOpen: boolean; count?: number; tip?: Tip }
+// One view of a panel; `settings` overrides the id rule that makes an id ending in "settings" or "settings-tab" the Settings view.
+export type Tab = { id: string; label: string; icon: string; isOpen: boolean; count?: number; tip?: Tip; settings?: boolean }
 
-// A panel's title line: the open view on surface3 and bold, the others on surface2 and muted; a click swaps the view.
+export const isSettingsTab = (tab: Tab) => tab.settings ?? /settings(-tab)?$/.test(tab.id)
+
+// A panel's head row: the views as one switch, the Settings view a gear chip at the right; a click posts the tab's own id.
 export function tabRow({ Box, Client, Text }: Elements & { Client: (props: any) => RenderElement }, nerd: boolean, tabs: Tab[], still: boolean) {
+  const gear = tabs.find(isSettingsTab)
+  const gearOpen = gear?.isOpen === true
+  let views = tabs.filter(tab => !isSettingsTab(tab)).map(tab => (gearOpen ? { ...tab, isOpen: false } : tab))
+  if (views.length === 0 && gear) {
+    const at = gear.label.indexOf(` ${style.marks.sep} `)
+    views = [{ ...gear, label: at < 0 ? gear.label : gear.label.slice(0, at), isOpen: true }]
+  }
+  // Client props refuse an undefined value, so a tab without a count or tip leaves the key out.
+  const segment = (tab: Tab) => {
+    const bg = tab.isOpen ? THEME.lifted : THEME.surface3
+    const badge = tab.count === undefined ? {} : { badge: badgeOf(String(tab.count), bg) }
+    const tip = tab.tip ? { tip: tab.tip } : {}
+    // A closed segment fills one step up under the pointer, caps and all, like a menu entry.
+    const lift = tab.isOpen ? {} : { lift: { scope: `${tab.id}-pill`, bg: THEME.lifted } }
+    const entry = (
+      <Client key={isSettingsTab(tab) ? `${tab.id}-name` : tab.id} module="./entry.tsx" height={1} props={{ id: tab.id, label: tab.label, isOpen: tab.isOpen, bg, idle: THEME.muted, still, subLead: tab.icon, subLeadColor: THEME.accent, nerd, ...(tab.isOpen ? { color: THEME.ok } : {}), ...badge, ...tip, ...lift } satisfies EntryProps} />
+    )
+    return pill({ Box, Text }, nerd, bg, entry, `${tab.id}-pill`, THEME.surface3, tab.isOpen ? undefined : THEME.lifted)
+  }
+  const chip = (tab: Tab) => {
+    // The chip always draws the gear; the tab's own icon belongs to the name segment.
+    const gearGlyph = decodeAll(nerd ? style.glyphs.nerd.gear : style.glyphs.safe.gear)
+    const lead = nerd ? gearGlyph : ` ${gearGlyph} `
+    const tip = tab.tip ? { tip: tab.tip } : {}
+    const base = { id: tab.id, label: '', still, nerd, tight: true, lead, ...tip } satisfies Partial<EntryProps>
+    const key = `${tab.id}-gear`
+    // Active: surface4 and primary-70, no growing. At rest the glyph is muted on surface3 and the chip grows "Settings" beside it in accent under the pointer.
+    if (tab.isOpen) {
+      return <Box key={key} flexShrink={0}>{pill({ Box, Text }, nerd, THEME.lifted, <Client key={tab.id} module="./entry.tsx" height={1} props={{ ...base, isOpen: true, bg: THEME.lifted, color: THEME.ok, leadColor: THEME.ok } satisfies EntryProps} />, `${key}-pill`, THEME.bg)}</Box>
+    }
+    const rest = <Client key={tab.id} module="./entry.tsx" height={1} props={{ ...base, isOpen: false, bg: THEME.surface3, idle: THEME.muted, leadColor: THEME.muted } satisfies EntryProps} />
+    const grown = <Client key={`${tab.id}-grown`} module="./entry.tsx" height={1} props={{ ...base, label: ` ${style.text.settings} `, isOpen: false, bg: THEME.lifted, idle: THEME.accent, leadColor: THEME.accent } satisfies EntryProps} />
+    return iconChip({ Box, Text }, nerd, key, THEME.bg, rest, grown)
+  }
   return (
-    <Box key="tab-row" flexDirection="row" columnGap={1}>
-      {tabs.map(tab => {
-        const bg = tab.isOpen ? THEME.surface3 : THEME.surface2
-        // Client props refuse an undefined value, so a tab without a count or tip leaves the key out.
-        const badge = tab.count === undefined ? {} : { badge: badgeOf(String(tab.count), bg) }
-        const tip = tab.tip ? { tip: tab.tip } : {}
-        // A closed tab fills one step up under the pointer, caps and all, like a menu entry.
-        const lift = tab.isOpen ? {} : { lift: { scope: `${tab.id}-pill`, bg: THEME.surface3 } }
-        const entry = (
-          <Client key={tab.id} module="./entry.tsx" height={1} props={{ id: tab.id, label: tab.label, isOpen: tab.isOpen, bg, idle: THEME.muted, still, subLead: tab.icon, subLeadColor: THEME.accent, nerd, ...(tab.isOpen ? { color: THEME.secondary } : {}), ...badge, ...tip, ...lift } satisfies EntryProps} />
-        )
-        return pill({ Box, Text }, nerd, bg, entry, `${tab.id}-pill`, undefined, tab.isOpen ? undefined : THEME.surface3)
-      })}
+    <Box key="tab-row" flexDirection="row" justifyContent="space-between">
+      {views.length > 0 ? pill({ Box, Text }, nerd, THEME.surface3, views.map(segment), 'tab-group', THEME.bg) : null}
+      {gear ? chip(gear) : null}
     </Box>
   )
 }
