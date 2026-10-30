@@ -2,9 +2,9 @@
 // Tests holding a command, the Haiku prompt and reply parsing, and the settings and details panes.
 import { expect, mock, test } from 'claude-code/testing'
 import { actionLabels, canOpenDoes, cardRows } from '../hooks/explain'
-import { describePrompt, parseDescribed, verdictOf } from '../hooks/haiku'
+import { describePrompt, parseDescribed, recentPrompts, verdictOf } from '../hooks/haiku'
 import text from '../hooks/text'
-import { MARK } from '../hooks/theme'
+import { MARK, THEME } from '../hooks/theme'
 
 const PLUGIN = 'mod-blast-radius'
 const PANE = (requestId: string) =>
@@ -305,6 +305,44 @@ test('Haiku answers only a filled template: long fields and junk are dropped, a 
   expect(describePrompt('rm -rf build', 'rule', '', ['rm -rf build'])).toContain('<command>\nrm -rf build\n</command>')
   expect(parseDescribed(good.replace(',"targets":"the build folder"', ''), 1)).toBeNull()
   expect(parseDescribed(good.replace('"verdict":"ok"', '"verdict":"sure"'), 1)?.verdict).toBe('check')
+})
+
+test('the explanation asks for the user language and carries a sample of their last 3 prompts', () => {
+  const rule = "Write in the language the user writes in, judged from the user's most recent messages; keep code, paths, commands, identifiers and engineering jargon engineers say in English (commit, branch, deploy, snapshot) in English."
+  const none = describePrompt('rm -rf build', 'rule', '', ['rm -rf build'])
+  expect(none).toContain(rule)
+  expect(none).not.toContain('plain English')
+  expect(none).not.toContain('latest prompts')
+  const sample = recentPrompts([
+    { role: 'user', text: 'um' },
+    { role: 'assistant', text: 'ok' },
+    { role: 'user', text: 'dois' },
+    { role: 'user', text: '' },
+    { role: 'user', text: 'apaga a pasta build' },
+    { role: 'user', text: 'limpa o cache' },
+  ])
+  expect(sample).toEqual(['dois', 'apaga a pasta build', 'limpa o cache'])
+  const prompt = describePrompt('rm -rf build', 'rule', '', ['rm -rf build'], sample)
+  expect(prompt).toContain('- apaga a pasta build')
+  expect(prompt).not.toContain('- um')
+  expect(prompt).toContain(rule)
+})
+
+test('the request sent to Haiku carries the rule and the last user prompts', { options: { explain: true } }, async ($, on) => {
+  const { seen, clock } = world(on)
+  const prompts: string[] = []
+  on('session.messages', (() => ({ value: [{ role: 'user', text: 'apaga a pasta build', toolUses: [] }] })) as never)
+  on('model.complete', ((_$: unknown, e: { prompt: string }) => {
+    prompts.push(e.prompt)
+    return { value: { isAnswered: false, reason: 'api-error', status: 500, usage: {} } }
+  }) as never)
+  const call = $.tool.call({ tool: 'Bash', command: 'rm -rf build' })
+  await holding(seen)
+  await clock.advance(1)
+  expect(prompts[0]).toContain('Write in the language the user writes in')
+  expect(prompts[0]).toContain('- apaga a pasta build')
+  await cancel($)
+  await call
 })
 
 test('the rules overrule an ok verdict: nothing measured, or a path outside the working folder', () => {
@@ -714,8 +752,10 @@ test('Details is on every card, even a short one, and opens the read-only pane; 
   expect(seen.opened).toEqual(['blast-radius-list'])
   const pane = await $.ui.mount({ plugin: PLUGIN, surface: 'terminal', ...DETAILS })
   expect(await labelOf(pane, 'mod-blast-radius-details-tab')).toBe(' Details ')
-  expect(await labelOf(pane, 'mod-blast-radius-settings-tab')).toBe(' Settings ')
+  expect(await labelOf(pane, 'mod-blast-radius-settings-tab')).toBe(' ⊛ ')
   expect(await textOf(pane, /^Read only/)).toBe('Read only · answer on the card above the prompt')
+  expect(JSON.stringify(await pane.find({ key: 'pane-footer' }))).toContain('Read only')
+  expect(JSON.stringify(await pane.drawn({ in: 'mod-blast-radius-settings-tab' }))).not.toContain(THEME.ok)
   for (const title of ['What it does', 'What it touches', 'Can it be undone', 'Full command']) expect(await textOf(pane, new RegExp(title))).toBeDefined()
   expect(seen.ran).toBe(0)
   await pane.unmount()
@@ -1120,7 +1160,12 @@ test('the Details and Settings tabs swap the panes, each closing the other, and 
 
   const settings = await $.ui.mount({ plugin: PLUGIN, surface: 'terminal', ...SETTINGS })
   expect(await labelOf(settings, 'mod-blast-radius-details-tab')).toBe(' Details ')
-  expect(await labelOf(settings, 'mod-blast-radius-settings-tab')).toBe(' Settings ')
+  // On the Settings view the gear chip is the active one, the hint sits in the footer and the mod name titles the card.
+  expect(JSON.stringify(await settings.drawn({ in: 'mod-blast-radius-settings-tab' }))).toContain(THEME.ok)
+  expect(JSON.stringify(await settings.drawn({ in: 'mod-blast-radius-details-tab' }))).not.toContain(THEME.ok)
+  expect(JSON.stringify(await settings.find({ key: 'pane-footer' }))).toContain('Click a setting')
+  expect(JSON.stringify(await settings.drawn())).toContain('mod-blast-radius')
+  expect(await labelOf(settings, 'mod-blast-radius-settings-tab')).toBe(' ⊛ ')
   await click(settings, 'mod-blast-radius-settings-tab')
   expect([...seen.panes]).toEqual(['blast-radius-settings'])
   await click(settings, 'mod-blast-radius-details-tab')
@@ -1918,7 +1963,7 @@ test('the settings pane lists On check error, Send rm to the bin and Always show
   world(on, { configRows: NEW_ROWS })
   await $.command.run({ command: 'mod-blast-radius', args: 'settings' } as never)
   const settings = await $.ui.mount({ plugin: PLUGIN, surface: 'terminal', ...SETTINGS })
-  for (const label of ['On check error', 'Send rm to the bin', 'Always show the card']) expect(await textOf(settings, new RegExp(`^${label}$`))).toBe(label)
+  for (const [at, label] of ['On check error', 'Send rm to the bin', 'Always show the card'].entries()) expect(JSON.stringify(await settings.drawn({ in: `setting-name-${at}` }))).toContain(` ${label} `)
   expect(await labelOf(settings, 'setting-0-option-0')).toBe(' Hold ')
   expect(await labelOf(settings, 'setting-0-option-1')).toBe(' Run ')
 

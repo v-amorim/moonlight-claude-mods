@@ -1,13 +1,13 @@
 // mod-blast-radius / hooks/register.tsx, by v-amorim
 // Wires the mod into the engine: holds risky Bash commands, draws the card, pane and settings.
-import type { ConfigValue, EngineInterface, Register, RenderElement } from 'claude-code'
+import type { ConfigValue, EngineInterface, Register, RenderElement, SessionMessage } from 'claude-code'
 
-import { cardFill, cardGap, detectNerd, FOOTER_ROWS, lookFor, paneFooter, section, titleEdge, type IconMode, type Look } from './look'
+import { cardFill, cardGap, detectNerd, FOOTER_ROWS, lookFor, paneFooter, section, titleEdge, type IconMode, type Look, withMark } from './look'
 import { entryCells, isTipMessage, tipText, type EntryMessage, type EntryProps, type Tip, type TipMessage } from './entry'
 import { labelsOf, pill, pillRow, splitRow, tabRow, tipLine } from './pills'
 import { TOAST_MS, ToastList, toastCards } from './toasts'
 import { ACTION_EXTRA, ACTION_GAP, actionLabels, canOpenDoes, cardRows, HOTKEY, plainFor, segmentsOf, stepsView, whyOf, type Plain } from './explain'
-import { describePrompt, parseDescribed, SYSTEM, verdictOf, type Described } from './haiku'
+import { describePrompt, parseDescribed, recentPrompts, SYSTEM, verdictOf, type Described } from './haiku'
 import { colorLines, colorStep, LEGEND, wrapSpans, type Role, type Span } from './syntax'
 import { measure, tilde, type Io, type Report } from './preview'
 import { CHECKS, compileRules, errorRisk, evaluate, type Risk, type Session, type UserRule } from './risk'
@@ -15,11 +15,11 @@ import { countdownOf, countdownParts } from './countdown'
 import { outsideTargets, planRecycle, sessionRoot } from './recycle'
 import { approvalKey, approveOutside, birthArgv, compileKeep, parseBirths, type Keep, type OutsideFs } from './outside'
 import { native } from './paths'
-import { actionReveals, settingChoice, settingsBody, type Action, type Previews } from './settings'
+import { actionReveals, openSetting, settingChoice, settingsBody, type Action, type Previews } from './settings'
 import { recordSpend } from './spend'
 import style from './style'
 import text from './text'
-import { decodeAll, fill, MARK, mix, statusColor, SYNTAX, THEME, WASH } from './theme'
+import { decodeAll, fill, MARK, mix, SYNTAX, THEME, WASH } from './theme'
 import { familyOf, isRefusal, settle, summarize, tally, upsert, verdictOfCheck, type Check, type Counts, type Verdict } from './checks'
 import marks from './marks'
 
@@ -319,7 +319,9 @@ async function describe($: EngineInterface, mine: Held) {
     let reply: Awaited<ReturnType<typeof $.model.complete>> | null = null
     try {
       $.ui.invalidate('ui.render')
-      const prompt = describePrompt(mine.command, mine.risk.reason, mine.report?.summary ?? '', risky.map(step => step.text))
+      const found = await $.session.messages().catch(() => [])
+      const messages = (Array.isArray(found) ? found : []) as SessionMessage[]
+      const prompt = describePrompt(mine.command, mine.risk.reason, mine.report?.summary ?? '', risky.map(step => step.text), recentPrompts(messages))
       reply = await $.model.complete({ model: 'haiku', system: SYSTEM, prompt, maxTokens: 500, timeoutMs: 15000 }).catch(() => null)
       recordSpend($, 'haiku', reply)
     } finally {
@@ -1216,7 +1218,6 @@ export const register: Register = (on, options) => {
       return (
         <Box flexDirection="column" backgroundColor={THEME.bg} paddingX={1} minHeight={e.props.scroll.bodyRows}>
           {tabRow({ Box, Client, Text }, look.nerd, tabs(false), still)}
-          <Text color={THEME.muted} wrap="truncate-end">{`${text.ui.readOnly} ${MARK.sep} ${text.ui.answerOnCard}`}</Text>
           {section({ Box, Text }, look, 'does', 'menu-headsup', text.ui.sectionDoes, [...does, plainText('why-source', fill(text.ui.heldBy, { source: source.replace(/\.$/, '') }), THEME.muted, { key: 'why-source' })])}
           {section({ Box, Text }, look, 'touches', 'tool', text.ui.sectionTouches, touches)}
           {section({ Box, Text }, look, 'undo', 'actions', text.ui.sectionUndo, [plainText('undo-text', plain.undo, THEME.onSurface)])}
@@ -1225,7 +1226,7 @@ export const register: Register = (on, options) => {
           <Box key="legend-row" flexDirection="row" flexWrap="wrap" columnGap={1}>{legend}</Box>
           {checks.length > 0 ? checksSection({ Box, Text }, checks, e.props.bodyColumns) : null}
           <Box key="footer-space" height={FOOTER_ROWS} flexShrink={0} />
-          {paneFooter({ Box, Text }, hoveredTip(), e.props.bodyColumns, e.props.scroll)}
+          {paneFooter({ Box, Text }, hoveredTip(), e.props.bodyColumns, e.props.scroll, [], { hint: `${text.ui.readOnly} ${MARK.sep} ${text.ui.answerOnCard}` })}
         </Box>
       )
     }
@@ -1255,12 +1256,11 @@ export const register: Register = (on, options) => {
     return (
       <Box flexDirection="column" backgroundColor={THEME.bg} paddingX={1} minHeight={e.props.scroll.bodyRows}>
         {tabRow({ Box, Client, Text }, look.nerd, tabs(true), still)}
-        <Text wrap="truncate-end" color={statusColor(note || bad)}>{note || bad || `${text.ui.statusHint} ${MARK.sep} ${text.ui.statusHintSaved}`}</Text>
-        {settingsBody({ Box, Button, Client, Text }, look, { rows, actions, working, run, previews , still: still, tips: text.settingTips })}
+        {settingsBody({ Box, Button, Client, Text }, look, { rows, actions, working, run, previews, still: still, tips: text.settingTips, mod: 'mod-blast-radius' })}
         {section({ Box, Text }, look, 'rules', 'Bash', text.ui.sectionRules, ruleLines)}
         {section({ Box, Text }, look, 'built-in', 'Bash', text.ui.sectionBuiltIn, patterns)}
         <Box key="footer-space" height={FOOTER_ROWS} flexShrink={0} />
-        {paneFooter({ Box, Text }, hoveredTip(), e.props.bodyColumns, e.props.scroll, actionReveals(actions, look, working))}
+        {paneFooter({ Box, Text }, hoveredTip(), e.props.bodyColumns, e.props.scroll, actionReveals(actions, look, working), { hint: `${text.ui.statusHint} ${MARK.sep} ${text.ui.statusHintSaved}`, status: withMark(look, note || bad) })}
       </Box>
     )
   })
@@ -1273,6 +1273,7 @@ export const register: Register = (on, options) => {
       $.ui.invalidate('ui.render')
       return next(e)
     }
+    openSetting($, e.data)
     const change = settingChoice(e.data)
     if (change) await saveSetting($, change.key, change.value)
     const clicked = e.data as EntryMessage
