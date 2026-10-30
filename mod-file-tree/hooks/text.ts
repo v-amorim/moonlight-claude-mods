@@ -27,7 +27,6 @@ export default {
   "treeEmpty": "No files touched yet. Reads and edits show up here as Claude works.",
   "unreadableWhy": "Can't read this session's transcript: {reason}",
   "replayEmpty": "No edits yet. Each edit Claude makes in a turn can be stepped through here.",
-  "filesTabTip": "shows the touched files",
   "settingsTabTip": "opens this mod's settings",
   "tabTreeTip": "shows the files as a tree",
   "tabReplayTip": "steps through the edits of a turn",

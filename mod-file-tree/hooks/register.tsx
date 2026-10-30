@@ -8,9 +8,9 @@ import { detectNerd, FOOTER_ROWS, lookFor, section, paneFooter, sepText, subpill
 import { isTipMessage, mix, type EntryMessage, type EntryProps, type Tip } from './entry'
 import { labelsOf, menuEntry, pill, pillRow, splitRow, tabRow, tipLine } from './pills'
 import { TOAST_MS, ToastList, toastCards } from './toasts'
-import { choiceBar as sharedChoiceBar, settingChoice, settingsBody, type Action, type Previews, type Range } from './settings'
+import { choiceBar as sharedChoiceBar, openSetting, settingChoice, settingsBody, type Action, type Previews, type Range } from './settings'
 import text from './text'
-import { fill, MARK, statusColor, THEME } from './theme'
+import { fill, MARK, THEME } from './theme'
 import { shellPlans, TranscriptFiles } from './transcript'
 import { cells, cut } from './cells'
 import { commit, diffLines, emptyLog, iconOf, latestStepOf, liveFolds, relPath, rootOf, recentView, rowsOf, stepsOfTurn, touch, turnView, type Entry, type Kind, type Line, type Log } from './tree'
@@ -598,10 +598,16 @@ async function saveSetting($: EngineInterface, key: string, value: ConfigValue) 
   $.ui.invalidate('ui.render')
 }
 
-const tabs = (isSettings: boolean, touched: number) => [
-  { id: 'filetree-tab', label: text.pill, icon: look.glyph.icon.files ?? look.glyph.title, isOpen: !isSettings, ...(isSettings ? {} : { count: touched }), tip: { glyph: look.glyph.icon.files ?? look.glyph.title, label: text.pill, text: text.filesTabTip } },
-  { id: 'filetree-settings', label: text.settingsLabel, icon: look.glyph.gear, isOpen: isSettings, tip: { glyph: look.glyph.gear, label: text.settingsLabel, text: text.settingsTabTip } },
-]
+// The head row: Tree and Replay are the views, Settings the gear; only the Tree view carries the file count.
+const tabs = (isSettings: boolean, touched: number) => {
+  const tree = look.glyph.icon.files ?? look.glyph.title
+  const replay = look.glyph.icon.replay ?? look.glyph.title
+  return [
+    { id: 'tab-tree', label: text.tabTree, icon: tree, isOpen: !isSettings && mode === 'tree', ...(isSettings ? {} : { count: touched }), tip: { glyph: tree, label: text.tabTree, text: text.tabTreeTip } },
+    { id: 'tab-replay', label: text.tabReplay, icon: replay, isOpen: !isSettings && mode === 'replay', tip: { glyph: replay, label: text.tabReplay, text: text.tabReplayTip } },
+    { id: 'filetree-settings', label: text.settingsLabel, icon: look.glyph.gear, isOpen: isSettings, tip: { glyph: look.glyph.gear, label: text.settingsLabel, text: text.settingsTabTip } },
+  ]
+}
 
 export const register: Register = (on, options) => {
   still = options.animations === false
@@ -798,16 +804,18 @@ export const register: Register = (on, options) => {
       $.ui.invalidate('ui.render')
     }
     try {
+      openSetting($, e.data)
       const change = settingChoice(e.data)
       if (change) await saveSetting($, change.key, change.value)
       const message = e.data as EntryMessage
       if (message?.type === 'menu-entry') {
         if (message.id === 'filetree') await openingPane($)
         if (message.id === 'filetree-settings' && !(await isOpen($, SETTINGS))) await toggleSettings($)
-        if (message.id === 'filetree-tab' && !(await isOpen($, PANE))) await togglePane($)
         if (message.id === 'tab-tree' || message.id === 'tab-replay') {
           mode = message.id === 'tab-tree' ? 'tree' : 'replay'
           note = ''
+          // From the settings, a view swaps the panel back to the files.
+          if (!(await isOpen($, PANE))) await togglePane($)
           $.ui.invalidate('ui.render')
         }
         if (message.id === 'scope-turn' || message.id === 'scope-recent' || message.id === 'scope-session') {
@@ -877,10 +885,9 @@ export const register: Register = (on, options) => {
       return (
         <Box flexDirection="column" paddingX={1} minHeight={e.props.scroll.bodyRows} backgroundColor={THEME.bg}>
           {tabRow({ Box, Client, Text }, look.nerd, tabs(true, 0), still)}
-          {sepText({ Text }, withMark(look, note) || fill(text.settingsHint, { sep: MARK.sep }), statusColor(note), 'status-line', { wrap: 'truncate-end' })}
-          <Box marginTop={0}>{settingsBody({ Box, Button, Client, Text }, look, { rows, actions, working: false, run, previews, fields, still })}</Box>
+          {settingsBody({ Box, Button, Client, Text }, look, { rows, actions, working: false, run, previews, fields, still, mod: 'mod-file-tree' })}
           <Box key="footer-space" height={FOOTER_ROWS} flexShrink={0} />
-          {paneFooter({ Box, Text }, hoveredTip, e.props.bodyColumns, e.props.scroll)}
+          {paneFooter({ Box, Text }, hoveredTip, e.props.bodyColumns, e.props.scroll, [], { hint: fill(text.settingsHint, { sep: MARK.sep }), status: withMark(look, note) })}
         </Box>
       )
     }
@@ -991,29 +998,26 @@ export const register: Register = (on, options) => {
     return (
       <Box flexDirection="column" paddingX={1} minHeight={e.props.scroll.bodyRows} backgroundColor={THEME.bg}>
         <Box key="title-line" flexDirection="row" columnGap={1}>
-          {tabRow({ Box, Client, Text }, look.nerd, tabs(false, touched), still)}
+          <Box key="title-tabs" flexDirection="column" flexGrow={1}>
+            {tabRow({ Box, Client, Text }, look.nerd, tabs(false, touched), still)}
+          </Box>
           {current.working ? entry('working', text.working, false, THEME.bg, { spinner: true, idle: THEME.muted }) : null}
         </Box>
-        {sepText({ Text }, withMark(look, note) || hint, statusColor(note), 'status-line', { wrap: 'truncate-end' })}
-        <Box key="tabs" flexDirection="row" columnGap={1} marginTop={1}>
-          {choiceBar('view', [
-            { id: 'tab-tree', label: text.tabTree, isOn: mode === 'tree', icon: 'files', tip: text.tabTreeTip },
-            { id: 'tab-replay', label: text.tabReplay, isOn: mode === 'replay', icon: 'replay', tip: text.tabReplayTip },
-          ])}
-          {mode === 'tree'
-            ? choiceBar('scope', [
-                { id: 'scope-turn', label: text.scopeTurn, isOn: scope === 'turn', tip: text.scopeTurnTip },
-                { id: 'scope-recent', label: fill(text.scopeRecent, { n: recentTurns }), isOn: scope === 'recent', tip: text.scopeRecentTip },
-                { id: 'scope-session', label: text.scopeSession, isOn: scope === 'session', tip: text.scopeSessionTip },
-              ])
-            : null}
-        </Box>
+        {mode === 'tree' ? (
+          <Box key="tabs" flexDirection="row" marginTop={1}>
+            {choiceBar('scope', [
+              { id: 'scope-turn', label: text.scopeTurn, isOn: scope === 'turn', tip: text.scopeTurnTip },
+              { id: 'scope-recent', label: fill(text.scopeRecent, { n: recentTurns }), isOn: scope === 'recent', tip: text.scopeRecentTip },
+              { id: 'scope-session', label: text.scopeSession, isOn: scope === 'session', tip: text.scopeSessionTip },
+            ])}
+          </Box>
+        ) : null}
         {mode === 'tree'
           ? section(elements, look, 'tree', 'folder-open', rootName, tree, THEME.accent, { right: fold })
           : section(elements, look, 'replay', 'replay', replayTitle, replay, THEME.accent, { right: replayNav })}
         {mode === 'tree' ? <Box key="legend-push" flexGrow={1} /> : null}
         {mode === 'tree' ? (
-          <Box key="legend" flexDirection="column">
+          <Box key="legend" flexDirection="column" marginTop={1}>
             <Box key="legend-row" flexDirection="row" columnGap={1}>
               {(['changed', 'added', 'read'] as const).map(tone =>
                 pill({ Box, Text }, look.nerd, THEME.surface3, (
@@ -1029,7 +1033,7 @@ export const register: Register = (on, options) => {
           </Box>
         ) : null}
         <Box key="footer-space" height={FOOTER_ROWS} flexShrink={0} />
-        {paneFooter({ Box, Text }, hoveredTip, e.props.bodyColumns, e.props.scroll)}
+        {paneFooter({ Box, Text }, hoveredTip, e.props.bodyColumns, e.props.scroll, [], { hint, status: withMark(look, note) })}
       </Box>
     )
   })
