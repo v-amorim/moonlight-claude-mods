@@ -16,7 +16,9 @@ export type WorkflowAgent = { runId: string; index: number; name: string; descri
 export type BgKind = 'shell' | 'monitor'
 // `output` is the file the host writes the task's output to, when its result or notification names one.
 export type BgTask = { id: string; kind: BgKind; command: string; startedAt: number; endedAt?: number; end?: 'done' | 'failed'; output?: string }
-export type Loop = { bg?: BgTask[]; model?: string; effort?: string; tokens: number; context: number; spawnedAt?: number; endedAt?: number; isFailed?: true; gatesStem?: string; tasks?: Task[]; step?: string; workflow?: WorkflowAgent }
+// `info` is what the engine listed the agent as, kept because it stops listing a background agent once it finishes; `seen` marks that it was listed at all.
+export type Loop = { bg?: BgTask[]; model?: string; effort?: string; tokens: number; context: number; spawnedAt?: number; endedAt?: number; isFailed?: true; gatesStem?: string; tasks?: Task[]; step?: string; workflow?: WorkflowAgent; info?: AgentInfoKept; seen?: true }
+export type AgentInfoKept = { name?: string; description: string; type: string }
 export type Usage = { input_tokens: number; output_tokens: number; cache_read_input_tokens: number; cache_creation_input_tokens: number }
 
 // The main turn's last stop on an API error (StopFailure): its error kind, when it happened, and the reset of a full usage window.
@@ -401,13 +403,27 @@ export const statusOf = (status: string): Status => (status === 'completed' ? 'd
 // Marks an agent that stopped as ended at the first look that saw it stopped; true when something changed.
 export function settle(snap: Snap, list: AgentLite[], now: number) {
   let changed = false
+  const end = (loop: Loop) => {
+    loop.endedAt = now
+    delete loop.step
+    changed = true
+  }
   for (const info of list) {
     const loop = (snap.agents[info.id] ??= { tokens: 0, context: 0 })
-    if (statusOf(info.status) !== 'running' && loop.endedAt === undefined) {
-      loop.endedAt = now
-      delete loop.step
+    if (!loop.seen) {
+      loop.seen = true
       changed = true
     }
+    if (loop.info?.description !== info.description || loop.info?.name !== info.name || loop.info?.type !== info.type) {
+      loop.info = { ...(info.name ? { name: info.name } : {}), description: info.description, type: info.type }
+      changed = true
+    }
+    if (statusOf(info.status) !== 'running' && loop.endedAt === undefined) end(loop)
+  }
+  // A listed agent the list no longer names has finished; one never listed may only be starting.
+  const listed = new Set(list.map(info => info.id))
+  for (const [id, loop] of Object.entries(snap.agents)) {
+    if (loop.seen && !loop.workflow && !listed.has(id) && loop.endedAt === undefined) end(loop)
   }
   return changed
 }
@@ -471,8 +487,13 @@ export function buildRows(snap: Snap, list: AgentLite[], usage: UsageLite | unde
     .sort(([, a], [, b]) => (a.spawnedAt ?? 0) - (b.spawnedAt ?? 0) || a.workflow!.index - b.workflow!.index)
   // Only agent.spawn in this session sets spawnedAt, so a finished agent without it ran before a /clear or resume and has no figures here.
   const ours = list.filter(info => statusOf(info.status) === 'running' || snap.agents[info.id]?.spawnedAt !== undefined)
+  // A background agent spawned here keeps its card after the engine stops listing it, under the name and task it was listed with.
+  const gone = Object.entries(snap.agents)
+    .filter(([id, loop]) => !loop.workflow && !listed.has(id) && loop.spawnedAt !== undefined && loop.info)
+    .sort(([, a], [, b]) => (a.spawnedAt ?? 0) - (b.spawnedAt ?? 0))
   const entries = [
     ...ours.map(info => ({ info, loop: snap.agents[info.id] ?? { tokens: 0, context: 0 }, status: statusOf(info.status) })),
+    ...gone.map(([id, loop]) => ({ info: { id, ...loop.info!, status: '' }, loop, status: (loop.endedAt === undefined ? 'running' : loop.isFailed ? 'failed' : 'done') as Status })),
     ...ofWorkflow.map(([id, loop]) => ({ info: { id, name: loop.workflow!.name, description: loop.workflow!.description, type: '', status: loop.endedAt === undefined ? 'running' : loop.isFailed ? 'failed' : 'completed' }, loop, status: (loop.endedAt === undefined ? 'running' : loop.isFailed ? 'failed' : 'done') as Status })),
   ]
   for (const { info, loop, status } of entries) {

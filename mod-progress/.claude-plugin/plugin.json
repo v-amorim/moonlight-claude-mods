@@ -1,6 +1,6 @@
 {
   "name": "mod-progress",
-  "version": "2.0.0",
+  "version": "2.0.1",
   "description": "A pill and a pane showing the main session and every subagent with model, effort, context fill, tokens, time and gate progress, plus the background shells and monitors each one started. A click opens a task's full command and live output",
   "license": "MIT",
   "author": {

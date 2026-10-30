@@ -198,6 +198,27 @@ test('an agent from before a /clear or resume, finished and never spawned in thi
   expect(rows.map(row => row.id)).toEqual(['main', 'here', 'carried'])
 })
 
+test('a background agent the engine stops listing once it finishes keeps its card, named as when it ran', () => {
+  const snap = emptySnap('s')
+  snap.agents.bg = { model: 'claude-haiku-5-5', tokens: 275, context: 900, spawnedAt: 1000, info: { description: 'Summarize notes.md', type: 'general-purpose' } }
+  const running = [{ id: 'bg', description: 'Summarize notes.md', type: 'general-purpose', status: 'running' }]
+  settle(snap, running, 2000)
+  expect(buildRows(snap, running, undefined, 2000, 'main', 'x', undefined).map(row => [row.id, row.status])).toEqual([['main', 'done'], ['bg', 'running']])
+
+  // The engine drops a finished background agent from its list; the card stays, done, with the name and task it ran under.
+  expect(settle(snap, [], 5000)).toBe(true)
+  const rows = buildRows(snap, [], undefined, 9000, 'main', 'x', undefined)
+  expect(rows.map(row => [row.id, row.name, row.description, row.status])).toEqual([['main', 'main', 'x', 'done'], ['bg', 'general-purpose', 'Summarize notes.md', 'done']])
+  expect(rows[1]!.endedAt).toBe(5000)
+})
+
+test('an agent spawned this session but not listed yet shows as running, and is never ended before the engine has listed it', () => {
+  const snap = emptySnap('s')
+  snap.agents.fresh = { tokens: 0, context: 0, spawnedAt: 1000, info: { description: 'Just started', type: 'Explore' } }
+  expect(settle(snap, [], 1100)).toBe(false)
+  expect(buildRows(snap, [], undefined, 1100, 'main', 'x', undefined).map(row => [row.id, row.status])).toEqual([['main', 'done'], ['fresh', 'running']])
+})
+
 const MET = (id: string) => [`- [x] ${id}: done`, '      EVIDENCE: ok 1 passed', ''].join('\n')
 
 test('the main ledger sums GATES.md and every gates file, and the band counts each gate once', () => {

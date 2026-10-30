@@ -583,6 +583,7 @@ export const register: Register = (on, options) => {
           context: 0,
           spawnedAt: await $.clock.now(),
           gatesStem: gatesStemIn(e.prompt),
+          ...(e.workflow ? {} : { info: { ...(e.name ? { name: e.name } : {}), description: firstLine(e.description ?? e.prompt), type: e.subagentType ?? 'general-purpose' } }),
           ...(e.workflow ? { workflow: { runId: e.workflow.runId, index: e.workflow.agentIndex, name: e.name ?? fill(text.workflowAgent, { n: e.workflow.agentIndex }), description: firstLine(e.description ?? e.prompt) } } : {}),
         }
         await saveSnap($)
