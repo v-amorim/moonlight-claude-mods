@@ -1,6 +1,6 @@
 {
   "name": "mod-collision-guard",
-  "version": "1.2.0",
+  "version": "2.0.0",
   "description": "Pauses an edit when another open session edited the same file moments ago, and asks whether to proceed, move to a worktree, cancel or say something else",
   "license": "MIT",
   "author": {

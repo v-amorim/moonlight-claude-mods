@@ -5,12 +5,12 @@ import type { ConfigValue, EngineInterface, Register, RenderChildren } from 'cla
 import { agoText, clearOwn, cleanReason, clockText, EDIT_TOOLS, findConflict, normalize, pathOf, recordEdit, titleOf, type Clash, type Io } from './guard'
 import { GUARD, holdCard, type HoldView } from './hold'
 import { isTipMessage, tipText, type EntryMessage, type Tip, type TipMessage } from './entry'
-import { detectNerd, FOOTER_ROWS, lookFor, paneFooter, sepText, type IconMode, withMark } from './look'
+import { detectNerd, FOOTER_ROWS, lookFor, paneFooter, type IconMode, withMark } from './look'
 import { pillRow, splitRow, tabRow, tipLine } from './pills'
-import { settingChoice, settingsBody, type Action, type Previews, type Range } from './settings'
+import { openSetting, settingChoice, settingsBody, type Action, type Previews, type Range } from './settings'
 import text from './text'
 import { TOAST_MS, ToastList, toastCards } from './toasts'
-import { fill, MARK, statusColor, THEME } from './theme'
+import { fill, MARK, THEME } from './theme'
 
 // The person's settings (userConfig), fixed per activation: a change reloads the mod.
 let enabled = true
@@ -393,6 +393,7 @@ export const register: Register = (on, options) => {
       $.ui.invalidate('ui.render')
       return next(e)
     }
+    openSetting($, e.data)
     const change = settingChoice(e.data)
     if (change) await saveSetting($, change.key, change.value)
     // The card's choices are entry Clients; a click posts the entry's id.
@@ -523,11 +524,10 @@ export const register: Register = (on, options) => {
 
     return (
       <Box flexDirection="column" backgroundColor={THEME.bg} paddingX={1} minHeight={e.props.scroll.bodyRows}>
-        {tabRow({ Box, Client, Text }, look.nerd, [{ id: 'mod-collision-guard-settings-tab', label: `${text.paneTitle} ${MARK.sep} ${text.paneTitleSettings}`, icon: look.glyph.gear, isOpen: true, tip: { glyph: look.glyph.gear, label: text.paneTitleSettings, text: text.tipTabSettings } }], still)}
-        {sepText({ Text }, withMark(look, note) || `${text.defaultNote} ${MARK.sep} ${text.defaultNoteTail}`, statusColor(note), 'settings-note', { wrap: 'truncate-end' })}
-        {settingsBody({ Box, Button, Client, Text }, look, { rows, actions, working: false, run, previews, fields, still })}
+        {tabRow({ Box, Client, Text }, look.nerd, [{ id: 'mod-collision-guard-settings-tab', label: `${text.paneTitle} ${MARK.sep} ${text.paneTitleSettings}`, icon: look.glyph.icon['collision-guard'] ?? '', isOpen: true, tip: { glyph: look.glyph.gear, label: text.paneTitleSettings, text: text.tipTabSettings } }], still)}
+        {settingsBody({ Box, Button, Client, Text }, look, { rows, actions, working: false, run, previews, fields, still, mod: 'mod-collision-guard' })}
         <Box key="footer-space" height={FOOTER_ROWS} flexShrink={0} />
-        {paneFooter({ Box, Text }, hoveredTip(), e.props.bodyColumns, e.props.scroll)}
+        {paneFooter({ Box, Text }, hoveredTip(), e.props.bodyColumns, e.props.scroll, [], { hint: `${text.defaultNote} ${MARK.sep} ${text.defaultNoteTail}`, status: withMark(look, note) })}
       </Box>
     )
   })

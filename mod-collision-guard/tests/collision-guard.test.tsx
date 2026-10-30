@@ -687,8 +687,13 @@ const PILL_CAP = new RegExp(String.fromCodePoint(0xe0b6))
 
 test('its settings pane draws the heading, a setting and the action', async ($, on) => {
   const ui = await paneOf($, on)
-  expect(JSON.stringify(await ui.drawn({ in: 'mod-collision-guard-settings-tab' }))).toMatch(/Collision guard [^]*"#3B446A"[^]*·[^]* Settings/)
-  expect(await ui.find({ type: 'Text', text: /^Guard edits$/ })).toBeDefined()
+  // The lone view is the mod name segment; the gear chip is pinned right and active.
+  expect(JSON.stringify(await ui.drawn({ in: 'mod-collision-guard-settings-tab-name' }))).toContain('Collision guard')
+  expect(JSON.stringify(await ui.drawn({ in: 'mod-collision-guard-settings-tab' }))).toContain(THEME.ok)
+  expect(await ui.find({ key: 'settings-note' })).toBeUndefined()
+  expect(JSON.stringify(await ui.find({ key: 'pane-footer' }))).toContain('Click a setting')
+  expect(JSON.stringify(await ui.drawn())).toContain('mod-collision-guard')
+  expect(JSON.stringify(await ui.drawn({ in: 'setting-name-0' }))).toContain(' Guard edits ')
   expect(await ui.find({ type: 'Button', text: /Forget this session's recorded edits/ })).toBeDefined()
   await ui.unmount()
 })
@@ -815,6 +820,6 @@ test('a toast leaves on its own after the timeout', async ($, on) => {
 
 test('animations off still draws the settings pane', { options: { animations: false } }, async ($, on) => {
   const ui = await paneOf($, on)
-  expect(JSON.stringify(await ui.drawn({ in: 'mod-collision-guard-settings-tab' }))).toContain('Settings')
+  expect(JSON.stringify(await ui.drawn({ in: 'mod-collision-guard-settings-tab-name' }))).toContain('Collision guard')
   await ui.unmount()
 })
