@@ -7,7 +7,8 @@ import { cardFill } from './look'
 import { THEME } from './theme'
 
 // time, mark and summary are drawn as given (the caller pads them so the row has one fixed width); markColor and the summary tone follow the note's state.
-export type RowProps = { id: string; time: string; mark: string; summary: string; isSelected: boolean; isUnread: boolean; still?: boolean; tip: Tip }
+// scope: the outer row Box the engine lights, since the jump chip over the row can eat the Client's leave event.
+export type RowProps = { id: string; time: string; mark: string; summary: string; isSelected: boolean; isUnread: boolean; still?: boolean; tip: Tip; scope?: string }
 
 type State = { isOver: boolean; level: number }
 
@@ -32,7 +33,7 @@ const startFade = (surface: ClientSurface<State>) => {
 const Row: ClientModule<RowProps, State> = (props, surface) => {
   const { Box, Text } = surface.elements
   if (!surface.state) surface.setState({ isOver: false, level: 0 })
-  const level = surface.state?.level ?? 0
+  const level = props.scope ? 0 : (surface.state?.level ?? 0)
 
   surface.onPointer(event => {
     const base = surface.state ?? { isOver: false, level: 0 }
@@ -43,17 +44,19 @@ const Row: ClientModule<RowProps, State> = (props, surface) => {
     if (event.type === 'down' && event.button === 'left') surface.post({ type: 'menu-entry', id: props.id } satisfies EntryMessage)
   })
 
-  // Selected is accent and bold, an unread note onSurface, a read one muted: the mark says the same, so no state rides on one cue.
-  const rest = props.isSelected ? THEME.accent : props.isUnread ? THEME.onSurface : THEME.muted
-  const bg = hoverMix(cardFill(), THEME.surface2, level)
+  // The selected row sits on surface-3 in primary-70 and bold; every other row's text is muted, and the mark says whether it is unread.
+  const rest = props.isSelected ? THEME.ok : THEME.muted
+  const bg = props.isSelected ? hoverMix(THEME.surface3, THEME.lifted, level) : hoverMix(cardFill(), THEME.surface2, level)
   const tone = (from: string) => hoverMix(from, THEME.accent, level)
   const markRest = props.isSelected || props.isUnread ? THEME.accent : THEME.muted
 
+  const litBg = props.isSelected ? THEME.lifted : THEME.surface2
+  const lit = props.scope ? { hover: { scope: props.scope, color: THEME.accent, backgroundColor: litBg } } : {}
   return (
-    <Box flexDirection="row" backgroundColor={bg}>
-      <Text color={tone(THEME.muted)} backgroundColor={bg}>{props.time}</Text>
-      <Text color={tone(markRest)} backgroundColor={bg}>{props.mark}</Text>
-      <Text color={tone(rest)} bold={props.isSelected} backgroundColor={bg}>{props.summary}</Text>
+    <Box flexDirection="row" backgroundColor={bg} {...(props.scope ? { hover: { scope: props.scope, backgroundColor: litBg } } : {})}>
+      <Text color={tone(THEME.muted)} backgroundColor={bg} {...lit}>{props.time}</Text>
+      <Text color={tone(markRest)} backgroundColor={bg} {...lit}>{props.mark}</Text>
+      <Text color={tone(rest)} bold={props.isSelected} backgroundColor={bg} {...lit}>{props.summary}</Text>
     </Box>
   )
 }

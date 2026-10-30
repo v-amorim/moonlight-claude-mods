@@ -11,9 +11,9 @@ import { countSpawn, countTool, endTurn, receiptLine, receiptOf, startTurn, type
 import { recordSpend } from './spend'
 import { isPrompt, PLACEHOLDER, PromptNumbers } from './prompts'
 import { badgeOf, iconChip, labelsOf, menuEntry, pill, PILL, pillRow, splitRow, tabRow, tipLine } from './pills'
-import { actionReveals, settingChoice, settingsBody, type Action, type Previews } from './settings'
+import { actionReveals, openSetting, settingChoice, settingsBody, type Action, type Previews } from './settings'
 import text from './text'
-import { fill, MARK, statusColor, THEME } from './theme'
+import { fill, MARK, THEME } from './theme'
 import type { RowProps } from './timeline'
 import { TOAST_MS, ToastList, toastCards } from './toasts'
 import { bytesOf, CHUNK_BYTES, chunkArgv, feedLines, utf8Length, WHOLE_READ_BYTES } from './transcript'
@@ -288,6 +288,8 @@ const noteOf = (id: string) => saved.notes.find(each => each.id === id)
 
 const ASK_TIMEOUT_MS = 120_000
 
+const LANGUAGE_RULE = "Write in the language the user writes in, judged from the user's most recent messages; keep code, paths, commands, identifiers and engineering jargon engineers say in English (commit, branch, deploy, snapshot) in English."
+
 const REASON_CHARS = 80
 
 // The session that already got the "side check unavailable" toast.
@@ -307,7 +309,8 @@ const apiReason = (reply: { isAnswered: boolean; reason?: string; status?: numbe
   reply.isAnswered || reply.reason !== 'api-error' ? null : [reply.error ?? '', reply.status ? String(reply.status) : ''].filter(Boolean).join(' ')
 
 // A fork runs at the session's effort and reads its cache; above medium, or with nothing to fork yet, the packed conversation goes to the session's model at medium.
-async function ask($: EngineInterface, prompt: string) {
+async function ask($: EngineInterface, question: string) {
+  const prompt = `${question}\n\n${LANGUAGE_RULE}`
   try {
     if (canFork(lastEffort)) {
       // $.model.fork takes no timeoutMs, so a fork that never answers is cut here.
@@ -744,6 +747,7 @@ export const register: Register = (on, options) => {
   })
 
   on('ui.message', async ($, e, next) => {
+    openSetting($, e.data)
     const change = settingChoice(e.data)
     if (change) await saveSetting($, change.key, change.value)
     if (isTipMessage(e.data)) {
@@ -877,10 +881,9 @@ export const register: Register = (on, options) => {
       return (
         <Box flexDirection="column" backgroundColor={THEME.bg} paddingX={1} minHeight={e.props.scroll.bodyRows}>
           {tabRow({ Box, Client, Text }, nerd, tabs(true), still)}
-          <Text wrap="truncate-end" color={statusColor(note)}>{withMark(look, note) || fill(text.settingsHint, { sep: MARK.sep })}</Text>
-          {settingsBody({ Box, Button, Client, Text }, look, { rows, actions, working: false, run, previews, tips: text.settingTips, still })}
+          {settingsBody({ Box, Button, Client, Text }, look, { rows, actions, working: false, run, previews, tips: text.settingTips, still, mod: 'mod-heads-up' })}
           <Box key="footer-space" height={FOOTER_ROWS} flexShrink={0} />
-          {paneFooter(elements, paneTip, e.props.bodyColumns, e.props.scroll, actionReveals(actions, look, false))}
+          {paneFooter(elements, paneTip, e.props.bodyColumns, e.props.scroll, actionReveals(actions, look, false), { hint: fill(text.settingsHint, { sep: MARK.sep }), status: withMark(look, note) })}
         </Box>
       )
     }
@@ -897,7 +900,7 @@ export const register: Register = (on, options) => {
       const isCut = found.body.some(line => line.length + 2 > e.props.bodyColumns - 2 - 4)
       const isFull = isCut && fullNote === found.id
       const close = pill({ Box, Text }, nerd, THEME.surface3, <Client key="headsup-close" module="./entry.tsx" height={1} props={{ id: 'headsup-close', label: bare(look.glyph.close), isOpen: true, bg: THEME.surface3, nerd, still, tip: { glyph: bare(look.glyph.close), label: text.close, text: text.tipClose } } satisfies EntryProps} />, 'headsup-close-pill', THEME.bg)
-      return section(elements, look, 'note-card', '', `${turn} ${clock(found.at)}`, [
+      return section(elements, look, 'note-card', 'menu-headsup', `${turn} ${clock(found.at)}`, [
         // A floor on the height, so a short note never moves the actions; a long one grows the card instead of losing rows.
         <Box key="note-card-text" flexDirection="column" flexShrink={0} minHeight={NOTE_TEXT_ROWS}>
           <Box key={`summary-${found.id}`}>
@@ -926,17 +929,17 @@ export const register: Register = (on, options) => {
     }
 
     const timeline = (list: Note[], selected: Note | undefined) =>
-      section(elements, look, 'note-timeline', '', '', list.map(found => {
+      section(elements, look, 'note-timeline', 'menu-headsup', text.notesTitle, list.map(found => {
         const isSelected = found.id === selected?.id
         const time = clock(found.at)
-        // Pane padding, section border and padding, the time, the dot, gaps, and the ↗ pill.
+        // Pane padding, section border and padding, the time, the dot, gaps, and the ↗ chip's room.
         const room = Math.max(8, inner - time.length - 11)
         return (
           <Box key={`note-row-${found.id}`} flexDirection="row">
-            <Client key={`headsup-note-${found.id}`} module="./timeline.tsx" height={1} props={{ id: `headsup-note-${found.id}`, time: ` ${time} `, mark: ` ${found.isRead && !isSelected ? MARK.stop : MARK.stopOpen}`, summary: ` ${fit(found.learn, room).padEnd(room)} `, isSelected, isUnread: !found.isRead, still, tip: { glyph: bare(look.glyph.expanded), label: text.noteLabel, text: text.tipNote } } satisfies RowProps} />
-            <Box key={`note-gap-${found.id}`} flexGrow={1} />
-            <Box key={`note-jump-pill-${found.id}`} flexShrink={0}>
-              {iconChip({ Box, Text }, nerd, `note-jump-box-${found.id}`, cardFill(),
+            <Client key={`headsup-note-${found.id}`} module="./timeline.tsx" height={1} props={{ id: `headsup-note-${found.id}`, time: ` ${time} `, mark: ` ${found.isRead && !isSelected ? MARK.stop : MARK.stopOpen}`, summary: ` ${fit(found.learn, room).padEnd(room)} `, isSelected, isUnread: !found.isRead, still, tip: { glyph: bare(look.glyph.expanded), label: text.noteLabel, text: text.tipNote }, scope: `note-row-${found.id}` } satisfies RowProps} />
+            {/* The ↗ chip shows only while the pointer is on the row, and grows its name under the pointer itself. */}
+            <Box key={`note-jump-reveal-${found.id}`} position="absolute" top={0} right={0} display="none" hover={{ scope: `note-row-${found.id}`, display: 'flex' }}>
+              {iconChip({ Box, Text }, nerd, `note-jump-box-${found.id}`, isSelected ? THEME.surface3 : cardFill(),
                 <Button key={`note-jump-${found.id}`} label={nerd ? MARK.open : ` ${MARK.open} `} plain hover={{ scope: `note-jump-box-${found.id}`, color: THEME.accent }} onPress={() => jump($, found.turn, found.promptId ?? '')} />,
                 <Button key={`note-jump-grown-${found.id}`} label={` ${MARK.open} ${text.jumpLabel} `} plain hover={{ scope: `note-jump-grown-${found.id}`, color: THEME.lifted, backgroundColor: THEME.accent }} onPress={() => jump($, found.turn, found.promptId ?? '')} />,
                 true,
@@ -944,7 +947,21 @@ export const register: Register = (on, options) => {
             </Box>
           </Box>
         )
-      }))
+      }), THEME.accent, { hint: String(list.length) })
+
+    // Nothing noted yet: a titled box with its muted line and a button that runs a check now.
+    const emptyBox = () => {
+      const checkNow = isChecking ? (
+        <Text key="check-busy" color={THEME.muted}>{text.checking}</Text>
+      ) : (
+        <Box key="check-now" flexDirection="row" marginTop={1}>
+          {pill({ Box, Text }, nerd, THEME.surface3, (
+            <Button key="check-now-button" label={nerd ? text.checkNow : ` ${text.checkNow} `} plain hover={{ scope: 'check-now-pill', color: THEME.lifted, backgroundColor: THEME.accent }} onPress={() => check($)} />
+          ), 'check-now-pill', cardFill(), THEME.lifted)}
+        </Box>
+      )
+      return section(elements, look, 'note-timeline', 'menu-headsup', text.notesTitle, [<Text key="notes-empty" color={THEME.muted}>{text.empty}</Text>, checkNow])
+    }
 
     // One row, always: Reword swaps the other two buttons for its three choices, so no button changes place with the note's text.
     // The expand standard: the arrow, then a muted label, on the card's own fill, at the action row's right end.
@@ -987,12 +1004,10 @@ export const register: Register = (on, options) => {
     return (
       <Box flexDirection="column" backgroundColor={THEME.bg} paddingX={1} minHeight={e.props.scroll.bodyRows}>
         {tabRow({ Box, Client, Text }, nerd, tabs(false), still)}
-        <Text wrap="truncate-end" color={statusColor(note)}>{withMark(look, note) || fill(text.hint, { sep: MARK.sep })}</Text>
-        <Text wrap="truncate-end" color={THEME.muted}>{checkedLine}</Text>
-        {selected ? noteCard(selected) : chronological.length === 0 ? <Text color={THEME.muted}>{text.empty}</Text> : null}
-        {chronological.length > 0 ? timeline(chronological, selected) : null}
+        {selected ? noteCard(selected) : null}
+        {chronological.length > 0 ? timeline(chronological, selected) : emptyBox()}
         <Box key="footer-space" height={FOOTER_ROWS} flexShrink={0} />
-        {paneFooter(elements, paneTip, e.props.bodyColumns, e.props.scroll, jumpReveals)}
+        {paneFooter(elements, paneTip, e.props.bodyColumns, e.props.scroll, chronological.length === 0 && !isChecking ? [{ scope: 'check-now-pill', tip: { glyph: bare(look.glyph.go), label: text.checkNow, text: text.tipCheckNow } }] : jumpReveals, { hint: fill(text.hint, { sep: MARK.sep }), status: withMark(look, note) || checkedLine })}
       </Box>
     )
   })

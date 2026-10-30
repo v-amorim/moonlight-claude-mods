@@ -2,7 +2,7 @@
 import { expect, test } from 'claude-code/testing'
 
 import { lookFor } from '../hooks/look'
-import { settingsBody } from '../hooks/settings'
+import { openSetting, settingsBody } from '../hooks/settings'
 import { capture, EXAMPLE_COLUMNS, expectPreview, written, type Captured } from './previews-kit'
 
 const none = async () => ({ type: 'Text', children: [''] })
@@ -51,6 +51,7 @@ test('a settings card cuts an example line that outgrew a narrow pane instead of
   const line = { spans: [{ text: 'a line' }] }
   const preview = { nerd: [line], safe: [line] }
   const rows = [{ key: 'mod.flag', label: 'Flag', kind: 'boolean', value: true, description: 'd' }] as never
+  openSetting({ ui: { invalidate: () => undefined } }, { type: 'menu-entry', id: 'setting-open:mod.flag' })
   const body = settingsBody(els, lookFor(false), { rows, actions: [], working: false, run: () => undefined, previews: { flag: { true: preview } } })
   const found: any[] = []
   const walk = (node: any) => {

@@ -9,6 +9,7 @@ const test = (name: string, ...rest: TestRest) => {
 }
 
 import Row from '../hooks/timeline'
+import { THEME } from '../hooks/theme'
 
 // The host test types ship no DOM or node globals.
 declare const setTimeout: (handler: (value: unknown) => void, ms: number) => unknown
@@ -267,6 +268,22 @@ test('with nothing to fork yet the check falls back to the uncached route', asyn
   const ui = await band($)
   expect(await ui.find({ key: 'headsup-card' })).toBeDefined()
   await ui.unmount()
+})
+
+const LANGUAGE_RULE = "Write in the language the user writes in, judged from the user's most recent messages; keep code, paths, commands, identifiers and engineering jargon engineers say in English (commit, branch, deploy, snapshot) in English."
+
+test('the forked check carries the language rule', async ($, on) => {
+  const { clock, forks } = setup(on)
+  await finding($, clock)
+  expect(forks[0]).toContain(LANGUAGE_RULE)
+})
+
+test('the uncached check carries the language rule too', async ($, on) => {
+  const { clock, completes } = setup(on)
+  await $.prompt.submit({ text: 'Add follow-ups to /ask' } as never)
+  await step($, 6, { effort: 'high' })
+  await clock.settle()
+  expect(completes[0]!.prompt).toContain(LANGUAGE_RULE)
 })
 
 test('a failed side call raises one "Side check unavailable" toast per session, with the reason', async ($, on) => {
@@ -980,15 +997,14 @@ test('the pointer lights a whole timeline row one step up with accent text, and 
   expect(running.size).toBe(0)
 })
 
-test('with animations off a timeline row goes back to rest at once', { options: { animations: false } }, async ($, on) => {
+test('a pane row lights through its row hover scope, so a leave event lost under the jump chip cannot leave it lit', async ($, on) => {
   const { store } = setup(on)
   seedNotes(store)
   const panel = await pane($)
   const row = 'headsup-note-n1-1'
+  expect(await drawn(panel, row)).toContain(`"hover":{"scope":"note-row-n1-1","backgroundColor":"${ROW_HOVER}"}`)
   await panel.pointer({ in: row, type: 'enter', x: 3, y: 0 })
-  expect(await drawn(panel, row)).toContain(ROW_HOVER)
-  await panel.pointer({ in: row, type: 'leave', x: 0, y: 0 })
-  expect(await drawn(panel, row)).not.toContain(ROW_HOVER)
+  expect(await drawn(panel, row)).toContain(`"props":{"flexDirection":"row","backgroundColor":"${CARD_FILL}"}`)
   await panel.unmount()
 })
 
@@ -1021,8 +1037,61 @@ test('each jump pill has its tip as a footer reveal tied to its hover group', as
   const panel = await pane($)
   expect(JSON.stringify(await panel.drawn())).toContain('"scope":"note-jump-box-n1-1"')
   expect(await panel.find({ type: 'Text', text: /scrolls the chat to this turn/ })).toBeDefined()
-  expect(await panel.find({ type: 'Text', text: /Jump to turn/ })).toBeDefined()
+  expect(await panel.find({ type: 'Text', text: /^ Jump$/ })).toBeDefined()
   await panel.unmount()
+})
+
+test('the selected note row sits on surface-3 in primary-70 bold, every other row is muted, and the ↗ chip waits behind the row\'s hover scope', async ($, on) => {
+  const { store } = setup(on)
+  seedNotes(store)
+  const panel = await pane($)
+  const selected = await drawn(panel, 'headsup-note-n3-3')
+  expect(selected).toContain(`"color":"${THEME.ok}","bold":true`)
+  expect(selected).toContain(THEME.surface3)
+  for (const rest of ['headsup-note-n1-1', 'headsup-note-n2-2']) {
+    const row = await drawn(panel, rest)
+    expect(row).not.toContain(THEME.onSurface)
+    expect(row).not.toContain(THEME.surface3)
+    expect(row).toContain(`"color":"${THEME.muted}","bold":false`)
+  }
+  expect(JSON.stringify(await panel.drawn())).toContain('"key":"note-jump-reveal-n1-1","position":"absolute","top":0,"right":0,"display":"none"},"hover":{"scope":"note-row-n1-1","display":"flex"}')
+  await panel.unmount()
+})
+
+test('the hint rides the pinned footer, the last check is its status line, and the box is titled Notes with its count', async ($, on) => {
+  const { store } = setup(on)
+  seedNotes(store)
+  const panel = await pane($)
+  expect(await panel.find({ type: 'Text', text: 'Notes' })).toBeDefined()
+  const footer = JSON.stringify(await panel.find({ key: 'pane-footer' }))
+  expect(footer).toContain('Click a note to read it')
+  expect(footer).toContain('No check yet')
+  await panel.unmount()
+})
+
+test('with no notes the Notes box holds the muted empty line and a Check now button that runs a check', async ($, on) => {
+  const { forks, completes, clock } = setup(on, { reply: () => answered('learn: none') })
+  const panel = await pane($)
+  expect(await panel.find({ type: 'Text', text: 'Notes' })).toBeDefined()
+  expect(await panel.find({ type: 'Text', text: 'No notes yet. A check runs during long turns.' })).toBeDefined()
+  expect(await panel.find({ type: 'Button', text: /Check now/ })).toBeDefined()
+  expect(JSON.stringify(await panel.drawn())).toContain('"scope":"check-now-pill"')
+  await panel.press({ key: 'check-now-button' })
+  await clock.settle()
+  expect(forks.length + completes.length).toBe(1)
+  await panel.unmount()
+})
+
+test('the Settings view draws the gear active, its hint in the footer and the mod name in the card title', async ($, on) => {
+  setup(on)
+  const settings = await $.ui.mount({ plugin: 'mod-heads-up', surface: 'terminal', component: 'Pane', requestId: 'headsup-settings', props: PANE_PROPS } as never)
+  const gear = await drawn(settings, 'headsup-settings')
+  expect(gear).toContain(THEME.ok)
+  expect(gear).toContain(THEME.lifted)
+  expect(await drawn(settings, 'headsup-tab')).not.toContain(THEME.ok)
+  expect(JSON.stringify(await settings.find({ key: 'pane-footer' }))).toContain('Click a setting to change it')
+  expect(JSON.stringify(await settings.drawn())).toContain('mod-heads-up')
+  await settings.unmount()
 })
 
 test('mod-menu labels never hides the pill label on Nerd and keeps the icon', { options: { icons: 'nerd' } }, async ($, on) => {

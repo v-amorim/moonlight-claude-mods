@@ -33,6 +33,7 @@ export type EntryProps = {
   rail?: boolean
   rule?: boolean
   spinner?: boolean
+  bold?: boolean // the label bold, open or not (an open entry with an idle color is bold by default)
   compact?: boolean // false: the pill row may cut the entry to its lead when the row is wider than the band
 }
 
@@ -215,7 +216,7 @@ const Entry: ClientModule<EntryProps, State> = (props, surface) => {
       ))}
     </Box>
   ) : (
-    <Text key="label" color={hoverMix(props.isOpen ? (props.color ?? THEME.onSurface) : (props.idle ?? THEME.muted), THEME.accent, surface.state?.level ?? 0)} bold={props.isOpen && Boolean(props.idle)} backgroundColor={props.bg} {...litAs(props.lift?.label)}>
+    <Text key="label" color={hoverMix(props.isOpen ? (props.color ?? THEME.onSurface) : (props.idle ?? THEME.muted), THEME.accent, surface.state?.level ?? 0)} bold={props.bold ?? (props.isOpen && Boolean(props.idle))} backgroundColor={props.bg} {...litAs(props.lift?.label)}>
       {text.split(style.marks.sep).flatMap((part, at) => (at === 0 ? [part] : [<Text key={`sep-${at}`} color={style.colors.pills.separator}>{style.marks.sep}</Text>, part]))}
     </Text>
   )
