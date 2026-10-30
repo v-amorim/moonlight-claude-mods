@@ -367,8 +367,13 @@ test('/mod-model-effort settings opens the pane and the pane draws a setting row
   expect(opened).toEqual(['model-effort-settings'])
 
   const pane = await $.ui.mount({ plugin: 'mod-model-effort', surface: 'terminal', component: 'Pane', requestId: 'model-effort-settings', props: { scroll: { offset: 0, bodyRows: 20 }, bodyColumns: 80 } } as never)
-  expect(JSON.stringify(await pane.drawn({ in: 'mod-model-effort-settings-tab' }))).toMatch(/Effort [^]*"#3B446A"[^]*·[^]* Settings/)
-  expect(await pane.find({ type: 'Text', text: 'Animations' })).toBeDefined()
+  // The lone view is the mod name segment; the gear chip is pinned right and active.
+  expect(JSON.stringify(await pane.drawn({ in: 'mod-model-effort-settings-tab-name' }))).toContain('Effort')
+  expect(JSON.stringify(await pane.drawn({ in: 'mod-model-effort-settings-tab' }))).toContain(THEME.ok)
+  expect(await pane.find({ key: 'settings-status' })).toBeUndefined()
+  expect(JSON.stringify(await pane.find({ key: 'pane-footer' }))).toContain('Click a setting to change it')
+  expect(JSON.stringify(await pane.drawn())).toContain('mod-model-effort')
+  expect(JSON.stringify(await pane.find({ key: 'setting-name-0' }))).toContain('Animations')
   await pane.unmount()
 })
 

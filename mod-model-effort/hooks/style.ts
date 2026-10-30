@@ -137,7 +137,9 @@ export default {
     "locked": "locked",
     "editInConfig": "edit it in /config",
     "idleOnly": "available once Claude is idle",
-    "runsCommand": "runs /{command}"
+    "runsCommand": "runs /{command}",
+    "showSetting": "shows what this setting does",
+    "hideSetting": "hides its description"
   },
   "marks": {
     "stage": "▸",
@@ -262,7 +264,12 @@ export default {
         "menu-prompts": "{U+F075}",
         "menu-filetree": "{U+EB86}",
         "menu-progress": "{U+EBBC}",
-        "menu-headsup": "{U+EA6C}"
+        "menu-headsup": "{U+EA6C}",
+        "collision-guard": "{U+F132}",
+        "model-effort": "{U+F04C5}",
+        "next-steps": "{U+F04E}",
+        "transcript": "{U+F09ED}",
+        "wrap-up": "{U+F03D7}"
       },
       "mark": {
         "thinking": "{U+F09D1}",

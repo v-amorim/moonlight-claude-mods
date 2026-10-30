@@ -5,12 +5,12 @@ import type { ConfigValue, EngineInterface, Register, RenderElement } from 'clau
 import { bridgeOn, endBridge, startBridge, type BridgeRecord } from './bridge'
 import { displayName, LEVEL_LOOK, LEVELS, plainModel, withEffort, withModel } from './levels'
 import { entryCells, isTipMessage, tipText, type EntryMessage, type EntryProps, type Tip, type TipMessage } from './entry'
-import { cardFill, detectNerd, FOOTER_ROWS, lookFor, paneFooter, sepText, titleEdge, type IconMode, withMark } from './look'
+import { cardFill, detectNerd, FOOTER_ROWS, lookFor, paneFooter, titleEdge, type IconMode, withMark } from './look'
 import { meterCells, type MeterMessage } from './meter'
-import { settingChoice, settingsBody } from './settings'
+import { openSetting, settingChoice, settingsBody } from './settings'
 import style from './style'
 import { firstText, isSpeed, replySpeed, watch } from './speed'
-import { fill, MARK, statusColor, THEME } from './theme'
+import { fill, MARK, THEME } from './theme'
 import { labelsOf, PILL, pill, pillRow, splitRow, tabRow, tipLine } from './pills'
 import text from './text'
 import { TOAST_MS, ToastList, toastCards } from './toasts'
@@ -506,6 +506,7 @@ export const register: Register = (on, options) => {
       $.ui.invalidate('ui.render')
       return next(e)
     }
+    openSetting($, e.data)
     const change = settingChoice(e.data)
     if (change) await saveSetting($, change.key, change.value)
     const clicked = e.data as EntryMessage
@@ -623,11 +624,10 @@ export const register: Register = (on, options) => {
 
     return (
       <Box flexDirection="column" backgroundColor={THEME.bg} paddingX={1} minHeight={e.props.scroll.bodyRows}>
-        {tabRow({ Box, Client, Text }, look.nerd, [{ id: 'mod-model-effort-settings-tab', label: `${text.paneName} ${MARK.sep} ${text.paneSettings}`, icon: look.glyph.gear, isOpen: true, tip: { glyph: look.glyph.gear, label: text.paneSettings, text: text.tipTab } }], still)}
-        {sepText({ Text }, withMark(look, note) || `${text.statusHint} ${MARK.sep} ${text.statusHintSaved}`, statusColor(note), 'settings-status', { wrap: 'truncate-end' })}
-        {settingsBody({ Box, Button, Client, Text }, look, { rows, actions: [], working: false, run: async () => {}, previews: undefined, still: still })}
+        {tabRow({ Box, Client, Text }, look.nerd, [{ id: 'mod-model-effort-settings-tab', label: `${text.paneName} ${MARK.sep} ${text.paneSettings}`, icon: look.glyph.icon['model-effort'] ?? '', isOpen: true, tip: { glyph: look.glyph.gear, label: text.paneSettings, text: text.tipTab } }], still)}
+        {settingsBody({ Box, Button, Client, Text }, look, { rows, actions: [], working: false, run: async () => {}, previews: undefined, still: still, mod: 'mod-model-effort' })}
         <Box key="footer-space" height={FOOTER_ROWS} flexShrink={0} />
-        {paneFooter({ Box, Text }, paneTip, e.props.bodyColumns, e.props.scroll)}
+        {paneFooter({ Box, Text }, paneTip, e.props.bodyColumns, e.props.scroll, [], { hint: `${text.statusHint} ${MARK.sep} ${text.statusHintSaved}`, status: withMark(look, note) })}
       </Box>
     )
   })
