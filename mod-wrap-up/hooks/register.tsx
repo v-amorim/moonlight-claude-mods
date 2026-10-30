@@ -3,18 +3,18 @@
 import type { ConfigValue, EngineInterface, ModelCompleteRequest, ModelCompleteResult, ModelForkResult, Register, RenderElement } from 'claude-code'
 
 import { AUTO_SYSTEM, autoPrompt, capWords, clampCompactAt, clampCompactTokens, clampEvery, emptyLedger, flip, gatherFragments, isDue, ledgerMarkdown, MAX_PENDING, mergeDelta, mergeFragments, parseRelated, pendingCandidates, parseUpdate, readLedger, RELATED_SYSTEM, relatedPrompt, restoreContext, shortGoal, shouldCompact, yieldsToManual, countGates, type Carry, type CompactMarks, type Fragment, type GatesRun, type Ledger } from './ledger'
-import { ALSO_KEEP, buildPrompt, clampWords, compactNote, FORK_FAILURES, isFresh, parseNames, parseThreads, scopeNote, threadsPrompt, THREADS_SYSTEM, transcriptText, type AlsoId, type Names, type Thread } from './handoff'
+import { ALSO_KEEP, buildPrompt, LANGUAGE_RULE, clampWords, compactNote, FORK_FAILURES, isFresh, parseNames, parseThreads, scopeNote, threadsPrompt, THREADS_SYSTEM, transcriptText, type AlsoId, type Names, type Thread } from './handoff'
 import { cardFill, detectNerd, FOOTER_ROWS, lookFor, paneFooter, sepText, titleEdge, type IconMode, withMark } from './look'
 import { isTipMessage, tipText, type EntryMessage, type EntryProps, type Tip, type TipMessage } from './entry'
 import { choiceCells, type ChoiceProps } from './choice'
 import { labelsOf, PILL, pill, pillRow, splitRow, tabRow, tipLine } from './pills'
 import { TOAST_MS, ToastList, toastCards } from './toasts'
-import { actionReveals, settingChoice, settingsBody, type Action, type Previews, type Range } from './settings'
+import { actionReveals, openSetting, settingChoice, settingsBody, type Action, type Previews, type Range } from './settings'
 import { recordSpend } from './spend'
 import { bridgeOn, endBridge, startBridge, type BridgeRecord } from './bridge'
 import { bytesOf, chunkArgv, scanTail } from './tail'
 import text from './text'
-import { lateNext, latestTitle, linked, planNames, remember, type NamePlan } from './titles'
+import { lateNext, latestTitle, planNames, remember, type NamePlan } from './titles'
 import style from './style'
 import { fill, MARK, statusColor, THEME } from './theme'
 
@@ -53,10 +53,10 @@ let countToken = 0
 let chain = ''
 let clearedFrom = ''
 // The first prompt after a clear was carried or started fresh; held is the other chain a switch brings back.
-// link: the two sessions' own names for the card's header; isFull: the cut goal shows in full.
-type Link = { previous: string; current: string }
+// link: the two sessions' own names and hops, and their topic, for the card's header; isFull: the cut goal shows in full.
+type Link = Pick<NamePlan, 'oldOwn' | 'nextOwn' | 'topic' | 'oldHop' | 'nextHop'>
 type Choice = { carry: Carry; goal: string; token: number; link: Link; isFull: boolean }
-const NO_LINK: Link = { previous: '', current: '' }
+const NO_LINK: Link = { oldOwn: '', nextOwn: '', topic: '', oldHop: 0, nextHop: 0 }
 let choice: Choice | null = null
 let choiceToken = 0
 let held: string | null = null
@@ -67,11 +67,11 @@ let pickThreads = true
 let note = ''
 
 type Mode = 'handoff' | 'compact'
-type NameId = keyof Names
+type NameId = 'this' | 'next'
 const NAME_IDS: NameId[] = ['this', 'next']
-const NO_NAMES: Names = { this: '', next: '' }
+const NO_NAMES: Names = { this: '', next: '', topic: '' }
 // The card that picks what carries over; threads and names are null while Haiku still reads the session.
-type Card = { mode: Mode; threads: Thread[] | null; kept: boolean[]; also: Record<AlsoId, boolean>; names: Names | null; useNames: Record<NameId, boolean>; token: number }
+type Card = { mode: Mode; threads: Thread[] | null; kept: boolean[]; also: Record<AlsoId, boolean>; names: Names | null; hops: { old: number; next: number }; useNames: Record<NameId, boolean>; token: number }
 
 let card: Card | null = null
 // The choices card a pill cut to its icon opens above the row.
@@ -220,11 +220,16 @@ function openCard($: EngineInterface, mode: Mode) {
     return
   }
   const token = (cardToken += 1)
-  card = { mode, threads: pickThreads ? null : [], kept: [], also: defaultAlso(), names: null, useNames: { this: true, next: true }, token }
+  card = { mode, threads: pickThreads ? null : [], kept: [], also: defaultAlso(), names: null, hops: { old: 0, next: 0 }, useNames: { this: true, next: true }, token }
   $.ui.invalidate('ui.render')
-  void readSession($).then(({ threads, names }) => {
+  void readSession($).then(async ({ threads, names }) => {
+    // The card shows the topic and hops the rename will use, planned the same way the handoff plans them.
+    const id = await $.session.id().catch(() => '')
+    const dir = autoOn ? await ledgerDir($) : ''
+    const ledger = dir ? await loadLedger($, dir) : null
+    const plan = planNames(await titleOf($, id), await appliedTitles($), names, ledger ? placeIn(ledger, id) : 1)
     if (card?.token !== token) return
-    card = { ...card, names, ...(pickThreads ? { threads, kept: threads.map(() => true) } : {}) }
+    card = { ...card, names: { ...names, topic: plan.topic }, hops: { old: plan.oldHop, next: plan.nextHop }, ...(pickThreads ? { threads, kept: threads.map(() => true) } : {}) }
     $.ui.invalidate('ui.render')
   })
 }
@@ -249,7 +254,7 @@ function toggleLine($: EngineInterface, id: string) {
 
 const keptThreads = (picked: Card) => (picked.threads ?? []).filter((_, at) => picked.kept[at])
 
-const chosenNames = (picked: Card): Names => ({ this: picked.useNames.this ? (picked.names?.this ?? '') : '', next: picked.useNames.next ? (picked.names?.next ?? '') : '' })
+const chosenNames = (picked: Card): Names => ({ this: picked.useNames.this ? (picked.names?.this ?? '') : '', next: picked.useNames.next ? (picked.names?.next ?? '') : '', topic: picked.names?.topic ?? '' })
 
 // The card's go: Compact fills /compact with the picks for review, Handoff writes, clears and fills the handoff.
 async function finishCard($: EngineInterface) {
@@ -291,7 +296,7 @@ async function summarizeTranscript($: EngineInterface, prompt: string): Promise<
   const messages = await $.session.messages()
   if (!Array.isArray(messages) || messages.length === 0) return { isAnswered: false, reason: 'nothing-to-fork' }
   return askHandoffModel($, {
-    system: 'You write session handoffs from a transcript. Tool output is left out; tool calls appear in brackets.',
+    system: `You write session handoffs from a transcript. Tool output is left out; tool calls appear in brackets. ${LANGUAGE_RULE}`,
     prompt: `<transcript>\n${transcriptText(messages)}\n</transcript>\n\n${prompt}`,
     maxTokens: 4000,
   })
@@ -356,8 +361,9 @@ async function keepApplied($: EngineInterface, titles: string[]) {
 }
 
 // What a handoff names the session it leaves and the fresh one, read from the leaving session's own title.
-async function planOf($: EngineInterface, names: Names): Promise<NamePlan> {
-  const plan = planNames(await titleOf($, await $.session.id().catch(() => '')), await appliedTitles($), names)
+async function planOf($: EngineInterface, names: Names, ledger: Ledger | null): Promise<NamePlan> {
+  const id = await $.session.id().catch(() => '')
+  const plan = planNames(await titleOf($, id), await appliedTitles($), names, ledger ? placeIn(ledger, id) : 1)
   await keepApplied($, [plan.old, plan.next])
   return plan
 }
@@ -392,7 +398,8 @@ async function startHandoff($: EngineInterface, scope: string, names: Names = NO
       say($, `${MARK.warn} ${text.startedWorking}`)
       return
     }
-    const plan = await planOf($, names)
+    const dir = autoOn ? await ledgerDir($) : ''
+    const plan = await planOf($, names, dir ? await loadLedger($, dir) : null)
     if (plan.old) await rename($, plan.old, text.renameOldFailed)
     manualAt = await $.clock.now()
     await $.store.set('pending', { text: summary, at: manualAt })
@@ -488,6 +495,9 @@ async function publishPending($: EngineInterface, ledger: Ledger | null) {
 }
 
 const withSession = (ledger: Ledger, id: string) => ({ ...ledger, sessions: ledger.sessions.includes(id) ? ledger.sessions : [...ledger.sessions, id] })
+
+// A session's 1-based place in its chain, the hop its name gets when its title carries none.
+const placeIn = (ledger: Ledger, id: string) => ledger.sessions.indexOf(id) + 1 || ledger.sessions.length || 1
 
 // The chain's gates runs with open boxes, under <GATES_HOME or ~/.claude/gates>/<repo>/<session>; `skip` is a session that already owns its run.
 async function unfinishedRuns($: EngineInterface, ledger: Ledger, skip = ''): Promise<GatesRun[]> {
@@ -585,6 +595,18 @@ async function sessionStarted($: EngineInterface, record: BridgeRecord) {
   const path = String(record.transcript_path ?? '')
   if (session && path) await $.store.set(`transcript:${session}`, { path, at: await $.clock.now() }).catch(() => {})
   if (record.source === 'compact' && !isReplaying) await compactionDone($)
+  if (record.source === 'resume' && session && autoOn) await rejoinChain($, session)
+}
+
+// `claude --resume` starts under a fresh id and switches to the resumed one after openLedger already ran, so the resumed id picks the chain again.
+async function rejoinChain($: EngineInterface, session: string) {
+  const dir = await ledgerDir($)
+  if (!dir) return
+  const found = (await chainOf($, dir, session)) ?? (await chainFor($, dir, [session]))
+  if (found && found !== chain) {
+    chain = found
+    await ledgerFile($)
+  }
 }
 
 const COUNTDOWN_S = 5
@@ -648,7 +670,7 @@ async function handOffAtMark($: EngineInterface, token: number) {
     stopCountdown($)
     carriedAt = await $.clock.now()
     if (!hasOpenTask) await $.store.set('pending', { text: carried, at: carriedAt })
-    const plan = await planOf($, ledger.names)
+    const plan = await planOf($, ledger.names, ledger)
     if (plan.old) await rename($, plan.old, text.renameOldFailed)
     try {
       await $.command.run({ command: 'clear' })
@@ -660,7 +682,7 @@ async function handOffAtMark($: EngineInterface, token: number) {
     }
     if (plan.next) await rename($, plan.next, text.renameFailed)
     await saveLedger($, dir, withSession(ledger, await $.session.id()))
-    showChoice($, 'carried', ledger.goal, { previous: plan.oldOwn, current: plan.nextOwn })
+    showChoice($, 'carried', ledger.goal, plan)
     if (hasOpenTask) await $.prompt.submit({ text: `${text.auto.continue}\n\n${carried}` })
     else if (!(await fillWithRetry($))) $.ui.toast(text.clearedNotFilled)
   } catch {
@@ -685,8 +707,8 @@ async function runAuto($: EngineInterface) {
     const update = parseUpdate(reply.text)
     if (!update) return
     const now = await $.clock.now()
-    // A reply with no usable names keeps the last good pair rather than wiping it.
-    const names = update.names.this || update.names.next ? update.names : ledger.names
+    // A reply with no usable names keeps the last good pair rather than wiping it, and the chain keeps the first topic it was given.
+    const names = { ...(update.names.this || update.names.next ? update.names : ledger.names), topic: ledger.names.topic || update.names.topic }
     await saveLedger($, dir, { ...mergeDelta(ledger, update.delta, now), handoff: capWords(update.handoff, maxWords), handoffAt: now, names })
     cursor = messages.length
   } catch {
@@ -722,10 +744,10 @@ async function decideAfterClear($: EngineInterface, prompt: string) {
   if (reply?.isAnswered && parseRelated(reply.text)) {
     await saveLedger($, dir, withSession(ledger, id))
     // Only the fresh session can take a name, and a /rename run inside this prompt.submit is refused, so it waits.
-    const plan = lateNext(await titleOf($, clearedFrom), ledger.names)
+    const plan = lateNext(await titleOf($, clearedFrom), await appliedTitles($), ledger.names, placeIn(ledger, clearedFrom))
     await keepApplied($, [plan.next])
     if (plan.next) $.clock.after(0, () => void rename($, plan.next, text.renameFailed))
-    showChoice($, 'carried', ledger.goal, { previous: plan.oldOwn, current: plan.nextOwn })
+    showChoice($, 'carried', ledger.goal, plan)
     return ledger.handoff ? restoreContext(ledger, mdOf(dir), undefined, await unfinishedRuns($, ledger, id)) : ''
   }
   held = chain
@@ -828,17 +850,32 @@ function cardBox({ Box, Client, Text }: Elements, picked: Card) {
             {sepText({ Text }, `${MARK.sep} ${thread.detail}`, THEME.muted, `wrap-up-thread-detail-${at}`, { wrap: "truncate-end" })}
           </Box>
         ))
+  const hopPill = (key: string, hop: number) => pill({ Box, Text }, look.nerd, THEME.surface3, <Text key={`${key}-text`} color={THEME.secondary}>{look.nerd ? `#${hop}` : ` #${hop} `}</Text>, key, cardFill())
   const shownNames = picked.names
   const names = shownNames === null
     ? <Client key="wrap-up-names-reading" module="./entry.tsx" height={1} props={{ id: 'wrap-up-names-reading', label: text.card.reading, isOpen: false, bg: cardFill(), isBusy: true, spinner: true, still } satisfies EntryProps} />
     : !shownNames.this && !shownNames.next
       ? <Text key="wrap-up-names-none" color={THEME.muted}>{text.card.noNames}</Text>
-      : NAME_IDS.filter(id => shownNames[id]).map((id, _at, ids) => (
-          <Box key={`wrap-up-name-row-${id}`} flexDirection="row">
-            <Box key={`wrap-up-name-pad-${id}`} flexShrink={0}>{line(`wrap-up-name-${id}`, shownNames[id], picked.useNames[id], text.tips.name[id], widest(ids.map(each => shownNames[each])))}</Box>
-            {sepText({ Text }, `${MARK.sep} ${text.card.name[id]}`, THEME.muted, `wrap-up-name-detail-${id}`, { wrap: "truncate-end" })}
-          </Box>
-        ))
+      : [
+          ...(shownNames.topic ? [
+            <Box key="wrap-up-name-row-topic" flexDirection="row" paddingLeft={1}>
+              <Text key="wrap-up-name-topic" color={THEME.accent} bold>{`${shownNames.topic} `}</Text>
+              {picked.hops.old > 0 ? [
+                hopPill('wrap-up-name-hop-old', picked.hops.old),
+                <Text key="wrap-up-name-hop-arrow" color={THEME.muted}>{` ${text.link} `}</Text>,
+                hopPill('wrap-up-name-hop-next', picked.hops.next),
+                <Text key="wrap-up-name-hop-gap"> </Text>,
+              ] : null}
+              {sepText({ Text }, `${MARK.sep} ${text.card.topic}`, THEME.muted, 'wrap-up-name-detail-topic', { wrap: "truncate-end" })}
+            </Box>,
+          ] : []),
+          ...NAME_IDS.filter(id => shownNames[id]).map((id, _at, ids) => (
+            <Box key={`wrap-up-name-row-${id}`} flexDirection="row">
+              <Box key={`wrap-up-name-pad-${id}`} flexShrink={0}>{line(`wrap-up-name-${id}`, shownNames[id], picked.useNames[id], text.tips.name[id], widest(ids.map(each => shownNames[each])))}</Box>
+              {sepText({ Text }, `${MARK.sep} ${text.card.name[id]}`, THEME.muted, `wrap-up-name-detail-${id}`, { wrap: "truncate-end" })}
+            </Box>
+          )),
+        ]
   const instructions = compactNote(picked.threads ?? [], keptThreads(picked), picked.also, autoOn ? ledgerPath : '')
   const foot = picked.mode === 'compact' ? (
     <Box key="wrap-up-foot" flexDirection="row">
@@ -886,7 +923,18 @@ function choiceCard({ Box, Client, Text }: Elements, picked: Choice, columns: nu
   const more = (
     <Client key="wrap-up-choice-more" module="./entry.tsx" width={[...moreLabel].length + 4} height={1} props={{ id: 'wrap-up-choice-more', label: moreLabel, lead: moreArrow, leadColor: THEME.accent, isOpen: false, bg: cardFill(), idle: THEME.muted, still, nerd: look.nerd, tip: { glyph: moreArrow, label: moreLabel, text: picked.isFull ? text.tips.showLess : text.tips.showAll } } satisfies EntryProps} />
   )
-  const names = linked(picked.link.previous, picked.link.current)
+  const { oldOwn, nextOwn, oldHop, nextHop, topic } = picked.link
+  // Each session's hop rides in a pill before its own name, the old one first.
+  const hopName = (key: string, hop: number, name: string) => [
+    hop > 0 ? pill({ Box, Text }, look.nerd, THEME.surface3, <Text key={`${key}-hop`} color={THEME.secondary}>{look.nerd ? `#${hop}` : ` #${hop} `}</Text>, `${key}-hop-pill`, cardFill()) : null,
+    <Text key={`${key}-name`} color={THEME.muted} bold wrap="truncate-end">{name}</Text>,
+  ]
+  const names = isCarried && nextOwn ? (
+    <Box key="wrap-up-choice-names" flexDirection="row" columnGap={1}>
+      {oldOwn ? [...hopName('wrap-up-choice-old', oldHop, oldOwn), <Text key="wrap-up-choice-arrow" color={THEME.muted}>{text.link}</Text>] : null}
+      {hopName('wrap-up-choice-next', nextHop, nextOwn)}
+    </Box>
+  ) : null
   const switches = [
     control('wrap-up-switch', label, true, isCarried ? text.tips.toFresh : text.tips.toCarry, bare(look.glyph.cycle)),
     control('wrap-up-switch-close', close, false, text.tips.dismissAuto, close),
@@ -908,10 +956,14 @@ function choiceCard({ Box, Client, Text }: Elements, picked: Choice, columns: nu
       {switches}
     </Box>
   )
+  // The chain's topic titles the card, as the handoff card's title rides its top edge.
   return (
-    <Box key="wrap-up-choice-card" flexDirection="column" paddingX={1} borderStyle="round" borderColor={THEME.border} backgroundColor={cardFill()}>
-      {isCarried && names ? <Text key="wrap-up-choice-names" color={THEME.muted} bold wrap="truncate-end">{names}</Text> : null}
-      {body}
+    <Box key="wrap-up-choice-block" flexDirection="column">
+      <Box key="wrap-up-choice-card" flexDirection="column" paddingX={1} borderStyle="round" borderColor={THEME.border} backgroundColor={cardFill()}>
+        {names}
+        {body}
+      </Box>
+      {titleEdge({ Box, Text }, look, 'wrap-up-choice', '', isCarried && topic ? topic : text.choice.handoff, '', 0)}
     </Box>
   )
 }
@@ -1149,6 +1201,7 @@ export const register: Register = (on, options) => {
       $.ui.invalidate('ui.render')
       return next(e)
     }
+    openSetting($, e.data)
     const change = settingChoice(e.data)
     if (change) await saveSetting($, change.key, change.value)
     const clicked = e.data as EntryMessage
@@ -1201,11 +1254,10 @@ export const register: Register = (on, options) => {
 
     return (
       <Box flexDirection="column" backgroundColor={THEME.bg} paddingX={1} minHeight={e.props.scroll.bodyRows}>
-        {tabRow({ Box, Client, Text }, look.nerd, [{ id: 'mod-wrap-up-settings-tab', label: `${text.label} ${MARK.sep} ${text.paneSettings}`, icon: look.glyph.gear, isOpen: true, tip: { glyph: look.glyph.gear, label: text.paneSettings, text: text.tips.tab } }], still)}
-        {sepText({ Text }, withMark(look, note) || `${text.statusHint} ${MARK.sep} ${text.statusHintSaved}`, statusColor(note), 'wrap-up-status', { wrap: 'truncate-end' })}
-        {settingsBody({ Box, Button, Client, Text }, look, { rows, actions, working, run, previews, fields, still: still })}
+        {tabRow({ Box, Client, Text }, look.nerd, [{ id: 'mod-wrap-up-settings-tab', label: `${text.label} ${MARK.sep} ${text.paneSettings}`, icon: look.glyph.icon['wrap-up'] ?? '', isOpen: true, tip: { glyph: look.glyph.gear, label: text.paneSettings, text: text.tips.tab } }], still)}
+        {settingsBody({ Box, Button, Client, Text }, look, { rows, actions, working, run, previews, fields, still: still, mod: 'mod-wrap-up' })}
         <Box key="footer-space" height={FOOTER_ROWS} flexShrink={0} />
-        {paneFooter({ Box, Text }, paneTip, e.props.bodyColumns, e.props.scroll, actionReveals(actions, look, working))}
+        {paneFooter({ Box, Text }, paneTip, e.props.bodyColumns, e.props.scroll, actionReveals(actions, look, working), { hint: `${text.statusHint} ${MARK.sep} ${text.statusHintSaved}`, status: withMark(look, note) })}
       </Box>
     )
   })

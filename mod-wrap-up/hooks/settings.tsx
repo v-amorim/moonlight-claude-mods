@@ -3,7 +3,7 @@
 import type { ConfigRow, ConfigValue, RenderElement } from 'claude-code'
 
 import type { EntryProps, Tip } from './entry'
-import { cardFill, cardGap, section, sepText, type Look, type Reveal } from './look'
+import { cardFill, section, sepText, type Look, type Reveal } from './look'
 import style from './style'
 import { CAPS, fill, MARK, mix, THEME } from './theme'
 
@@ -30,6 +30,8 @@ export type SettingsProps = {
   fields?: Record<string, Range>
   // Text settings (by field) another mod edits in its own panel: the card shows a pill running that panel's command in place of "edit it in /config".
   editors?: Record<string, Action>
+  // The mod's name, the muted hint in the Settings card's title.
+  mod?: string
 }
 
 export type Range = { min?: number; max?: number }
@@ -124,7 +126,21 @@ export function settingChoice(data: unknown): { key: string; value: ConfigValue 
   }
 }
 
-// A pill already frames the glyph, so drop the brackets and padding of the standalone button (safe `[↻]`).
+// A setting's label posts `setting-open:<key>`; the mod's ui.message hook passes the message to openSetting, which keeps the one open key and redraws.
+const OPEN = 'setting-open:'
+let openKey = ''
+
+// Opens the clicked setting's description (closing any other), or closes it on a second click; false when the message is something else.
+export function openSetting($: { ui: { invalidate: (event: 'ui.render') => unknown } }, data: unknown) {
+  const message = data as { type?: string; id?: string } | undefined
+  if (message?.type !== 'menu-entry' || !message.id?.startsWith(OPEN)) return false
+  const key = message.id.slice(OPEN.length)
+  openKey = openKey === key ? '' : key
+  $.ui.invalidate('ui.render')
+  return true
+}
+
+// A pill already frames the glyph,so drop the brackets and padding of the standalone button (safe `[↻]`).
 const bare = (glyph: string) => glyph.replace(/[[\]\s]/g, '')
 
 // A pill on the card's tint; its caps sit nested in a Text, which follows the `hover` scope but cannot light it, so only the control starts it.
@@ -264,9 +280,9 @@ function control(elements: Elements, look: Look, row: ConfigRow, index: number, 
 }
 
 // A setting's first row: the label bold on the left, its control anchored right.
-export const settingHead = ({ Box, Text }: Pick<Elements, 'Box' | 'Text'>, key: string, label: string, control: unknown, color: string = THEME.onSurface) => (
+export const settingHead = ({ Box, Text }: Pick<Elements, 'Box' | 'Text'>, key: string, label: string, control: unknown, color: string = THEME.onSurface, lit?: string) => (
   <Box key={key} flexDirection="row" columnGap={2} justifyContent="space-between">
-    <Text color={color} bold>{label}</Text>
+    <Text color={color} bold {...(lit ? { hover: { color: lit } } : {})}>{label}</Text>
     {control}
   </Box>
 )
@@ -276,12 +292,15 @@ export const hairline = ({ Client }: Pick<Elements, 'Client'>, key: string, bg: 
   <Client key={key} module="./entry.tsx" width="100%" height={1} props={{ id: key, label: '', isOpen: false, bg, rule: true } satisfies EntryProps} />
 )
 
-// The Settings and Actions sections of a mod's panel or page: one round-bordered card per setting.
-export function settingsBody(elements: Elements, look: Look, { rows, actions, working, run, previews, tips, fields, editors = {}, still = false }: SettingsProps) {
-  const { Box, Text } = elements
+// titleEdge draws icons by name, and the gear sits beside them in the glyph set.
+const withGear = (look: Look): Look => ({ ...look, glyph: { ...look.glyph, icon: { ...look.glyph.icon, gear: look.glyph.gear } } })
+
+// The Settings and Actions sections of a mod's panel or page: one titled card, a row per setting, its description shown under the pointer.
+export function settingsBody(elements: Elements, look: Look, { rows, actions, working, run, previews, tips, fields, editors = {}, still = false, mod = '' }: SettingsProps) {
+  const { Box, Client, Text } = elements
   const settings = [
     rows.length === 0 ? <Text key="settings-none" color={THEME.muted}>{style.text.noSettings}</Text> : null,
-    ...rows.map((row, index) => {
+    ...rows.flatMap((row, index) => {
       const example = exampleOf(elements, look, previews, row, index)
       const editor = row.kind === 'text' && !row.isLocked ? editors[fieldOf(row)] : undefined
       const head = editor && !working ? (
@@ -294,16 +313,47 @@ export function settingsBody(elements: Elements, look: Look, { rows, actions, wo
       )
       const hint = row.kind !== 'text' ? '' : editor ? (working ? style.text.idleOnly : '') : style.text.editInConfig
       const note = [row.description, hint].filter(Boolean).join(` ${MARK.sep} `)
-      return (
-        <Box key={`setting-row-${index}`} flexDirection="column" borderStyle="round" borderColor={THEME.border} backgroundColor={cardFill()} paddingX={1} marginTop={index === 0 ? 0 : 1}>
-          {settingHead(elements, `setting-head-${index}`, splitTitle(row.label).name, head, row.isLocked ? faded(THEME.onSurface) : THEME.onSurface)}
-          {row.description || example ? hairline(elements, `setting-rule-${index}`, cardFill()) : null}
-          {row.description ? (
-            sepText(elements, note, row.isLocked ? faded(THEME.muted) : THEME.muted, `setting-text-${index}`)
-          ) : null}
-          {example}
-        </Box>
+      const isOpen = openKey === row.key
+      const scope = `setting-row-${index}`
+      const name = splitTitle(row.label).name
+      const dim = (color: string) => (row.isLocked ? faded(color) : color)
+      // The label is a clickable Client: its chevron opens the description under the row, and the row fills to surface2 under the pointer (its own key is the scope).
+      const label = (
+        <Client
+          key={`setting-name-${index}`}
+          module="./entry.tsx"
+          height={1}
+          props={{
+            id: `${OPEN}${row.key}`,
+            label: name,
+            isOpen,
+            bg: cardFill(),
+            color: dim(THEME.accent),
+            idle: dim(THEME.onSurface),
+            bold: true,
+            lead: isOpen ? look.glyph.expanded : look.glyph.collapsed,
+            leadColor: dim(THEME.accent),
+            still,
+            lift: { scope, bg: THEME.surface2 },
+            tip: { glyph: bare(isOpen ? look.glyph.expanded : look.glyph.collapsed), label: name, text: isOpen ? style.text.hideSetting : style.text.showSetting },
+          } satisfies EntryProps}
+        />
       )
+      return [
+        index > 0 ? hairline(elements, `setting-rule-${index}`, cardFill()) : null,
+        <Box key={scope} flexDirection="column" hover={{ scope, backgroundColor: THEME.surface2 }}>
+          <Box key={`setting-head-${index}`} flexDirection="row" columnGap={2} justifyContent="space-between">
+            {label}
+            {head}
+          </Box>
+          {isOpen && (row.description || example) ? (
+            <Box key={`setting-more-${index}`} flexDirection="column" paddingLeft={2}>
+              {row.description ? sepText(elements, note, dim(THEME.muted), `setting-text-${index}`) : null}
+              {example}
+            </Box>
+          ) : null}
+        </Box>,
+      ]
     }),
   ]
   const buttons = actions.map((action, index) =>
@@ -315,11 +365,7 @@ export function settingsBody(elements: Elements, look: Look, { rows, actions, wo
   )
   return (
     <Box key="settings" flexDirection="column">
-      {/* The cards carry their own border, and the panel's open Settings tab already names them. */}
-      <Box key="settings-cards" flexDirection="column">
-        {cardGap(elements, 'settings')}
-        {settings}
-      </Box>
+      {section(elements, withGear(look), 'settings-card', 'gear', style.text.settings, settings, THEME.accent, { hint: mod })}
       {actions.length > 0 ? section(elements, look, 'actions', 'actions', style.text.actions, buttons) : null}
     </Box>
   )

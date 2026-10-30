@@ -74,6 +74,7 @@ export default {
       "this": "this session",
       "next": "next session"
     },
+    "topic": "topic, starts both names",
     "noNames": "No names proposed, nothing is renamed",
     "handoffFoot": "Writes a handoff of what stays, clears the chat and fills it into the prompt",
     "go": {
@@ -98,8 +99,8 @@ export default {
   "startedWorking": "Claude started working, nothing was cleared",
   "clearFailed": "Could not run /clear, press Enter to clear and the handoff fills in after",
   "clearedNotFilled": "Cleared, but the handoff could not be filled in",
-  "renameFailed": "Could not rename the session, type /rename {name}",
-  "renameOldFailed": "Could not rename the earlier session to {name}",
+  "renameFailed": "Could not rename the session: type /rename {name}",
+  "renameOldFailed": "Could not rename the earlier session: {name}",
   "forkFailures": {
     "nothingToFork": "Nothing to hand off yet, send a message first",
     "apiError": "The summary request failed",

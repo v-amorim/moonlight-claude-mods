@@ -79,7 +79,7 @@ test('the handoff prompt is built from the ledger plus the turns since the last 
 
 test('the reply parses into a delta and a handoff; a reply with no handoff is none', () => {
   const reply = '```json\n{ "delta": { "goal": " New goal ", "decisions": ["A", ""], "superseded": [{ "id": "d1", "by": "A" }, { "by": "x" }], "opened": ["T"], "done": ["t1"] }, "handoff": " Goal: x\\n\\nNext step: y " }\n```'
-  expect(parseUpdate(reply)).toEqual({ handoff: 'Goal: x\n\nNext step: y', names: { this: '', next: '' }, delta: { goal: 'New goal', runState: undefined, decisions: ['A'], superseded: [{ id: 'd1', by: 'A' }], opened: ['T'], done: ['t1'], problems: [], ideas: [], picks: [] } })
+  expect(parseUpdate(reply)).toEqual({ handoff: 'Goal: x\n\nNext step: y', names: { this: '', next: '', topic: '' }, delta: { goal: 'New goal', runState: undefined, decisions: ['A'], superseded: [{ id: 'd1', by: 'A' }], opened: ['T'], done: ['t1'], problems: [], ideas: [], picks: [] } })
   expect(parseUpdate('{ "delta": {} }')).toBeNull()
   expect(parseUpdate('no json')).toBeNull()
   expect(parseUpdate('{ broken')).toBeNull()
@@ -97,17 +97,17 @@ test('a run state listing every repo path keeps past the single-entry cap, while
   expect(readLedger(JSON.stringify(ledger))!.runState).toBe(runState)
 })
 
-const frag = (sessions: string[], updatedAt: number, delta: Partial<Delta> & { handoff?: string; names?: { this: string; next: string } } = {}) => {
+const frag = (sessions: string[], updatedAt: number, delta: Partial<Delta> & { handoff?: string; names?: { this: string; next: string; topic: string } } = {}) => {
   const { handoff, names, ...rest } = delta
-  return { ...mergeDelta(emptyLedger(updatedAt - 1, ''), { ...NONE, ...rest }, updatedAt), sessions, handoff: handoff ?? '', handoffAt: handoff ? updatedAt : 0, names: names ?? { this: '', next: '' } }
+  return { ...mergeDelta(emptyLedger(updatedAt - 1, ''), { ...NONE, ...rest }, updatedAt), sessions, handoff: handoff ?? '', handoffAt: handoff ? updatedAt : 0, names: names ?? { this: '', next: '', topic: '' } }
 }
 
-test('fragments of one chain merge oldest first: deduped, done wins, superseded survives, ids renumbered, newest scalars win, sessions unite', () => {
-  const old = frag(['a'], 10, { goal: 'Old goal', decisions: ['Use Postgres', 'Use REST'], opened: ['Write schema', 'Add tests'], problems: [{ problem: 'Hung', fix: '' }], ideas: [{ text: 'Sound', status: 'parked', reason: '' }], picks: [{ family: 'c', pick: 'c: A' }], handoff: 'OLD HANDOFF', names: { this: 'old', next: 'older' } })
+test('fragments of one chain merge oldest first: deduped, done wins, superseded survives, ids renumbered, newest scalars win but the first topic stays, sessions unite', () => {
+  const old = frag(['a'], 10, { goal: 'Old goal', decisions: ['Use Postgres', 'Use REST'], opened: ['Write schema', 'Add tests'], problems: [{ problem: 'Hung', fix: '' }], ideas: [{ text: 'Sound', status: 'parked', reason: '' }], picks: [{ family: 'c', pick: 'c: A' }], handoff: 'OLD HANDOFF', names: { this: 'old', next: 'older', topic: 'first' } })
   const mid = { ...frag(['b'], 20, { decisions: ['use postgres', 'Use gRPC'], opened: ['WRITE SCHEMA', 'Ship it'], done: [], problems: [{ problem: 'hung', fix: 'Timeout' }], ideas: [{ text: 'sound', status: 'rejected', reason: 'Annoying' }], picks: [{ family: 'C', pick: 'C: a' }] }) }
   mid.tasks[0]!.status = 'done'
   old.decisions[1]!.supersededBy = 'Use gRPC'
-  const newest = frag(['a', 'c'], 30, { goal: 'New goal', handoff: 'NEW HANDOFF', names: { this: 'n1', next: 'n2' } })
+  const newest = frag(['a', 'c'], 30, { goal: 'New goal', handoff: 'NEW HANDOFF', names: { this: 'n1', next: 'n2', topic: 'later' } })
   const merged = mergeFragments([newest, old, mid])
   expect(merged.decisions.map(item => `${item.id}:${item.text}`)).toEqual(['d1:Use Postgres', 'd2:Use REST', 'd3:Use gRPC'])
   expect(merged.decisions[1]!.supersededBy).toBe('Use gRPC')
@@ -116,7 +116,7 @@ test('fragments of one chain merge oldest first: deduped, done wins, superseded 
   expect(merged.problems[0]).toMatchObject({ id: 'p1', fix: 'Timeout' })
   expect(merged.ideas).toEqual([expect.objectContaining({ id: 'i1', status: 'rejected', reason: 'Annoying' })])
   expect(merged.picks.map(item => item.id)).toEqual(['k1'])
-  expect([merged.goal, merged.handoff, merged.handoffAt, merged.names]).toEqual(['New goal', 'NEW HANDOFF', 30, { this: 'n1', next: 'n2' }])
+  expect([merged.goal, merged.handoff, merged.handoffAt, merged.names]).toEqual(['New goal', 'NEW HANDOFF', 30, { this: 'n1', next: 'n2', topic: 'first' }])
   expect(merged.sessions).toEqual(['a', 'b', 'c'])
   expect([merged.startedAt, merged.updatedAt]).toEqual([9, 30])
   // A newest fragment with no goal or handoff leaves the older one standing.
@@ -564,32 +564,46 @@ test('a ledger with no handoff is never cleared', FULL, async ($, on) => {
   await band.unmount()
 })
 
-const NAMES = { this: 'DTP-1 cache', next: 'DTP-1 deploy' }
-const NAMED = () => ({ isAnswered: true, text: JSON.stringify({ delta: {}, handoff: 'HANDOFF-TWO', names: NAMES }), usage: USAGE })
+const NAMES = { this: 'XYZ-1 cache', next: 'XYZ-1 deploy', topic: 'orders' }
+const NAMED = (names: object = NAMES) => () => ({ isAnswered: true, text: JSON.stringify({ delta: {}, handoff: 'HANDOFF-TWO', names }), usage: USAGE })
 const namedFiles = () => autoFiles({ ...seeded(), names: NAMES })
 
-test('the update carries both names, a name past 16 characters is cut at its last separator, and a ledger file from before names reads as none', () => {
-  expect(autoPrompt(SKILL, 300, seeded(), 'turns')).toContain('name two sessions for /rename')
-  expect(parseUpdate(NAMED().text)!.names).toEqual(NAMES)
-  const long = JSON.stringify({ handoff: 'H', names: { this: 'a name that runs past sixteen', next: 'mods-history-rewrite' } })
-  expect(parseUpdate(long)!.names).toEqual({ this: 'a name that runs', next: 'mods-history' })
+test('the update carries both names and the topic, a name past 16 characters is cut at its last separator, and a ledger file from before names reads as none', () => {
+  expect(autoPrompt(SKILL, 300, seeded(), 'turns')).toContain('"topic" is the project or subject every session of this work shares')
+  expect(parseUpdate(NAMED()().text)!.names).toEqual(NAMES)
+  const long = JSON.stringify({ handoff: 'H', names: { this: 'a name that runs past sixteen', next: 'mods-history-rewrite', topic: 'a:b' } })
+  expect(parseUpdate(long)!.names).toEqual({ this: 'a name that runs', next: 'mods-history', topic: 'a b' })
   const { names: _dropped, ...before } = seeded()
-  expect(readLedger(JSON.stringify(before))!.names).toEqual({ this: '', next: '' })
+  expect(readLedger(JSON.stringify(before))!.names).toEqual({ this: '', next: '', topic: '' })
 })
 
-test('the countdown renames this session before the clear and the fresh one right after it', FULL, async ($, on) => {
-  const { w, band } = await atTheMark($, on, autoFiles(), NAMED)
+test('the countdown renames this session before the clear and the fresh one right after it, both under the topic', FULL, async ($, on) => {
+  const { w, band } = await atTheMark($, on, autoFiles(), NAMED())
   expect(saved(w).names).toEqual(NAMES)
   await w.clock.advance(5000)
   await w.clock.advance(1)
-  expect(w.clears).toEqual(['rename DTP-1 cache', 'clear', 'rename DTP-1 cache <- DTP-1 deploy'])
+  expect(w.clears).toEqual(['rename orders #1: XYZ-1 cache', 'clear', 'rename orders #2: XYZ-1 deploy'])
   expect(w.submittedText).toHaveLength(1)
+  await band.unmount()
+})
+
+test('a session second in its ledger with no hop in its title hands off as hop 2 to hop 3', FULL, async ($, on) => {
+  const { w, band } = await atTheMark($, on, autoFiles({ ...seeded(), names: NAMES, sessions: ['s0', 's1'] }))
+  await w.clock.advance(5000)
+  await w.clock.advance(1)
+  expect(w.clears).toEqual(['rename orders #2: XYZ-1 cache', 'clear', 'rename orders #3: XYZ-1 deploy'])
   await band.unmount()
 })
 
 test('an update with no names keeps the last pair', FULL, async ($, on) => {
   const { w, band } = await atTheMark($, on, namedFiles())
   expect(saved(w).names).toEqual(NAMES)
+  await band.unmount()
+})
+
+test('an update with a new topic never replaces the first one the chain was given', FULL, async ($, on) => {
+  const { w, band } = await atTheMark($, on, namedFiles(), NAMED({ this: 'a', next: 'b', topic: 'other' }))
+  expect(saved(w).names).toEqual({ this: 'a', next: 'b', topic: 'orders' })
   await band.unmount()
 })
 
@@ -619,7 +633,7 @@ test('after a manual clear, a related first prompt renames the fresh session', a
   // A rename inside the submit is refused, so it lands only once the clock lets the submit finish.
   expect(w.clears).toEqual([])
   await w.clock.advance(1)
-  expect(w.clears).toEqual(['rename DTP-1 deploy'])
+  expect(w.clears).toEqual(['rename orders #2: XYZ-1 deploy'])
 })
 
 test('after a manual clear, an unrelated first prompt renames nothing', async ($, on) => {
@@ -935,6 +949,21 @@ test('a reload whose transcript reads empty keeps the chain that already lists t
   expect(w.files.has(fileOf('s2'))).toBe(false)
 })
 
+test('`claude --resume` starts under a fresh id, and its resume record moves the mod onto the chain that lists the resumed session', async ($, on) => {
+  const w = world(on, new Map([[fileOf('old'), JSON.stringify({ ...seeded(), sessions: ['r0', 'r1'] })]]), () => UPDATE('HANDOFF-RESUMED'), [])
+  w.flags.id = 'fresh'
+  await $.session.start({ cwd: '/w' } as never)
+  await w.clock.advance(1)
+  w.flags.id = 'r1'
+  w.flags.messages = [{ role: 'user', text: 'go on', toolUses: [] }, { role: 'assistant', text: 'ok', toolUses: [] }]
+  w.files.set(bridgeFile('r1'), startRecord('r1', 'resume'))
+  await w.clock.advance(250)
+  await $.turn.complete(MAIN_TURN)
+  await w.clock.advance(1)
+  expect(saved(w, 'old').handoff).toContain('HANDOFF-RESUMED')
+  expect(saved(w, 'fresh').handoff).toBe('')
+})
+
 test('one chain keeps one ledger however the session folder moves', async ($, on) => {
   const w = world(on, autoFiles(), () => UPDATE('HANDOFF-MOVED', { decisions: ['Cache with Redis'] }))
   await $.turn.complete(MAIN_TURN)
@@ -1113,7 +1142,7 @@ test('a compaction in another session\'s file never restores this one', async ($
   expect(w.submitted[0]).toBeUndefined()
 })
 
-// Linked names: a session's name holds only its direct parent, and a title the person wrote is never overwritten.
+// Chain names: every session of a chain is titled `topic: own work`, and a title the person wrote is never overwritten.
 const titleRow = (title: string, id = 's1') => `${JSON.stringify({ type: 'custom-title', customTitle: title, sessionId: id })}\n`
 const TRANSCRIPT = 'C:/t/s1.jsonl'
 const named = (rows: string, applied: string[] = []) => {
@@ -1129,30 +1158,36 @@ async function handOffAt($: any, on: any, setup: ReturnType<typeof named>) {
   return w
 }
 
-test('at the mark the old session becomes `its parent <- this` and the fresh one `its own name <- next`', FULL, async ($, on) => {
-  const w = await handOffAt($, on, named(titleRow('Billing <- DTP-1 old'), ['Billing <- DTP-1 old']))
-  expect(w.clears).toEqual(['rename Billing <- DTP-1 cache', 'clear', 'rename DTP-1 cache <- DTP-1 deploy'])
+test('at the mark a title the mod set passes its topic to both sessions, over the ledger topic', FULL, async ($, on) => {
+  const w = await handOffAt($, on, named(titleRow('Billing: XYZ-1 old'), ['Billing: XYZ-1 old']))
+  expect(w.clears).toEqual(['rename Billing #1: XYZ-1 cache', 'clear', 'rename Billing #2: XYZ-1 deploy'])
 })
 
-test('a session with no title and no parent gets just its name, and the fresh one links to it', FULL, async ($, on) => {
+test('a session with no title takes the ledger topic, and so does the fresh one', FULL, async ($, on) => {
   const w = await handOffAt($, on, named(''))
-  expect(w.clears).toEqual(['rename DTP-1 cache', 'clear', 'rename DTP-1 cache <- DTP-1 deploy'])
+  expect(w.clears).toEqual(['rename orders #1: XYZ-1 cache', 'clear', 'rename orders #2: XYZ-1 deploy'])
 })
 
-test('a name the person wrote stays on the old session, and the fresh one links to it', FULL, async ($, on) => {
+test('a name the person wrote stays on the old session, and the fresh one takes the ledger topic', FULL, async ($, on) => {
   const w = await handOffAt($, on, named(titleRow('Billing')))
-  expect(w.clears).toEqual(['clear', 'rename Billing <- DTP-1 deploy'])
+  expect(w.clears).toEqual(['clear', 'rename orders #2: XYZ-1 deploy'])
 })
 
-test('a name that already holds arrows gives only its part after the last one, so no name has two arrows', FULL, async ($, on) => {
-  const w = await handOffAt($, on, named(titleRow('Alpha <- Beta <- Gamma')))
-  expect(w.clears).toEqual(['clear', 'rename Gamma <- DTP-1 deploy'])
+test('a title the mod linked with an arrow before topics holds no topic, so both sessions take the ledger one', FULL, async ($, on) => {
+  const w = await handOffAt($, on, named(titleRow('Alpha <- Beta'), ['Alpha <- Beta']))
+  expect(w.clears).toEqual(['rename orders #1: XYZ-1 cache', 'clear', 'rename orders #2: XYZ-1 deploy'])
 })
 
-test('a session the person renamed after the mod named it is linked by that name at the next handoff', FULL, async ($, on) => {
-  const mine = 'DTP-1 cache <- DTP-1 deploy'
+test('a session the person renamed after the mod named it keeps that name at the next handoff', FULL, async ($, on) => {
+  const mine = 'Billing: XYZ-1 deploy'
   const w = await handOffAt($, on, named(titleRow(mine) + titleRow('Payments'), [mine]))
-  expect(w.clears).toEqual(['clear', 'rename Payments <- DTP-1 deploy'])
+  expect(w.clears).toEqual(['clear', 'rename orders #2: XYZ-1 deploy'])
+})
+
+test('a rename the person wrote as `topic: work` keeps its title and moves the chain to that topic', FULL, async ($, on) => {
+  const mine = 'Billing: XYZ-1 deploy'
+  const w = await handOffAt($, on, named(titleRow(mine) + titleRow('payments: refunds'), [mine]))
+  expect(w.clears).toEqual(['clear', 'rename payments #2: XYZ-1 deploy'])
 })
 
 test('only the latest title of this session counts, and rows of another session or half a row are skipped', () => {
@@ -1162,18 +1197,33 @@ test('only the latest title of this session counts, and rows of another session 
   expect(latestTitle('', 's1')).toBe('')
 })
 
-test('the plan keeps one arrow per name whoever wrote the parts', () => {
-  const names = { this: 'DTP-1 cache', next: 'DTP-1 deploy' }
-  expect(planNames('', [], names)).toEqual({ old: 'DTP-1 cache', next: 'DTP-1 cache <- DTP-1 deploy', oldOwn: 'DTP-1 cache', nextOwn: 'DTP-1 deploy' })
-  expect(planNames('X <- Y <- Z', ['X <- Y <- Z'], names).old).toBe('Y <- DTP-1 cache')
-  expect(planNames('Mine', [], names)).toEqual({ old: '', next: 'Mine <- DTP-1 deploy', oldOwn: 'Mine', nextOwn: 'DTP-1 deploy' })
-  expect(planNames('P <- Q', ['P <- Q'], { this: '', next: 'N' })).toEqual({ old: '', next: 'Q <- N', oldOwn: 'Q', nextOwn: 'N' })
-  expect(planNames('', [], { this: 'A <- B', next: 'C' }).next).toBe('B <- C')
-  expect(planNames('', [], { this: '', next: '' })).toEqual({ old: '', next: '', oldOwn: '', nextOwn: '' })
-  expect(lateNext('Me <- Mine', names)).toEqual({ old: '', next: 'Mine <- DTP-1 deploy', oldOwn: 'Mine', nextOwn: 'DTP-1 deploy' })
-  // A name linked with the old `←` still splits, and either arrow counts as the last one.
-  expect(lateNext('Me ← Mine', names).next).toBe('Mine <- DTP-1 deploy')
-  expect(planNames('A ← B <- C', ['A ← B <- C'], names).old).toBe('B <- DTP-1 cache')
+test('every name of a chain carries one topic, and the topic a title the mod set already carries wins', () => {
+  const names = { this: 'XYZ-1 cache', next: 'XYZ-1 deploy', topic: 'orders' }
+  const bare = { ...names, topic: '' }
+  expect(planNames('', [], names)).toMatchObject({ old: 'orders #1: XYZ-1 cache', next: 'orders #2: XYZ-1 deploy', oldOwn: 'XYZ-1 cache', nextOwn: 'XYZ-1 deploy' })
+  expect(planNames('Billing: old', ['Billing: old'], names).next).toBe('Billing #2: XYZ-1 deploy')
+  expect(planNames('Mine', [], names)).toMatchObject({ old: '', next: 'orders #2: XYZ-1 deploy', oldOwn: 'Mine', nextOwn: 'XYZ-1 deploy' })
+  expect(planNames('Billing: old', ['Billing: old'], { this: '', next: 'N', topic: '' })).toMatchObject({ old: '', next: 'Billing #2: N', oldOwn: 'old', nextOwn: 'N' })
+  // The hop a title carries wins over the session's place in its ledger, and the fresh session is the next hop.
+  expect(planNames('orders #4: old', ['orders #4: old'], names, 2)).toMatchObject({ old: 'orders #4: XYZ-1 cache', next: 'orders #5: XYZ-1 deploy', oldOwn: 'XYZ-1 cache', nextOwn: 'XYZ-1 deploy' })
+  expect(planNames('Mine', [], names, 3).next).toBe('orders #4: XYZ-1 deploy')
+  expect(lateNext('orders #4: old', [], names, 9).next).toBe('orders #5: XYZ-1 deploy')
+  // With no topic anywhere, the old session's name becomes the topic, with no colon or hash of its own.
+  expect(planNames('', [], bare)).toMatchObject({ old: 'XYZ-1 cache', next: 'XYZ-1 cache #2: XYZ-1 deploy', oldOwn: 'XYZ-1 cache', nextOwn: 'XYZ-1 deploy' })
+  expect(planNames('Fix #3 login', [], bare).next).toBe('Fix 3 login #2: XYZ-1 deploy')
+  // A title the person wrote in the `topic: work` form sets the topic, over the ledger's.
+  expect(planNames('billing: x', [], names)).toMatchObject({ old: '', next: 'billing #2: XYZ-1 deploy', oldOwn: 'x', nextOwn: 'XYZ-1 deploy' })
+  expect(planNames('', [], { this: '', next: '', topic: 'orders' })).toMatchObject({ old: '', next: '', oldOwn: '', nextOwn: '' })
+  expect(lateNext('Billing: old', ['Billing: old'], names)).toMatchObject({ old: '', next: 'Billing #2: XYZ-1 deploy', oldOwn: 'old', nextOwn: 'XYZ-1 deploy' })
+  expect(lateNext('Mine', [], names).next).toBe('orders #2: XYZ-1 deploy')
+  // Titles linked the old way, with either arrow, hold no topic.
+  expect(planNames('A ← B <- C', ['A ← B <- C'], names).old).toBe('orders #1: XYZ-1 cache')
+  expect(lateNext('Me ← Mine', [], bare).next).toBe('Mine #2: XYZ-1 deploy')
+  // The card shows the topic the rename will use.
+  expect(planNames('Billing: old', ['Billing: old'], names).topic).toBe('Billing')
+  expect(planNames('Billing: old', [], names).topic).toBe('Billing')
+  expect(planNames('Payments', [], names).topic).toBe('orders')
+  expect(planNames('Billing #3: old', [], names).topic).toBe('Billing')
   expect(remember(Array.from({ length: 45 }, (_, at) => `t${at}`), ['new', '']).length).toBe(40)
 })
 
@@ -1205,7 +1255,7 @@ test('a transcript past what $.fs.read takes is read from its end in byte chunks
   const w = await handOffAt($, on, setup)
   expect(argvs.length).toBeGreaterThan(1)
   expect(argvs.every(argv => argv[0] === 'powershell')).toBe(true)
-  expect(w.clears).toEqual(['clear', 'rename old <- DTP-1 deploy'])
+  expect(w.clears).toEqual(['clear', 'rename orders #2: XYZ-1 deploy'])
 })
 
 test('the tail scan stops at the first chunk that holds a title and decodes multibyte text whole', async () => {
@@ -1221,20 +1271,20 @@ test('the tail scan stops at the first chunk that holds a title and decodes mult
   expect(textOf(bytesOf(base64Of(sample)))).toBe('Cobrança ← pix é ü 😀')
 })
 
-test('after a clear the person ran, the fresh session links to the old one\'s name, which the mod cannot rename any more', async ($, on) => {
-  const setup = named(titleRow('Billing'))
+test('after a clear the person ran, only the fresh session is renamed, under the old title\'s topic', async ($, on) => {
+  const setup = named(titleRow('Billing: old'), ['Billing: old'])
   const w = world(on, setup.files, (system: string) => (system.includes('compare') ? RELATED(true) : UPDATE('X')), undefined, {}, setup.kept)
   await $.session.end({ reason: 'clear', sessionId: 's1', resume: {} } as never)
   w.flags.id = 's2'
   await $.prompt.submit({ text: 'what did we decide for storage?', wait: false, origin: COMPOSER } as never)
   await w.clock.advance(1)
-  expect(w.clears).toEqual(['rename Billing <- DTP-1 deploy'])
+  expect(w.clears).toEqual(['rename Billing #2: XYZ-1 deploy'])
 })
 
 const LONG_GOAL = 'Build the orders API on PostgreSQL with UUID v7 ids, a Redis cache in front, and a nightly job that archives shipped orders to cold storage'
 
 // A related first prompt after a clear the person ran, then the band drawn: the carried card.
-async function carriedCard($: any, on: any, options: { goal?: string; title?: string; names?: { this: string; next: string } }) {
+async function carriedCard($: any, on: any, options: { goal?: string; title?: string; names?: { this: string; next: string; topic: string } }) {
   const ledger = { ...seeded(), goal: options.goal ?? seeded().goal, names: options.names ?? NAMES }
   const files = autoFiles(ledger)
   files.set(TRANSCRIPT, options.title ? titleRow(options.title) : '')
@@ -1249,21 +1299,25 @@ async function carriedCard($: any, on: any, options: { goal?: string; title?: st
 const drawn = async (band: any, key: string) => JSON.stringify(await band.drawn({ in: key }))
 const MORE = { safe: { more: '▾', less: '▴' }, nerd: { more: '', less: '' } }
 
-test('the carried card heads with `previous <- current` from the two sessions\' names', { options: { icons: 'safe' } }, async ($, on) => {
+test('the carried card is titled by the topic and heads with each session\'s hop pill and name, previous <- current', { options: { icons: 'safe' } }, async ($, on) => {
   const { band } = await carriedCard($, on, { title: 'Billing' })
-  expect(await band.find({ type: 'Text', text: 'Billing <- DTP-1 deploy' })).toBeDefined()
+  const names = JSON.stringify(await band.find({ key: 'wrap-up-choice-names' }))
+  const order = ['" #1 "', '"Billing"', '"<-"', '" #2 "', '"XYZ-1 deploy"'].map(part => names.indexOf(part))
+  expect(order.every(at => at > -1)).toBe(true)
+  expect([...order].sort((a, b) => a - b)).toEqual(order)
+  expect(await band.find({ type: 'Text', text: 'orders' })).toBeDefined()
   expect(await band.find({ type: 'Text', text: 'Carried over: Build the orders API' })).toBeDefined()
   await band.unmount()
 })
 
 test('with only the fresh name the header shows it alone', { options: { icons: 'safe' } }, async ($, on) => {
   const { band } = await carriedCard($, on, {})
-  expect(await band.find({ type: 'Text', text: 'DTP-1 deploy' })).toBeDefined()
+  expect(await band.find({ type: 'Text', text: 'XYZ-1 deploy' })).toBeDefined()
   await band.unmount()
 })
 
 test('with neither name the carried card has no header', { options: { icons: 'safe' } }, async ($, on) => {
-  const { band } = await carriedCard($, on, { names: { this: '', next: '' } })
+  const { band } = await carriedCard($, on, { names: { this: '', next: '', topic: '' } })
   expect(await band.find({ key: 'wrap-up-choice-names' })).toBeUndefined()
   expect(await band.find({ type: 'Text', text: 'Carried over: Build the orders API' })).toBeDefined()
   await band.unmount()

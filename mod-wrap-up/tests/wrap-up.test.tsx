@@ -2,17 +2,38 @@
 // Tests handoff prompt building, word clamping, thread parsing and the wrap-up band's drawing.
 import { expect, mock, test } from 'claude-code/testing'
 
-import { NAMES_RULE, buildPrompt, clampWords, compactNote, isFresh, parseNames, parseThreads, scopeNote, skillBody } from '../hooks/handoff'
+import { NAMES_RULE, THREADS_SYSTEM, buildPrompt, clampWords, compactNote, isFresh, parseNames, parseThreads, scopeNote, skillBody } from '../hooks/handoff'
+import { AUTO_SYSTEM } from '../hooks/ledger'
 import { CAPS, THEME } from '../hooks/theme'
 import Choice from '../hooks/choice'
 import { showNumber, stepNumber, stepOf } from '../hooks/settings'
 declare const setTimeout: (run: (value: unknown) => void, ms: number) => unknown
 
 const SKILL = '---\nname: session-handoff\ndescription: x\n---\n\n# session-handoff\n\nWrite one message.'
-test('the naming rule follows the language the user writes in and rules out others', () => {
-  expect(NAMES_RULE).toContain('the language the user writes in')
-  expect(NAMES_RULE).toContain('never another language')
-  expect(NAMES_RULE).not.toContain("session's language")
+test('session names are asked for in English, whatever language the conversation is in', () => {
+  expect(NAMES_RULE).toContain('in English, even when the conversation is in another language')
+  expect(NAMES_RULE).not.toContain('the language the user writes in')
+})
+
+test('the handoff and thread texts follow the language of the latest user messages', () => {
+  expect(buildPrompt(SKILL, 250)).toContain("judged from the user's most recent messages")
+  expect(buildPrompt(SKILL, 250)).toContain('(commit, branch, deploy, snapshot) in English')
+  expect(THREADS_SYSTEM).toContain("judged from the user's most recent messages")
+  expect(THREADS_SYSTEM).toContain('Session names are always English')
+  expect(AUTO_SYSTEM).toContain("judged from the user's most recent messages")
+})
+
+test('a pt-br conversation gets the language rule in the handoff fork request', { options: { icons: 'safe' } }, async ($, on) => {
+  const w = world(on, answered, undefined, [
+    { role: 'user', text: 'Vamos arrumar o painel de configurações' },
+    { role: 'assistant', text: 'Certo, começo pelo rodapé.' },
+    { role: 'user', text: 'Agora faça o deploy' },
+  ])
+  const band = await $.ui.mount(BAND())
+  await handOff(band)
+  expect(w.forks[0]).toContain('Write in the language the user writes in')
+  expect(w.forks[0]).toContain('Session names are always English')
+  await band.unmount()
 })
 
 const USAGE = { input_tokens: 0, output_tokens: 0, cache_read_input_tokens: 0, cache_creation_input_tokens: 0 }
@@ -271,15 +292,15 @@ test('pick_threads off reads no threads and keeps everything', { options: { pick
 const NAMED = {
   isAnswered: true,
   usage: USAGE,
-  text: '{"threads":[{"label":"Build fix","detail":"The failing build."},{"label":"Deploy","detail":"The deploy plan."}],"names":{"this":"EP-1 build fix","next":"EP-2 deploy"}}',
+  text: '{"threads":[{"label":"Build fix","detail":"The failing build."},{"label":"Deploy","detail":"The deploy plan."}],"names":{"topic":"build","this":"XY-1 build fix","next":"XY-2 deploy"}}',
 }
 
 test('names are trimmed, one past 16 characters is cut at its last separator, and one with no separator to cut at or missing is no name', () => {
-  expect(parseNames(NAMED.text)).toEqual({ this: 'EP-1 build fix', next: 'EP-2 deploy' })
-  expect(parseNames('{"names":{"this":"  EP-1   fix ","next":"EP-2 a name far too long"}}')).toEqual({ this: 'EP-1 fix', next: 'EP-2 a name far' })
-  expect(parseNames('{"names":{"this":"EP-12 build -- deploy","next":"averyveryverylongword"}}')).toEqual({ this: 'EP-12 build', next: '' })
-  expect(parseNames('{"threads":[]}')).toEqual({ this: '', next: '' })
-  expect(parseNames('not json')).toEqual({ this: '', next: '' })
+  expect(parseNames(NAMED.text)).toEqual({ this: 'XY-1 build fix', next: 'XY-2 deploy', topic: 'build' })
+  expect(parseNames('{"names":{"this":"  XY-1   fix ","next":"XY-2 a name far too long"}}')).toEqual({ this: 'XY-1 fix', next: 'XY-2 a name far', topic: '' })
+  expect(parseNames('{"names":{"this":"XY-12 build -- deploy","next":"averyveryverylongword"}}')).toEqual({ this: 'XY-12 build', next: '', topic: '' })
+  expect(parseNames('{"threads":[]}')).toEqual({ this: '', next: '', topic: '' })
+  expect(parseNames('not json')).toEqual({ this: '', next: '', topic: '' })
 })
 
 test('Handoff shows both names; Go renames this session, clears, then renames the fresh one before the fill', { options: { icons: 'safe' } }, async ($, on) => {
@@ -290,15 +311,21 @@ test('Handoff shows both names; Go renames this session, clears, then renames th
   await w.clock.advance(10)
 
   expect(await band.find({ type: 'Text', text: 'RENAME' })).toBeDefined()
-  expect(await label(band, 'wrap-up-name-this')).toContain(' EP-1 build fix ')
-  expect(await label(band, 'wrap-up-name-next')).toContain(' EP-2 deploy ')
+  expect(await label(band, 'wrap-up-name-this')).toContain(' XY-1 build fix ')
+  expect(await label(band, 'wrap-up-name-next')).toContain(' XY-2 deploy ')
+  expect(await band.find({ type: 'Text', text: 'build ' })).toBeDefined()
+  expect(await band.find({ type: 'Text', text: ' topic, starts both names' })).toBeDefined()
+  // An untitled session with no ledger is hop 1, and the fresh one hop 2, in pills after the topic.
+  const topicRow = JSON.stringify(await band.find({ key: 'wrap-up-name-row-topic' }))
+  expect(topicRow.indexOf('" #1 "')).toBeGreaterThan(topicRow.indexOf('build'))
+  expect(topicRow.indexOf('" #2 "')).toBeGreaterThan(topicRow.indexOf('" #1 "'))
   expect(await band.find({ type: 'Text', text: '· this session' })).toBeDefined()
   await band.pointer({ type: 'move', x: 1, y: 0, in: 'wrap-up-name-this' } as never)
   expect(await band.find({ type: 'Text', text: ' renames this session before the clear, click to skip' })).toBeDefined()
 
   await click(band, 'wrap-up-go')
   expect(w.calls).toEqual(['threads', 'fork', 'run:rename', 'run:clear', 'run:rename', 'fill'])
-  expect(w.renames).toEqual(['EP-1 build fix', 'EP-1 build fix <- EP-2 deploy'])
+  expect(w.renames).toEqual(['build #1: XY-1 build fix', 'build #2: XY-2 deploy'])
   expect(w.filled).toEqual(['Goal: ship it.'])
   await band.unmount()
 })
@@ -317,7 +344,7 @@ test('a name clicked off is skipped, and Compact shows no names', { options: { i
   expect(await label(band, 'wrap-up-name-this')).toContain('○')
   await click(band, 'wrap-up-go')
   expect(w.calls).toEqual(['threads', 'fork', 'run:clear', 'run:rename', 'fill'])
-  expect(w.renames).toEqual(['EP-2 deploy'])
+  expect(w.renames).toEqual(['build #2: XY-2 deploy'])
   await band.unmount()
 })
 
@@ -333,8 +360,10 @@ test('a refused /rename still clears and fills, and the toast names the line to 
   await click(band, 'wrap-up-go')
 
   expect(w.filled).toEqual(['Goal: ship it.'])
-  expect(await band.find({ type: 'Text', text: /Could not rename the earlier session to EP-1 build fix/ })).toBeDefined()
-  expect(await band.find({ type: 'Text', text: /type \/rename EP-1 build fix <- EP-2 deploy/ })).toBeDefined()
+  // The toast splits at its first colon, so a name's own `topic: ` stays whole in the detail.
+  expect(await band.find({ type: 'Text', text: 'Could not rename the earlier session' })).toBeDefined()
+  expect(await band.find({ type: 'Text', text: ' build #1: XY-1 build fix' })).toBeDefined()
+  expect(await band.find({ type: 'Text', text: ' type /rename build #2: XY-2 deploy' })).toBeDefined()
   await band.unmount()
 })
 
@@ -611,9 +640,27 @@ test('the settings pane draws its title, status line and settings', { options: {
     requestId: 'wrap-up',
     props: { scroll: { offset: 0, bodyRows: 20 }, bodyColumns: 80 },
   } as never)
-  expect(JSON.stringify(await pane.drawn({ in: 'mod-wrap-up-settings-tab' }))).toMatch(/Wrap up [^]*"#3B446A"[^]*·[^]* Settings/)
-  expect(await pane.find({ type: 'Text', text: /Click a setting to change it/ })).toBeDefined()
-  expect(await pane.find({ type: 'Text', text: 'Handoff length' })).toBeDefined()
+  expect(JSON.stringify(await pane.drawn({ in: 'mod-wrap-up-settings-tab-name' }))).toContain('Wrap up')
+  expect(JSON.stringify(await pane.drawn({ in: 'mod-wrap-up-settings-tab' }))).toContain(THEME.ok)
+  expect(JSON.stringify(await pane.find({ key: 'pane-footer' }))).toContain('Click a setting to change it')
+  expect(await pane.find({ key: 'wrap-up-status' })).toBeUndefined()
+  expect(JSON.stringify(await pane.drawn())).toContain('mod-wrap-up')
+  expect(JSON.stringify(await pane.drawn({ in: 'setting-name-0' }))).toContain(' Handoff length ')
+  await pane.unmount()
+})
+
+test('the settings head draws the gear on its chip and the mod icon on the name segment', { options: { icons: 'nerd' } }, async ($, on) => {
+  world(on, answered)
+  on('config.list', () => ({ value: [] }))
+  const pane = await $.ui.mount({ plugin: 'mod-wrap-up', surface: 'terminal', component: 'Pane', requestId: 'wrap-up', props: { scroll: { offset: 0, bodyRows: 20 }, bodyColumns: 80 } } as never)
+  const icon = String.fromCodePoint(0xf03d7)
+  const gear = String.fromCodePoint(0xf0493)
+  const name = JSON.stringify(await pane.drawn({ in: 'mod-wrap-up-settings-tab-name' }))
+  const chip = JSON.stringify(await pane.drawn({ in: 'mod-wrap-up-settings-tab' }))
+  expect(name).toContain(icon)
+  expect(name).not.toContain(gear)
+  expect(chip).toContain(gear)
+  expect(chip).not.toContain(icon)
   await pane.unmount()
 })
 
@@ -629,8 +676,10 @@ test('number settings read with their unit, and a click moves them by a useful s
   const row = (field: keyof typeof fields, value: number) => ({ key: `mod-wrap-up.${field}`, label: fields[field].title, value, kind: 'number', description: 'd' })
   on('config.list', () => ({ value: [row('max_words', 400), row('auto_every', 1), row('compact_at', 65), row('compact_at_tokens', 400_000)] }) as never)
   const pane = await $.ui.mount({ plugin: 'mod-wrap-up', surface: 'terminal', component: 'Pane', requestId: 'wrap-up', props: { scroll: { offset: 0, bodyRows: 40 }, bodyColumns: 80 } } as never)
-  for (const shown of ['Handoff length', '400 words', 'Update every', '1 turn', 'Hand off at', '65%', '400K tokens']) expect(await pane.find({ type: 'Text', text: shown })).toBeDefined()
-  expect(await pane.find({ type: 'Text', text: 'Handoff length (words)' })).toBeUndefined()
+  for (const shown of ['400 words', '1 turn', '65%', '400K tokens']) expect(await pane.find({ type: 'Text', text: shown })).toBeDefined()
+  const names = JSON.stringify(await pane.drawn())
+  for (const name of ['Handoff length', 'Update every', 'Hand off at']) expect(names).toContain(`"label":"${name}"`)
+  expect(names).not.toContain('Handoff length (words)')
   await pane.unmount()
 
   // The step comes from the range plugin.json declares, about twenty clicks end to end, and stays inside it.
