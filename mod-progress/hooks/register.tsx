@@ -7,12 +7,12 @@ import { entryCells, isTipMessage, tipText, type EntryMessage, type EntryProps, 
 import { cardFill, detectNerd, FOOTER_ROWS, lookFor, paneFooter, section, withMark, type IconMode } from './look'
 import { foldTip, layoutLoops, type LoopsMessage, type LoopsProps } from './loops'
 import { badgeOf, labelsOf, menuEntry, PILL, pill, pillRow, splitRow, tabRow, tipLine } from './pills'
-import { addBg, appendTail, applyCall, applyStep, applyTask, bandSummary, bgIdOf, bgOutputOf, bgStartOf, buildRows, emptySnap, endBg, endOfStatus, finishAgent, findBg, firstLine, gatesStemIn, cardWidth, HELD_LINES, hasRunningBg, isGatesPath, MAIN_GATES, mergeStamps, outputRoom, pageOf, parseGates, resyncBg, settle, stemOf, TAIL_LINES, waitingCount, wipeBg, type AgentLite, type BgTask, type Gate, type Snap, type Tail, type Usage, type UsageLite } from './progress'
+import { addBg, appendTail, applyCall, applyStep, applyTask, bandSummary, bgIdOf, bgOutputOf, bgStartOf, buildRows, emptySnap, endBg, endOfStatus, finishAgent, findBg, firstLine, gatesStemIn, cardWidth, HELD_LINES, hasRunningBg, isGatesPath, MAIN_GATES, mergeStamps, outputRoom, pageOf, parseGates, resyncBg, settle, stemOf, TAIL_LINES, waitingCount, wipeBg, type AgentLite, type BgTask, type Gate, type Row, type Snap, type Tail, type Usage, type UsageLite } from './progress'
 import { stopLine, stopOf } from './stop'
-import { choiceBar, settingChoice, settingsBody } from './settings'
+import { openSetting, settingChoice, settingsBody } from './settings'
 import text from './text'
 import type { TimelineProps } from './timeline'
-import { fill, MARK, statusColor, THEME } from './theme'
+import { fill, MARK, THEME } from './theme'
 import { TOAST_MS, ToastList, toastCards } from './toasts'
 
 // The icons setting (userConfig), fixed per activation: a change reloads the mod.
@@ -459,11 +459,17 @@ async function saveSetting($: EngineInterface, key: string, value: ConfigValue) 
 
 const agentIcon = () => look.glyph.icon.Agent ?? look.glyph.mark.agent ?? look.glyph.title
 
-// The panel's title line: the list and the settings as tabs, the shown one open.
-const tabs = (open: 'list' | 'settings', count: number) => [
-  { id: 'progress-tab', label: text.paneTitle, icon: agentIcon(), isOpen: open === 'list', count, tip: { glyph: agentIcon(), label: text.paneTitle, text: text.tipTabList } },
-  { id: 'progress-settings', label: text.settingsTab, icon: look.glyph.gear, isOpen: open === 'settings', tip: { glyph: look.glyph.gear, label: text.settingsTab, text: text.tipTabSettings } },
-]
+// The head row: Cards and Timeline are the views (the agent count on Cards), Settings the gear.
+const tabs = (open: 'cards' | 'timeline' | 'settings', count: number) => {
+  const timeline = look.glyph.icon.replay ?? look.glyph.title
+  return [
+    { id: VIEW_CARDS, label: text.viewCards, icon: agentIcon(), isOpen: open === 'cards', count, tip: { glyph: agentIcon(), label: text.viewCards, text: text.tipViewCards } },
+    { id: VIEW_TIMELINE, label: text.viewTimeline, icon: timeline, isOpen: open === 'timeline', tip: { glyph: timeline, label: text.viewTimeline, text: text.tipViewTimeline } },
+    { id: 'progress-settings', label: text.settingsTab, icon: look.glyph.gear, isOpen: open === 'settings', tip: { glyph: look.glyph.gear, label: text.settingsTab, text: text.tipTabSettings } },
+  ]
+}
+
+const agentCount = (rows: Row[]) => rows.filter(row => !row.isMain).length
 
 export const register: Register = (on, options) => {
   still = options.animations === false
@@ -777,7 +783,6 @@ export const register: Register = (on, options) => {
     if (clicked?.type === 'menu-entry' && clicked.id === 'progress') await togglePane($)
     // The title line's tabs swap the list and the settings; the open tab does nothing.
     if (clicked?.type === 'menu-entry' && clicked.id === 'progress-settings' && !(await isOpen($, SETTINGS))) await toggleSettings($)
-    if (clicked?.type === 'menu-entry' && clicked.id === 'progress-tab' && !(await isOpen($))) await togglePane($)
     if (clicked?.type === 'menu-entry' && clicked.id === OUTPUT_MORE) {
       const id = await openTask($)
       const isOpening = !(await isOutputOpen($, id))
@@ -800,6 +805,8 @@ export const register: Register = (on, options) => {
       const current = await loadSnap($)
       current.view = clicked.id === VIEW_TIMELINE ? 'timeline' : 'cards'
       await saveSnap($)
+      // From the settings, a view swaps the panel back to the list.
+      if (!(await isOpen($))) await togglePane($)
       $.ui.invalidate('ui.render')
     }
     if (clicked?.type === 'menu-entry' && clicked.id === 'progress-back') {
@@ -810,6 +817,7 @@ export const register: Register = (on, options) => {
       paneTip = null
       $.ui.invalidate('ui.render')
     }
+    openSetting($, e.data)
     const change = settingChoice(e.data)
     if (change) await saveSetting($, change.key, change.value)
 
@@ -863,10 +871,9 @@ export const register: Register = (on, options) => {
       return (
         <Box flexDirection="column" paddingX={1} minHeight={e.props.scroll.bodyRows} backgroundColor={THEME.bg}>
           {tabRow({ Box, Client, Text }, look.nerd, tabs('settings', bandSummary(rows).count), still)}
-          <Text wrap="truncate-end" color={statusColor(note)}>{withMark(look, note) || fill(text.settingsHint, { sep: MARK.sep })}</Text>
-          <Box marginTop={0}>{settingsBody({ Box, Button, Client, Text }, look, { rows: settingRows, actions: [], working: false, run: async () => {}, still })}</Box>
+          {settingsBody({ Box, Button, Client, Text }, look, { rows: settingRows, actions: [], working: false, run: async () => {}, still, mod: 'mod-progress' })}
           <Box key="footer-space" height={FOOTER_ROWS} flexShrink={0} />
-          {paneFooter({ Box, Text }, hoveredTip(), e.props.bodyColumns, e.props.scroll)}
+          {paneFooter({ Box, Text }, hoveredTip(), e.props.bodyColumns, e.props.scroll, [], { hint: fill(text.settingsHint, { sep: MARK.sep }), status: withMark(look, note) })}
         </Box>
       )
     }
@@ -922,7 +929,7 @@ export const register: Register = (on, options) => {
               </Box>
             ))}
             <Box key="footer-space" height={FOOTER_ROWS} flexShrink={0} />
-            {paneFooter({ Box, Text }, hoveredTip(), e.props.bodyColumns, e.props.scroll)}
+            {paneFooter({ Box, Text }, hoveredTip(), e.props.bodyColumns, e.props.scroll, [], { status: withMark(look, note) })}
           </Box>
         )
       }
@@ -948,45 +955,41 @@ export const register: Register = (on, options) => {
     const foldArrow = isAnyOpen ? look.glyph.less : look.glyph.more
     const foldProps = { id: isAnyOpen ? 'fold-all' : 'unfold-all', label: foldLabel, lead: foldArrow, leadColor: THEME.accent, isOpen: false, bg: THEME.bg, idle: THEME.muted, still, nerd: look.nerd, tip: { glyph: foldArrow, label: foldLabel, text: isAnyOpen ? text.tipFoldAll : text.tipUnfoldAll } } satisfies EntryProps
     const isTimeline = current.view === 'timeline'
-    const viewBar = choiceBar({ Box, Button, Client, Text }, look, 'view', THEME.bg, [
-      { key: 'view-cards', isOn: !isTimeline, props: { id: VIEW_CARDS, label: text.viewCards, still, tip: { glyph: look.glyph.cycle, label: text.viewCards, text: text.tipViewCards } } },
-      { key: 'view-timeline', isOn: isTimeline, props: { id: VIEW_TIMELINE, label: text.viewTimeline, still, tip: { glyph: look.glyph.cycle, label: text.viewTimeline, text: text.tipViewTimeline } } },
-    ])
     const lanes = JSON.parse(JSON.stringify({ rows, width, expanded: current.expanded, nerd: look.nerd, viewing: e.props.view.agentId ?? '', now, still })) as TimelineProps
     const foldToggle = withTasks.length === 0 || isTimeline ? null : <Client key="fold-toggle" module="./entry.tsx" width={entryCells(foldProps)} height={1} props={foldProps} />
 
     return (
       <Box flexDirection="column" paddingX={1} minHeight={e.props.scroll.bodyRows} backgroundColor={THEME.bg}>
-        {tabRow({ Box, Client, Text }, look.nerd, tabs('list', bandSummary(rows).count), still)}
-        <Box key="hint-row" flexDirection="row" columnGap={1}>
-          <Box key="hint-text" flexGrow={1} flexShrink={1}>
-            <Text wrap="truncate-end" color={statusColor(note)}>{withMark(look, note) || text.hint}</Text>
+        {tabRow({ Box, Client, Text }, look.nerd, tabs(isTimeline ? 'timeline' : 'cards', bandSummary(rows).count), still)}
+        {stop ? (
+          <Box key="stop-row" flexDirection="row" marginTop={1}>
+            <Text key="stop-line" wrap="truncate-end" color={stop.tone === 'alert' ? THEME.alert : THEME.warn}>{withMark(look, `${MARK.warn} ${stop.line}`)}</Text>
           </Box>
-          {switchLabel ? (
-            <Box key="view-pill" flexShrink={0}>
-              {/* A Button, not a Client: ui.view is refused unless a real press is behind it. */}
-              {pill({ Box, Text }, look.nerd, THEME.surface3, (
-                <Button key="view-switch" label={look.nerd ? `${MARK.open} ${switchLabel}` : ` ${MARK.open} ${switchLabel} `} plain hover={{ scope: 'view-pill-box', color: THEME.lifted, backgroundColor: THEME.accent }} onPress={switchView} />
-              ), 'view-pill-box', THEME.surface1, THEME.lifted)}
-            </Box>
-          ) : null}
-        </Box>
-        <Box key="view-row" flexDirection="row">{viewBar}</Box>
-        {/* A blank row of the same height while no stop shows, so the list below does not move when one appears. */}
-        <Box key="stop-row" flexDirection="row" columnGap={1}>
-          <Box key="stop-text" flexGrow={1} flexShrink={1}>
-            <Text key="stop-line" wrap="truncate-end" color={stop?.tone === 'alert' ? THEME.alert : THEME.warn}>{stop ? withMark(look, `${MARK.warn} ${stop.line}`) : ' '}</Text>
-          </Box>
-          {foldToggle}
-        </Box>
-        {section({ Box, Text }, look, 'loops', '', '', (
+        ) : null}
+        {section({ Box, Text }, look, 'loops', 'Agent', isTimeline ? text.viewTimeline : text.agentsTitle, [
           isTimeline
             ? <Client key="timeline" module="./timeline.tsx" height={rows.length} props={lanes} />
-            : <Client key="loops" module="./loops.tsx" height={layoutLoops(rows, current.expanded, current.folded ?? []).length} props={props} />
-        ))}
-        {rows.length === 1 ? <Text color={THEME.muted}>{text.noAgents}</Text> : null}
+            : <Client key="loops" module="./loops.tsx" height={layoutLoops(rows, current.expanded, current.folded ?? []).length} props={props} />,
+          rows.length === 1 ? <Text key="no-agents" color={THEME.muted}>{text.noAgents}</Text> : null,
+        ], THEME.accent, {
+          hint: String(agentCount(rows)),
+          // The pill that opens the selected agent's transcript, or returns to main, rides the title edge.
+          right: foldToggle || switchLabel ? (
+            <Box key="loops-edge-controls" flexDirection="row" columnGap={1}>
+              {foldToggle}
+              {switchLabel ? (
+                <Box key="view-pill" flexShrink={0}>
+                  {/* A Button, not a Client: ui.view is refused unless a real press is behind it. */}
+                  {pill({ Box, Text }, look.nerd, THEME.surface3, (
+                    <Button key="view-switch" label={look.nerd ? `${MARK.open} ${switchLabel}` : ` ${MARK.open} ${switchLabel} `} plain hover={{ scope: 'view-pill-box', color: THEME.lifted, backgroundColor: THEME.accent }} onPress={switchView} />
+                  ), 'view-pill-box', THEME.bg, THEME.lifted)}
+                </Box>
+              ) : null}
+            </Box>
+          ) : undefined,
+        })}
         <Box key="footer-space" height={FOOTER_ROWS} flexShrink={0} />
-        {paneFooter({ Box, Text }, hoveredTip(), e.props.bodyColumns, e.props.scroll, switchLabel ? [{ scope: 'view-pill-box', tip: { glyph: MARK.open, label: switchLabel, text: viewed ? text.tipBackToMain : text.tipOpenTranscript } }] : [])}
+        {paneFooter({ Box, Text }, hoveredTip(), e.props.bodyColumns, e.props.scroll, switchLabel ? [{ scope: 'view-pill-box', tip: { glyph: MARK.open, label: switchLabel, text: viewed ? text.tipBackToMain : text.tipOpenTranscript } }] : [], { hint: text.hint, status: withMark(look, note) })}
       </Box>
     )
   })

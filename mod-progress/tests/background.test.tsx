@@ -15,7 +15,7 @@ type On = Parameters<Extract<Parameters<typeof test>[1], (...args: never[]) => u
 const AGENT = { id: 'a1', name: 'leaf-1.1.1', description: 'Build the leaf', type: 'general-purpose', status: 'running' }
 const START = 14 * 60 * 1000
 
-const PANE = { plugin: 'mod-progress', surface: 'terminal', component: 'Pane', requestId: 'progress', props: { title: 'Progress', isFocused: true, bodyColumns: 80, placement: 'dock', scroll: { offset: 0, bodyRows: 30 }, view: {} } } as never
+const PANE = { plugin: 'mod-progress', surface: 'terminal', component: 'Pane', requestId: 'progress', props: { title: 'Progress', isFocused: true, bodyColumns: 80, placement: 'dock', scroll: { offset: 0, bodyRows: 31 }, view: {} } } as never
 
 const NOTIFY = (id: string, status: string) => `<task-notification>\n<task-id>${id}</task-id>\n<status>${status}</status>\n<summary>Background command done</summary>\n</task-notification>`
 
@@ -486,7 +486,7 @@ test('the band pill badge and the pane tab chip show one count: running agents a
   expect(JSON.stringify(await band.drawn({ in: 'menu-entry-progress' }))).toContain('" 3 "')
   await band.unmount()
   const pane = await $.ui.mount(PANE)
-  expect(JSON.stringify(await pane.drawn({ in: 'progress-tab' }))).toContain('" 3 "')
+  expect(JSON.stringify(await pane.drawn({ in: 'view-cards' }))).toContain('" 3 "')
   await pane.unmount()
 })
 
@@ -526,7 +526,7 @@ test('agent cards are flat on the section, only the card under the pointer lifts
   expect(await bgOf('line-3')).toBe(cardFill())
   await pointerOn(pane, { in: 'loops', type: 'down', x: 3, y: 3, button: 'left' })
   const drawn = JSON.stringify(await pane.drawn())
-  expect(drawn).toContain(`"key":"footer-space","height":2,"flexShrink":0`)
+  expect(drawn).toContain(`"key":"footer-space","height":3,"flexShrink":0`)
   expect(drawn).toContain('own conversation')
   expect(drawn).toContain(`"backgroundColor":"${THEME.bg}"`)
   await pane.unmount()
@@ -631,7 +631,7 @@ test('the page shows only the last lines that fit the pane, and every held line 
   await $.tool.call(shellCall('sleep 30'))
   const outputs = async (pane: { pointer?: unknown; findAll: (query: object) => Promise<{ text: string }[]> }) => (await pane.findAll({ type: 'Text', text: /^line \d+$/ })).map(node => node.text)
 
-  const short = await $.ui.mount(paneOf(14))
+  const short = await $.ui.mount(paneOf(15))
   await pointerOn(short, { in: 'loops', type: 'down', x: 3, y: TASK_LINE, button: 'left' })
   await clock.advance(1000)
   await (short as unknown as { redraw: () => Promise<void> }).redraw()

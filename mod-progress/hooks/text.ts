@@ -18,6 +18,7 @@ export default {
   "openTranscript": "Open its transcript",
   "backToMain": "Back to main",
   "paneTitle": "Progress",
+  "agentsTitle": "Agents",
   "settingsPaneTitle": "mod-progress",
   "settingsTab": "Settings",
   "hint": "Click an agent to see its gates",
