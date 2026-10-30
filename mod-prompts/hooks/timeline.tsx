@@ -9,7 +9,8 @@ import { mix, THEME } from './theme'
 // time is the clock time the prompt was sent, empty when the transcript has none; index is its place in the whole list; label and tip fill the pane footer.
 export type Stop = { index: number; time: string; text: string; label: string; tip: string }
 
-export type TimelineProps = { stops: Stop[]; selected: number; glyph: string; dot: string; openDot: string; still: boolean }
+// isBold: selected row bold, unfilled; isInert: clicks select nothing; scope: the outer row Box the engine lights, since a chip over the row can eat its leave event.
+export type TimelineProps = { stops: Stop[]; selected: number; glyph: string; dot: string; openDot: string; still: boolean; isBold?: boolean; isInert?: boolean; scope?: string }
 
 export type TimelineMessage = { type: 'select'; index: number }
 
@@ -43,7 +44,7 @@ const startFade = (surface: ClientSurface<State>) => {
 // Prompts as stops: time, a dot, the text. A click opens one; the stop under the pointer lifts and turns accent.
 const Timeline: ClientModule<TimelineProps, State> = (props, surface) => {
   const { Box, Text } = surface.elements
-  const { stops, selected, glyph, dot, openDot, still } = props
+  const { stops, selected, glyph, dot, openDot, still, isBold, isInert, scope } = props
   const state = surface.state ?? { at: -1, fading: -1, level: 0 }
   const hovered = state.at
   const at = (y: number) => stops[y]
@@ -51,12 +52,12 @@ const Timeline: ClientModule<TimelineProps, State> = (props, surface) => {
   surface.onPointer(event => {
     const stop = event.type === 'leave' ? undefined : at(event.y)
     const index = stop?.index ?? -1
-    const isClick = event.type === 'down' && event.button === 'left' && index >= 0
+    const isClick = event.type === 'down' && event.button === 'left' && index >= 0 && !isInert
     if (index !== hovered) {
       const isDimming = hovered >= 0 && !still
       surface.setState({ at: index, fading: isDimming ? hovered : -1, level: isDimming ? HOVER_STEPS : 0 })
       if (isDimming) startFade(surface)
-      if (!isClick) postTip(surface, 'stop', stop ? { glyph, label: stop.label, text: stop.tip } : null)
+      if (!isClick && !isInert) postTip(surface, 'stop', stop ? { glyph, label: stop.label, text: stop.tip } : null)
     }
     if (isClick) surface.post({ type: 'select', index } satisfies TimelineMessage)
   })
@@ -65,15 +66,17 @@ const Timeline: ClientModule<TimelineProps, State> = (props, surface) => {
     <Box flexDirection="column">
       {stops.map(stop => {
         const isOpen = stop.index === selected
-        const lit = stop.index === hovered ? HOVER_STEPS : stop.index === state.fading ? state.level : 0
-        const on = mix(isOpen ? THEME.surface3 : cardFill(), THEME.lifted, lit / HOVER_STEPS)
+        const lit = scope ? 0 : stop.index === hovered ? HOVER_STEPS : stop.index === state.fading ? state.level : 0
+        const on = mix(isOpen && !isBold ? THEME.surface3 : cardFill(), THEME.lifted, lit / HOVER_STEPS)
         const ink = isOpen ? mix(THEME.ok, THEME.accent, lit / HOVER_STEPS) : mix(THEME.muted, THEME.accent, lit / HOVER_STEPS)
+        const rowLit = scope ? { hover: { scope, backgroundColor: THEME.lifted } } : {}
+        const inkLit = scope ? { hover: { scope, color: THEME.accent } } : {}
         return (
-          <Box key={`stop-${stop.index}`} flexDirection="row" backgroundColor={on}>
+          <Box key={`stop-${stop.index}`} flexDirection="row" backgroundColor={on} {...rowLit}>
             <Text color={THEME.muted}>{(stop.time || '').padEnd(GUTTER)}</Text>
             {/* The open prompt sits on surface-3 in ok and bold, the rest muted, the dot too; the pointer lifts any of them. */}
-            <Text color={ink}>{isOpen ? openDot : dot}</Text>
-            <Text color={ink} bold={isOpen}>{` ${stop.text}`}</Text>
+            <Text color={ink} {...inkLit}>{isOpen ? openDot : dot}</Text>
+            <Text color={ink} bold={isOpen} {...inkLit}>{` ${stop.text}`}</Text>
           </Box>
         )
       })}

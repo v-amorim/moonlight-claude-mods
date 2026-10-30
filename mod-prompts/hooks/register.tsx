@@ -7,12 +7,13 @@ import { cardSpace, HEAD_ROWS, stickyCard } from './card'
 import { isTipMessage, type EntryMessage, type EntryProps, type Tip } from './entry'
 import { cardFill, detectNerd, FOOTER_ROWS, lookFor, paneFooter, section, sepText, titleEdge, withMark, type IconMode } from './look'
 import { iconChip, labelsOf, menuEntry, pill, pillRow, splitRow, tabRow, tipLine } from './pills'
-import { settingChoice, settingsBody } from './settings'
+import { openSetting, settingChoice, settingsBody } from './settings'
 import { TOAST_MS, ToastList, toastCards } from './toasts'
 import { promptsOf, promptText, rowKey, targetOf, TranscriptRows, type Prompt } from './prompts'
 import { bytesOf, CHUNK_BYTES, chunkArgv, utf8Length } from './tail'
+import { headOf, NAMES_SYSTEM, namesPrompt, ownTitle, parseProposals, readChain, resumeArgv, resumeCommand, rowTitle, type ChainSession, whenOf } from './chain'
 import { GUTTER, timelineRows, type TimelineMessage, type TimelineProps } from './timeline'
-import { fill, MARK, statusColor, THEME } from './theme'
+import { fill, MARK, THEME } from './theme'
 import style from './style'
 import text from './text'
 
@@ -84,6 +85,9 @@ function loadLook($: EngineInterface) {
 
 const PANE = 'prompts'
 const SETTINGS = 'prompts-settings'
+const CHAIN = 'prompts-chain'
+// The panel's tabs are sibling panes: one shows at a time.
+const PANES = [PANE, SETTINGS, CHAIN]
 // Claude Code draws a prompt under this id as it is sent, then under its uuid; only the uuid draw is listed.
 const PLACEHOLDER = 'placeholder'
 
@@ -92,8 +96,6 @@ const CARD_ROWS = 8
 
 // An entry click with this prefix flips the card of the prompt whose id follows.
 const MORE = 'prompts-more:'
-
-const STOPS_PER_CLIENT = 30
 
 const PAGE_SIZE = 100
 
@@ -122,6 +124,63 @@ let note = ''
 const drawn = new Map<string, string>()
 
 const isOpen = async ($: EngineInterface, id = PANE) => (await $.ui.panes()).some(pane => pane.id === id && pane.isPlaced)
+
+const isAnyOpen = async ($: EngineInterface, except = '') => (await $.ui.panes()).some(pane => pane.id !== except && PANES.includes(pane.id) && pane.isPlaced)
+
+async function closeOthers($: EngineInterface, keep: string) {
+  for (const id of PANES) if (id !== keep && (await isOpen($, id))) await $.ui.close({ id })
+}
+
+// This session's mod-wrap-up chain, read once per session; null until the read lands.
+let chain: ChainSession[] | null = null
+let chainSession = ''
+// Off a chain: this session's name, and Haiku's names for it, null until asked.
+let sessionTitle = ''
+let proposals: string[] | null = null
+let isProposing = false
+
+function loadChain($: EngineInterface) {
+  if (chainSession === listSession) return
+  chainSession = listSession
+  chain = null
+  sessionTitle = ''
+  proposals = null
+  const session = listSession
+  void configDir($).then(async config => {
+    const found = await readChain($, config, session).catch(() => [])
+    const title = found.length ? '' : await ownTitle($, config, session).catch(() => '')
+    if (session !== chainSession) return
+    chain = found
+    sessionTitle = title
+    $.ui.invalidate('ui.render')
+  })
+}
+
+async function proposeNames($: EngineInterface) {
+  if (isProposing) return
+  isProposing = true
+  const session = chainSession
+  $.ui.invalidate('ui.render')
+  // The folder's last two parts name the repo without the home path.
+  const folder = String(await $.session.cwd().catch(() => '')).split(/[\\/]/).filter(Boolean).slice(-2).join('/')
+  const reply = await $.model.complete({ model: 'haiku', system: NAMES_SYSTEM, prompt: namesPrompt(prompts.map(prompt => prompt.text), { title: sessionTitle, folder }), maxTokens: 300, timeoutMs: 30_000 }).catch(() => null)
+  isProposing = false
+  if (session !== chainSession) return
+  proposals = parseProposals(reply?.isAnswered ? reply.text : '', sessionTitle)
+  $.ui.invalidate('ui.render')
+}
+
+// /rename from a press; a refusal leaves the line to type in the status line.
+async function renameSession($: EngineInterface, name: string) {
+  try {
+    await $.command.run({ command: 'rename', args: name })
+    sessionTitle = name
+    note = `${MARK.ok} ${fill(text.chainRenamed, { name })}`
+  } catch {
+    note = `${MARK.warn} ${fill(text.chainRenameFailed, { name })}`
+  }
+  $.ui.invalidate('ui.render')
+}
 
 // The session the prompts belong to. A /resume or /clear keeps the process and changes the id, so the old list must never show for the new one.
 let listSession = ''
@@ -227,7 +286,22 @@ async function readFrom($: EngineInterface, path: string, from: number, size: nu
   return text
 }
 
+// True while the first read of a session runs, so the pane shows it reading instead of "No prompts yet".
+let isReading = false
+
 async function readMore($: EngineInterface) {
+  isReading = !isLoaded
+  try {
+    await readTranscript($)
+  } finally {
+    // The read's own redraw can land before this, so the pane is told once more that the reading is over.
+    const wasReading = isReading
+    isReading = false
+    if (wasReading) $.ui.invalidate('ui.render')
+  }
+}
+
+async function readTranscript($: EngineInterface) {
   await followSession($)
   if (isLoaded && !isStale) return
   const session = listSession
@@ -283,10 +357,11 @@ async function saveSetting($: EngineInterface, key: string, value: ConfigValue) 
   $.ui.invalidate('ui.render')
 }
 
-// The panel's title line: the list and its settings as tabs, the shown one open.
-const tabs = (isSettings: boolean) => [
-  { id: 'prompts-tab', label: text.paneTitle, icon: look.glyph.icon.prompt ?? look.glyph.title, isOpen: !isSettings, count: prompts.length, tip: { glyph: look.glyph.icon.prompt ?? look.glyph.title, label: text.paneTitle, text: text.promptsTabTip } },
-  { id: 'prompts-settings', label: text.settingsTab, icon: look.glyph.gear, isOpen: isSettings, tip: { glyph: look.glyph.gear, label: text.settingsTab, text: text.settingsTabTip } },
+// The panel's title line: the list, its chain (or a rename off one), and its settings as tabs, the shown one open.
+const tabs = (shown: string) => [
+  { id: 'prompts-tab', label: text.paneTitle, icon: look.glyph.icon.prompt ?? look.glyph.title, isOpen: shown === PANE, ...(isReading && prompts.length === 0 ? {} : { count: prompts.length }), tip: { glyph: look.glyph.icon.prompt ?? look.glyph.title, label: text.paneTitle, text: text.promptsTabTip } },
+  { id: 'prompts-chain-tab', label: text.chainTab, icon: MARK.open, isOpen: shown === CHAIN, ...(chain?.length ? { count: chain.length } : {}), tip: { glyph: MARK.open, label: text.chainTab, text: text.chainTabTip } },
+  { id: 'prompts-settings', label: text.settingsTab, icon: look.glyph.gear, isOpen: shown === SETTINGS, tip: { glyph: look.glyph.gear, label: text.settingsTab, text: text.settingsTabTip } },
 ]
 
 async function configDir($: EngineInterface) {
@@ -314,7 +389,7 @@ async function togglePane($: EngineInterface) {
     await $.state.set({ plugin: 'mod-prompts', key: 'pane' }, false)
     return
   }
-  if (await isOpen($, SETTINGS)) await $.ui.close({ id: SETTINGS })
+  await closeOthers($, PANE)
   note = ''
   selected = -1
   page = -1
@@ -331,11 +406,32 @@ async function toggleSettings($: EngineInterface) {
     await $.state.set({ plugin: 'mod-prompts', key: 'pane' }, false)
     return
   }
-  if (await isOpen($)) await $.ui.close({ id: PANE })
+  await closeOthers($, SETTINGS)
   note = ''
   const opened = await $.ui.open({ id: SETTINGS, title: text.settingsPaneTitle, closeOnEscape: true })
   if (!opened.isPlaced) $.ui.toast(text.settingsWaiting)
   await $.state.set({ plugin: 'mod-prompts', key: 'pane' }, opened.isPlaced)
+}
+
+// The chain tab takes the sidebar's place like the settings do.
+async function openChain($: EngineInterface) {
+  await closeOthers($, CHAIN)
+  note = ''
+  const opened = await $.ui.open({ id: CHAIN, title: text.chainTab, closeOnEscape: true })
+  await $.state.set({ plugin: 'mod-prompts', key: 'pane' }, opened.isPlaced)
+}
+
+// Resumes a chain session in a new Windows Terminal window; elsewhere the note gives the command to run.
+async function openSession($: EngineInterface, session: ChainSession) {
+  const config = await configDir($)
+  const cwd = session.cwd || String(await $.session.cwd().catch(() => ''))
+  if (!/^[A-Za-z]:/.test(config) || !cwd) {
+    note = `${MARK.warn} ${fill(text.chainRunThis, { command: resumeCommand(session.id) })}`
+  } else {
+    const result = await $.process.run(resumeArgv(session.id, cwd), { timeoutMs: 10_000 }).catch((error: Error) => ({ exitCode: -1, stderr: error.message }))
+    note = result.exitCode === 0 ? `${MARK.ok} ${fill(text.chainOpened, { title: session.title || session.id.slice(0, 8) })}` : `${MARK.warn} ${fill(text.chainOpenFailed, { command: resumeCommand(session.id) })}`
+  }
+  $.ui.invalidate('ui.render')
 }
 
 // Scrolls the transcript to the prompt's row; Claude Code allows it only with the person's press behind it.
@@ -512,7 +608,7 @@ export const register: Register = (on, options) => {
 
   on('ui.close', async ($, e, next) => {
     try {
-      if (e.id === PANE || e.id === SETTINGS) await $.state.set({ plugin: 'mod-prompts', key: 'pane' }, await isOpen($, e.id === PANE ? SETTINGS : PANE))
+      if (PANES.includes(e.id)) await $.state.set({ plugin: 'mod-prompts', key: 'pane' }, await isAnyOpen($, e.id))
     } catch {
       // The pane stays as it was.
     }
@@ -525,10 +621,8 @@ export const register: Register = (on, options) => {
     // The declared state names no other mod's pane, so the types narrow this event to never.
     if (e.key === 'pane' && e.plugin !== 'mod-prompts' && (e as { value?: unknown }).value === true) {
       $.clock.after(0, async () => {
-        const wasOpen = (await isOpen($)) || (await isOpen($, SETTINGS))
-        if (!wasOpen) return
-        await $.ui.close({ id: PANE })
-        await $.ui.close({ id: SETTINGS })
+        if (!(await isAnyOpen($))) return
+        for (const id of PANES) await $.ui.close({ id })
         await $.state.set({ plugin: 'mod-prompts', key: 'pane' }, false)
       })
     }
@@ -551,7 +645,7 @@ export const register: Register = (on, options) => {
     const { Box, Client, Text } = $.ui.resolve(e)
     // Reading the value subscribes the bar to redraws; the look trusts the pane list itself.
     await $.state.get({ plugin: 'mod-prompts', key: 'pane' })
-    const shown = (await isOpen($)) || (await isOpen($, SETTINGS))
+    const shown = await isAnyOpen($)
     const { group, row, rest, tip } = splitRow(await next(e))
     // Opening the pane from here queues nothing, so the entry stays live mid-turn.
     const entry = menuEntry({ Box, Client, Text }, nerd, 'prompts', { label: text.pillLabel, labels, isOpen: shown, idle: THEME.pill, isBusy: isOpening, still })
@@ -587,6 +681,7 @@ export const register: Register = (on, options) => {
       if (message?.type === 'menu-entry' && message.id === 'prompts') await openingPane($)
       if (message?.type === 'menu-entry' && message.id === 'prompts-settings' && !(await isOpen($, SETTINGS))) await toggleSettings($)
       if (message?.type === 'menu-entry' && message.id === 'prompts-tab' && !(await isOpen($))) await togglePane($)
+      if (message?.type === 'menu-entry' && message.id === 'prompts-chain-tab' && !(await isOpen($, CHAIN))) await openChain($)
       if (message?.type === 'menu-entry' && (message.id === 'prompts-page-prev' || message.id === 'prompts-page-next')) {
         const shown = page < 0 ? Math.floor(Math.max(0, selected) / PAGE_SIZE) : page
         page = Math.max(0, Math.min(pageCount - 1, shown + (message.id === 'prompts-page-next' ? 1 : -1)))
@@ -597,6 +692,7 @@ export const register: Register = (on, options) => {
         fullPrompt = fullPrompt === id ? '' : id
         $.ui.invalidate('ui.render')
       }
+      openSetting($, e.data)
       const change = settingChoice(e.data)
       if (change) await saveSetting($, change.key, change.value)
     } catch {
@@ -618,20 +714,82 @@ export const register: Register = (on, options) => {
 
   on('ui.render', { component: 'Pane' }, async ($, e, next) => {
     await loadLook($)
-    if (e.requestId !== PANE && e.requestId !== SETTINGS) return next(e)
+    if (!PANES.includes(e.requestId)) return next(e)
     if (isOpening) $.clock.after(0, () => endOpening($))
     // @ts-expect-error The host's types omit Client from a Pane's elements, yet a Pane draws it.
     const { Box, Button, Client, Text } = $.ui.resolve(e)
+    await followSession($)
+    loadChain($)
+
+    // A row's icon chip: drawn only while the pointer is on the row (`scope`), where it grows its name under the pointer itself. A Button, since a window or a scroll needs the person's press.
+    const rowChip = (id: string, scope: string, bg: string, label: string, onPress: () => unknown) => (
+      <Box key={`${id}-reveal`} position="absolute" top={0} right={0} display="none" hover={{ scope, display: 'flex' }}>
+        {iconChip({ Box, Text }, look.nerd, `${id}-box`, bg,
+          <Button key={id} label={look.nerd ? MARK.open : ` ${MARK.open} `} plain hover={{ scope: `${id}-box`, color: THEME.accent }} onPress={onPress} />,
+          // The engine inverts a Button under the pointer, so its hover is the look swapped: it lands as accent on surface-4.
+          <Button key={`${id}-grown`} label={` ${MARK.open} ${label} `} plain hover={{ scope: `${id}-grown`, color: THEME.lifted, backgroundColor: THEME.accent }} onPress={onPress} />,
+          true,
+        )}
+      </Box>
+    )
+    const marks = { dot: MARK.stop, openDot: MARK.stopOpen }
+    const glyph = look.glyph.icon.prompt ?? look.glyph.title
+    // Pane padding, the section's border and padding, the gutter and the dot.
+    const rowWidth = Math.max(10, e.props.bodyColumns - 2 - 4 - GUTTER - 2)
+
+    if (e.requestId === CHAIN) {
+      const current = (chain ?? []).findIndex(session => session.isCurrent)
+      const rows = (chain ?? []).map((session, at) => {
+        const stop = { index: at, time: whenOf(session.at), text: oneLine(rowTitle(session.title) || text.chainUntitled, rowWidth), label: '', tip: '' }
+        return (
+          <Box key={`chain-row-${session.id}`} flexDirection="row">
+            <Client key={`chain-stop-${session.id}`} module="./timeline.tsx" width="100%" height={1} props={{ stops: [stop], selected: current, glyph, still, isBold: true, isInert: true, scope: `chain-row-${session.id}`, ...marks } satisfies TimelineProps} />
+            {session.isCurrent ? null : rowChip(`chain-open-${session.id}`, `chain-row-${session.id}`, cardFill(), text.chainOpen, () => openSession($, session))}
+          </Box>
+        )
+      })
+      const topic = (chain ?? []).map(session => headOf(session.title).topic).find(Boolean)
+      const openTips = (chain ?? []).filter(session => !session.isCurrent).map(session => ({ scope: `chain-open-${session.id}-box`, tip: { glyph: MARK.open, label: text.chainOpen, text: text.chainOpenTip } }))
+      const isOffChain = chain !== null && chain.length === 0
+      if (isOffChain && proposals === null && !isProposing) void proposeNames($)
+      // Off a chain, each proposed name is a Button: /rename should have the person's press behind it.
+      const choice = (key: string, label: string, onPress: () => void) => (
+        <Box key={`${key}-pad`} flexShrink={0}>
+          {pill({ Box, Text }, look.nerd, THEME.surface3, <Button key={key} label={look.nerd ? label : ` ${label} `} plain hover={{ scope: `${key}-pill`, color: THEME.lifted, backgroundColor: THEME.accent }} onPress={onPress} />, `${key}-pill`, THEME.bg)}
+        </Box>
+      )
+      const offChain = (
+        <Box key="chain-off" flexDirection="column">
+          {sepText({ Text }, `${text.chainThisSession} ${MARK.sep} ${sessionTitle || text.chainUntitled}`, THEME.ok, 'chain-own', { bold: true })}
+          <Text key="chain-off-line" color={THEME.muted}>{text.chainNone}</Text>
+          <Box key="chain-gap" height={1} />
+          <Text key="chain-rename-head" color={THEME.muted}>{text.chainRenameTo}</Text>
+          {isProposing || proposals === null
+            ? <Text key="chain-naming" color={THEME.muted}>{text.chainNaming}</Text>
+            : proposals.length === 0
+              ? <Text key="chain-no-names" color={THEME.muted}>{text.chainNoNames}</Text>
+              : proposals.map((name, at) => choice(`chain-name-${at}`, name, () => void renameSession($, name)))}
+          {isProposing || proposals === null ? null : choice('chain-more-names', text.chainMoreNames, () => void proposeNames($))}
+        </Box>
+      )
+      return (
+        <Box flexDirection="column" paddingX={1} minHeight={e.props.scroll.bodyRows} backgroundColor={THEME.bg}>
+          {tabRow({ Box, Client, Text }, look.nerd, tabs(CHAIN), still)}
+          {section({ Box, Text }, look, 'chain', '', isOffChain || chain === null ? text.chainTab : topic || text.chainTab, chain === null ? <Text color={THEME.muted}>{text.chainReading}</Text> : isOffChain ? offChain : rows, THEME.accent, chain?.length ? { hint: fill(text.chainCount, { n: chain.length }) } : {})}
+          <Box key="footer-space" height={FOOTER_ROWS} flexShrink={0} />
+          {paneFooter({ Box, Text }, hoveredTip, e.props.bodyColumns, e.props.scroll, openTips, { hint: fill(isOffChain ? text.chainRenameHint : text.chainHint, { sep: MARK.sep }), status: withMark(look, note) })}
+        </Box>
+      )
+    }
 
     if (e.requestId === SETTINGS) {
       const rows = (await $.config.list()).filter(row => row.key.startsWith('mod-prompts.'))
       return (
         <Box flexDirection="column" paddingX={1} minHeight={e.props.scroll.bodyRows} backgroundColor={THEME.bg}>
-          {tabRow({ Box, Client, Text }, look.nerd, tabs(true), still)}
-          {sepText({ Text }, withMark(look, note) || fill(text.settingsHint, { sep: MARK.sep }), statusColor(note), 'status-line', { wrap: 'truncate-end' })}
-          <Box marginTop={0}>{settingsBody({ Box, Button, Client, Text }, look, { rows, actions: [], working: false, run: async () => {}, still })}</Box>
+          {tabRow({ Box, Client, Text }, look.nerd, tabs(SETTINGS), still)}
+          {settingsBody({ Box, Button, Client, Text }, look, { rows, actions: [], working: false, run: async () => {}, still, mod: 'mod-prompts' })}
           <Box key="footer-space" height={FOOTER_ROWS} flexShrink={0} />
-          {paneFooter({ Box, Text }, hoveredTip, e.props.bodyColumns, e.props.scroll)}
+          {paneFooter({ Box, Text }, hoveredTip, e.props.bodyColumns, e.props.scroll, [], { hint: fill(text.settingsHint, { sep: MARK.sep }), status: withMark(look, note) })}
         </Box>
       )
     }
@@ -640,11 +798,8 @@ export const register: Register = (on, options) => {
     await followSession($)
     if (prompts.length === 0) await loadAWhile($)
 
-    // Pane padding, the section's border and padding, the gutter and the dot.
-    const width = Math.max(10, e.props.bodyColumns - 2 - 4 - GUTTER - 2)
     const current = prompts[selected]
-    const stops = prompts.map((prompt, index) => ({ index, time: clock(prompt.at), text: oneLine(prompt.text, width), label: fill(text.stopLabel, { n: index + 1 }), tip: text.stopTip }))
-    const marks = { dot: MARK.stop, openDot: MARK.stopOpen }
+    const stops = prompts.map((prompt, index) => ({ index, time: clock(prompt.at), text: oneLine(prompt.text, rowWidth), label: fill(text.stopLabel, { n: index + 1 }), tip: text.stopTip }))
     pageCount = Math.max(1, Math.ceil(stops.length / PAGE_SIZE))
     const shownPage = Math.min(pageCount - 1, page < 0 ? Math.floor(Math.max(0, selected) / PAGE_SIZE) : page)
     const first = shownPage * PAGE_SIZE
@@ -656,12 +811,17 @@ export const register: Register = (on, options) => {
     const pager = (id: string, label: string, tip: string, isEdge: boolean) => (
       <Client key={id} module="./entry.tsx" height={1} props={{ id, label, isOpen: false, bg: THEME.surface3, idle: isEdge ? THEME.muted : THEME.secondary, still, tip: { glyph: look.glyph.icon.prompt ?? look.glyph.title, label, text: tip } } satisfies EntryProps} />
     )
-    // The engine caps how large one Client's tree may serialize, so a long session's stops spread over several Clients.
-    const timeline = (key: string, list: typeof stops) =>
-      Array.from({ length: Math.ceil(list.length / STOPS_PER_CLIENT) }, (_, n) => {
-        const chunk = list.slice(n * STOPS_PER_CLIENT, (n + 1) * STOPS_PER_CLIENT)
-        return <Client key={n === 0 ? key : `${key}-${n}`} module="./timeline.tsx" height={timelineRows(chunk.length)} props={{ stops: chunk, selected, glyph: look.glyph.icon.prompt ?? look.glyph.title, still, ...marks } satisfies TimelineProps} />
-      })
+    // One Client per row, so each row is the hover scope of its own jump chip; a page holds at most PAGE_SIZE of them.
+    const timeline = (key: string, list: typeof stops) => (
+      <Box key={key} flexDirection="column">
+        {list.map(stop => (
+          <Box key={`stop-row-${stop.index}`} flexDirection="row">
+            <Client key={`timeline-${stop.index}`} module="./timeline.tsx" width="100%" height={timelineRows(1)} props={{ stops: [stop], selected, glyph, still, scope: `stop-row-${stop.index}`, ...marks } satisfies TimelineProps} />
+            {rowChip(`stop-jump-${stop.index}`, `stop-row-${stop.index}`, stop.index === selected ? THEME.surface3 : cardFill(), text.jumpLabel, () => jump($, stop.index))}
+          </Box>
+        ))}
+      </Box>
+    )
     const stat = (key: string, body: unknown) => pill({ Box, Text }, look.nerd, THEME.surface3, body, key, THEME.surface1)
     const stats = current
       ? [
@@ -700,11 +860,13 @@ export const register: Register = (on, options) => {
     // Mouse only: the jump is a Button, since a scroll needs the person's press behind it; a click on a stop opens it.
     return (
       <Box flexDirection="column" paddingX={1} minHeight={e.props.scroll.bodyRows} backgroundColor={THEME.bg}>
-        {tabRow({ Box, Client, Text }, look.nerd, tabs(false), still)}
-        {sepText({ Text }, note || fill(text.hint, { sep: MARK.sep }), statusColor(note), 'status-line', { wrap: 'truncate-end' })}
-        {prompts.length === 0 ? <Text color={THEME.muted}>{failedSize > 0 ? (readError ? fill(text.unreadableWhy, { reason: readError }) : text.unreadable) : text.empty}</Text> : null}
+        {tabRow({ Box, Client, Text }, look.nerd, tabs(PANE), still)}
         {current ? cardSpace({ Box }, cardRows) : null}
-        {section({ Box, Text }, look, 'timeline', '', text.thisSession, [
+        {section({ Box, Text }, look, 'timeline', 'prompt', text.thisSession, [
+          prompts.length === 0 && isReading ? (
+            <Client key="reading" module="./entry.tsx" height={1} props={{ id: 'reading', label: text.reading, isOpen: false, bg: cardFill(), idle: THEME.muted, still, spinner: true, nerd: look.nerd } satisfies EntryProps} />
+          ) : null,
+          prompts.length === 0 && !isReading ? <Text key="empty" color={THEME.muted}>{failedSize > 0 ? (readError ? fill(text.unreadableWhy, { reason: readError }) : text.unreadable) : text.empty}</Text> : null,
           before.length > 0 ? (
             timeline('timeline-before', before)
           ) : null,
@@ -714,21 +876,12 @@ export const register: Register = (on, options) => {
               <Box key="open-stats" flexDirection="row" columnGap={1} flexGrow={1}>
                 {stats}
               </Box>
-              {/* A Button, not an Entry: a transcript scroll needs the person's press, and a Client click is refused as not person-initiated. */}
-              <Box key="open-jump-pill" flexShrink={0}>
-                {iconChip({ Box, Text }, look.nerd, 'open-jump-box', THEME.surface1,
-                  <Button key="open-jump" label={look.nerd ? MARK.open : ` ${MARK.open} `} plain hover={{ scope: 'open-jump-box', color: THEME.accent }} onPress={() => jump($, selected)} />,
-                  // The engine inverts a Button under the pointer, so its hover is the look swapped: it lands as accent on surface-4.
-                  <Button key="open-jump-grown" label={` ${MARK.open} ${text.jumpLabel} `} plain hover={{ scope: 'open-jump-grown', color: THEME.lifted, backgroundColor: THEME.accent }} onPress={() => jump($, selected)} />,
-                  true,
-                )}
-              </Box>
             </Box>
           ) : null,
           after.length > 0 ? (
             timeline('timeline-after', after)
           ) : null,
-        ])}
+        ], THEME.accent, isReading && prompts.length === 0 ? {} : { hint: String(prompts.length) })}
         {current
           ? [stickyCard({ Box, Text }, e.props.scroll.offset, e.props.bodyColumns, cardRows, [
               <Box key="card-text" height={shownRows.length} flexDirection="column" overflow="hidden" flexShrink={0}>
@@ -758,7 +911,7 @@ export const register: Register = (on, options) => {
               </Box>]
           : null}
         <Box key="footer-space" height={FOOTER_ROWS} flexShrink={0} />
-        {paneFooter({ Box, Text }, hoveredTip, e.props.bodyColumns, e.props.scroll, current && hasOpen ? [{ scope: 'open-jump-box', tip: { glyph: MARK.open, label: text.jumpLabel, text: text.jumpTip } }] : [])}
+        {paneFooter({ Box, Text }, hoveredTip, e.props.bodyColumns, e.props.scroll, onPage.map(stop => ({ scope: `stop-jump-${stop.index}-box`, tip: { glyph: MARK.open, label: text.jumpLabel, text: text.jumpTip } })), { hint: fill(text.hint, { sep: MARK.sep }), status: withMark(look, note) })}
       </Box>
     )
   })

@@ -33,6 +33,50 @@ export function bytesOf(base64: string): Uint8Array {
   return out
 }
 
+// UTF-8 to text by hand, for the same reason; a broken sequence becomes U+FFFD.
+export function textOf(bytes: Uint8Array): string {
+  let out = ''
+  for (let at = 0; at < bytes.length; ) {
+    const lead = bytes[at]!
+    const extra = lead < 0x80 ? 0 : lead >= 0xf0 ? 3 : lead >= 0xe0 ? 2 : lead >= 0xc0 ? 1 : -1
+    if (extra < 0 || at + extra >= bytes.length) {
+      out += '�'
+      at++
+      continue
+    }
+    let code = extra === 0 ? lead : lead & (0x3f >> extra)
+    for (let k = 1; k <= extra; k++) code = (code << 6) | (bytes[at + k]! & 0x3f)
+    out += String.fromCodePoint(code)
+    at += extra + 1
+  }
+  return out
+}
+
+// Whole lines of the file's last `maxChunks` chunks, newest chunk first, each handed to `visit` as text; `visit` returns a value to stop. A line cut by a chunk start joins the chunk before it. Copied from mod-wrap-up.
+export async function scanTail<T>(
+  size: number,
+  maxChunks: number,
+  readChunk: (from: number, length: number) => Promise<Uint8Array>,
+  visit: (text: string) => T | undefined,
+): Promise<T | undefined> {
+  let end = size
+  let carry = new Uint8Array(0)
+  for (let chunk = 0; chunk < maxChunks && end > 0; chunk++) {
+    const from = Math.max(0, end - CHUNK_BYTES)
+    const read = await readChunk(from, end - from)
+    const joined = new Uint8Array(read.length + carry.length)
+    joined.set(read)
+    joined.set(carry, read.length)
+    const firstBreak = from > 0 ? joined.indexOf(0x0a) : -1
+    carry = from > 0 ? joined.slice(0, firstBreak < 0 ? joined.length : firstBreak) : new Uint8Array(0)
+    const whole = from > 0 ? (firstBreak < 0 ? new Uint8Array(0) : joined.slice(firstBreak + 1)) : joined
+    const found = visit(textOf(whole))
+    if (found !== undefined) return found
+    end = from
+  }
+  return undefined
+}
+
 // How many bytes the text takes in UTF-8, without building them.
 export function utf8Length(text: string) {
   let bytes = 0

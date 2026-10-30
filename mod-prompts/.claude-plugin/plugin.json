@@ -1,6 +1,6 @@
 {
   "name": "mod-prompts",
-  "version": "1.2.0",
+  "version": "2.0.0",
   "description": "A sidebar of every prompt in this session, with the full text in a card and a button that jumps the transcript to it. Opens from /mod-prompts or the Prompts entry in the mod-menu pill",
   "license": "MIT",
   "author": { "name": "Vinicius Amorim", "url": "https://github.com/v-amorim" },

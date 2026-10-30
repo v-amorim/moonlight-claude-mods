@@ -85,7 +85,8 @@ test('the timeline lists prompts and the turn of the open one, a click opens a s
   expect(spawned).toEqual(['/t/s1.jsonl'])
   expect(JSON.stringify(await ui.drawn({ in: 'prompts-tab' }))).toContain('3')
   // The last prompt opens first: its stop, then its turn as pills.
-  expect(JSON.stringify(await ui.drawn({ in: 'timeline-before' }))).toContain(' second prompt')
+  const lineOf = async (stop: number) => JSON.stringify(await ui.drawn({ in: `timeline-${stop}` }))
+  expect(await lineOf(2)).toContain(' second prompt')
   expect(await ui.find({ type: 'Text', text: '23s' })).toBeDefined()
   expect(await ui.find({ type: 'Text', text: '2 tools' })).toBeDefined()
   // The card's number sits in its top edge, not in a row inside it.
@@ -95,35 +96,43 @@ test('the timeline lists prompts and the turn of the open one, a click opens a s
   // A stop shows the clock time its prompt was sent; the queued fixture row has no timestamp, so it shows none.
   const sent = new Date('2026-10-03T11:58:00Z')
   const hhmm = `${String(sent.getHours()).padStart(2, '0')}:${String(sent.getMinutes()).padStart(2, '0')}`
-  expect(JSON.stringify(await ui.drawn({ in: 'timeline-before' })).split(`${hhmm} `).length - 1).toBe(2)
+  expect([await lineOf(0), await lineOf(1), await lineOf(2)].join('').split(`${hhmm} `).length - 1).toBe(2)
 
-  // A hovered stop or tab puts its tip in the pane footer; leaving clears it.
-  const lineOf = async (stop: number) => JSON.stringify(await ui.drawn({ in: 'timeline-before' })).split('"key":"stop-')[stop + 1] ?? ''
+  // The open row keeps surface-3 and primary-70; every other row's text is muted, never onSurface.
   expect(await lineOf(2)).toContain(`"color":"${THEME.ok}","bold":true`)
   expect(await lineOf(2)).toContain(THEME.surface3)
-  expect(await lineOf(0)).not.toContain(THEME.lifted)
-  await pointer(ui, { in: 'timeline-before', type: 'move', x: 8, y: 0 })
-  expect(await lineOf(0)).toContain(`"backgroundColor":"${THEME.lifted}"`)
-  expect(await lineOf(1)).not.toContain(THEME.lifted)
+  for (const rest of [0, 1]) {
+    expect(await lineOf(rest)).toContain(`"color":"${THEME.muted}"`)
+    expect(await lineOf(rest)).not.toContain(THEME.onSurface)
+    expect(await lineOf(rest)).not.toContain(THEME.surface3)
+  }
+  // A row's ↗ chip is hidden until the pointer is on its row.
+  expect(JSON.stringify(await ui.drawn())).toContain('"key":"stop-jump-1-reveal","position":"absolute","top":0,"right":0,"display":"none"},"hover":{"scope":"stop-row-1","display":"flex"}')
+
+  // A hovered stop or tab puts its tip in the pane footer; leaving clears it.
+  // The engine lights a row through its row's hover scope, so a leave event lost under the chip cannot leave it lit.
+  expect(await lineOf(0)).toContain(`"hover":{"scope":"stop-row-0","backgroundColor":"${THEME.lifted}"}`)
+  await pointer(ui, { in: 'timeline-0', type: 'move', x: 8, y: 0 })
+  expect(await lineOf(0)).not.toContain(`"props":{"key":"stop-0","flexDirection":"row","backgroundColor":"${THEME.lifted}"`)
   expect(await ui.find({ type: 'Text', text: ' · shows this prompt in full' })).toBeDefined()
-  await pointer(ui, { in: 'timeline-before', type: 'leave', x: 0, y: 0 })
+  await pointer(ui, { in: 'timeline-0', type: 'leave', x: 0, y: 0 })
   expect(await ui.find({ type: 'Text', text: ' · shows this prompt in full' })).toBeUndefined()
   await pointer(ui, { in: 'prompts-settings', type: 'move', x: 1, y: 0 })
   expect(await ui.find({ type: 'Text', text: ' · opens this mod\'s settings' })).toBeDefined()
   await pointer(ui, { in: 'prompts-settings', type: 'leave', x: 0, y: 0 })
 
   // A click on a stop opens it, and the stops after it move under its details; the jump Button scrolls.
-  await pointer(ui, { in: 'timeline-before', type: 'down', button: 'left', x: 8, y: 0 })
-  expect(JSON.stringify(await ui.drawn({ in: 'timeline-before' }))).toContain(' first prompt')
-  expect(JSON.stringify(await ui.drawn({ in: 'timeline-after' }))).toContain('second prompt')
+  await pointer(ui, { in: 'timeline-0', type: 'down', button: 'left', x: 8, y: 0 })
+  expect(await lineOf(0)).toContain(' first prompt')
+  expect(await lineOf(2)).toContain('second prompt')
   // Safe mode pads the jump glyph inside its pill, since it has no rounded caps.
   expect(await ui.find({ type: 'Button', text: ' ↗ ' })).toBeDefined()
-  expect(JSON.stringify(await ui.drawn())).toContain('open-jump-box-rest')
+  expect(JSON.stringify(await ui.drawn())).toContain('stop-jump-0-box-rest')
   // The chip shown under the pointer names the jump.
   expect(await ui.find({ type: 'Button', text: ' ↗ Jump ' })).toBeDefined()
   expect(JSON.stringify(await ui.drawn())).toContain('scrolls the transcript to this prompt')
   expect(((await ui.drawn()) as { props: { backgroundColor?: string } }).props.backgroundColor).toBe(THEME.bg)
-  await ui.press({ key: 'open-jump' })
+  await ui.press({ key: 'stop-jump-0' })
   // The kit answers no ui.scroll, so the press shows its refusal; targetOf is checked on its own below.
   expect(await ui.find({ type: 'Text', text: /no implementation for ui.scroll/ })).toBeDefined()
   await ui.unmount()
@@ -161,7 +170,7 @@ test('the timeline lists prompts and the turn of the open one, a click opens a s
   await reopened.unmount()
 })
 
-test('a long session pages by 100, each page split across several timeline Clients, with the pager buttons in fixed places', async ($, on) => {
+test('a long session pages by 100, each row its own timeline Client, with the pager buttons in fixed places', async ($, on) => {
   const many = Array.from({ length: 342 }, (_, n) => user(n + 1, n === 0 ? null : n, `prompt number ${n + 1} with a few more words to make the row long enough`)).join('\n')
   on('store.get', () => ({ value: '/t/long.jsonl' }))
   on('store.set', () => ({ value: undefined }))
@@ -175,7 +184,7 @@ test('a long session pages by 100, each page split across several timeline Clien
   expect(JSON.stringify(await ui.drawn({ in: 'prompts-tab' }))).toContain('342')
   // The newest prompt is open, so the last page shows. Prev and Next sit side by side before the page text, and both stay drawn, so the text never moves them.
   expect(await ui.find({ type: 'Text', text: 'Page 4 of 4 · 301–342' })).toBeDefined()
-  expect(JSON.stringify(await ui.drawn({ in: 'timeline-before' }))).toContain('prompt number 301 ')
+  expect(JSON.stringify(await ui.drawn({ in: 'timeline-300' }))).toContain('prompt number 301 ')
   expect(JSON.stringify(await ui.drawn())).toContain('prompt number 342')
   expect(JSON.stringify(await ui.drawn())).not.toContain('prompt number 300 ')
   const last = JSON.stringify(await ui.drawn())
@@ -185,7 +194,7 @@ test('a long session pages by 100, each page split across several timeline Clien
   // Prev goes back a page; the open prompt's details stay off it.
   await pointer(ui, { in: 'prompts-page-prev', type: 'down', button: 'left', x: 1, y: 0 })
   expect(await ui.find({ type: 'Text', text: 'Page 3 of 4 · 201–300' })).toBeDefined()
-  expect(JSON.stringify(await ui.drawn({ in: 'timeline-before' }))).toContain('prompt number 201 ')
+  expect(JSON.stringify(await ui.drawn({ in: 'timeline-200' }))).toContain('prompt number 201 ')
   expect(JSON.stringify(await ui.drawn())).not.toContain('timeline-after')
   // Scrolled down, the pager stays at the top of the view with the card.
   await ui.unmount()
@@ -226,7 +235,7 @@ test('the title tabs swap the sidebar and its settings', async ($, on) => {
   await ui.unmount()
 
   const settings = await $.ui.mount(pane('prompts-settings'))
-  expect(await settings.find({ type: 'Text', text: 'Animations' })).toBeDefined()
+  expect(JSON.stringify(await settings.drawn({ in: 'setting-name-0' }))).toContain(' Animations ')
   // A settings control's tip is its description's first sentence, led by a lowercase letter.
   await pointer(settings, { in: 'setting-0-flip', type: 'move', x: 1, y: 0 })
   expect(await settings.find({ type: 'Text', text: ' · entries shimmer while they wait' })).toBeDefined()
@@ -371,7 +380,9 @@ test('a prompt sent again with the same text is listed again', async ($, on) => 
   await sent($, ID(51), 'continue')
   await $.command.run({ command: 'mod-prompts' } as never)
   const ui = await paneOf($)
-  expect(JSON.stringify(await ui.drawn({ in: 'timeline-before' })).split(' continue').length - 1).toBe(3)
+  const rows = await Promise.all([0, 1, 2].map(n => ui.drawn({ in: `timeline-${n}` })))
+  expect(rows.map(row => JSON.stringify(row).includes(' continue'))).toEqual([true, true, true])
+  expect(await ui.find({ key: 'stop-row-3' })).toBeUndefined()
   await ui.unmount()
 })
 
@@ -385,7 +396,8 @@ test('a placeholder draw lists no prompt, and the uuid draw that follows lists i
   await sent($, ID(60), 'fresh prompt')
   await clock.settle()
   const ui = await paneOf($)
-  expect(JSON.stringify(await ui.drawn({ in: 'timeline-before' })).split(' fresh prompt').length - 1).toBe(1)
+  expect(JSON.stringify(await ui.drawn({ in: 'timeline-0' }))).toContain(' fresh prompt')
+  expect(await ui.find({ key: 'stop-row-1' })).toBeUndefined()
   await ui.unmount()
 })
 
@@ -679,4 +691,35 @@ test('a store that fails on the transcript path still lets the session start and
   const ui = await $.ui.mount({ plugin: 'mod-prompts', surface: 'terminal', component: 'Pane', requestId: 'prompts', props: { title: 'Prompts', isFocused: true, bodyColumns: 60, placement: 'dock', scroll: { offset: 0, bodyRows: 20 }, view: {} } } as never)
   expect(JSON.stringify(await ui.drawn({ in: 'prompts-tab' }))).toContain('3')
   await ui.unmount()
+})
+
+test('the hint draws in the pinned footer and the empty list is a titled box, not a line under the tabs', async ($, on) => {
+  const ui = await emptyPane($, on)
+  expect(await ui.find({ key: 'status-line' })).toBeUndefined()
+  expect(JSON.stringify(await ui.find({ key: 'pane-footer' }))).toContain('Click a prompt to open it')
+  expect(await ui.find({ key: 'footer-status' })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: 'This session' })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: 'No prompts yet.' })).toBeDefined()
+  expect(JSON.stringify(await ui.drawn({ in: 'prompts-settings' }))).not.toContain(THEME.ok)
+  await ui.unmount()
+})
+
+test('the Settings view draws the gear active, its hint in the footer and the mod name in the card title', async ($, on) => {
+  on('config.list', () => ({ value: [{ key: 'mod-prompts.animations', label: 'Animations', kind: 'boolean', value: true, description: 'd' }] }) as never)
+  on('store.get', () => ({ value: undefined }))
+  on('session.id', () => ({ value: 's1' }))
+  on('fs.stat', () => ({ value: { kind: 'file', size: 0, mtimeMs: 0, isLink: false } }))
+  on('fs.read', () => ({ value: '' }))
+  on('fs.list', () => ({ value: [] }))
+  on('ui.panes', () => ({ value: [] }))
+  mock.env(on, {})
+  mock.clock(on)
+  const settings = await $.ui.mount({ plugin: 'mod-prompts', surface: 'terminal', component: 'Pane', requestId: 'prompts-settings', props: { title: 'Settings', isFocused: true, bodyColumns: 60, placement: 'dock', scroll: { offset: 0, bodyRows: 20 }, view: {} } } as never)
+  const gear = JSON.stringify(await settings.drawn({ in: 'prompts-settings' }))
+  expect(gear).toContain(THEME.ok)
+  expect(gear).toContain(THEME.lifted)
+  expect(await settings.find({ key: 'status-line' })).toBeUndefined()
+  expect(JSON.stringify(await settings.find({ key: 'pane-footer' }))).toContain('Click a setting to change it')
+  expect(JSON.stringify(await settings.drawn())).toContain('mod-prompts')
+  await settings.unmount()
 })
