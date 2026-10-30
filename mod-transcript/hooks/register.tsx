@@ -1620,7 +1620,7 @@ export const register: Register = (on, options) => {
     const { Box, Client, Link, Markdown, Text } = $.ui.resolve(e)
     await loadRoots($)
     // The row draws now with its paths as code pills; each one that exists turns into a link once its stat answers and the row redraws.
-    void paths.watch(pathTokens(e.props.text), absolute => $.fs.stat(absolute).then(() => true), () => $.ui.invalidate('ui.render')).catch(() => {
+    void paths.watch(pathTokens(e.props.text), absolute => $.fs.stat(absolute).then(stat => stat.kind), () => $.ui.invalidate('ui.render')).catch(() => {
       // A failed stat leaves the path as it is drawn.
     })
     const failure = apiFailure?.text && e.props.text.trim() === apiFailure.text ? apiFailure : null

@@ -50,8 +50,10 @@ async function open($: any, on: any, text = '', reads: () => string = () => text
   on('fs.stat', (_$: unknown, e: { path: string }) => {
     // Windows puts a drive in front of the path the mod asked for.
     const path = String(e.path).replace(/\\/g, '/').replace(/^[A-Za-z]:/, '')
-    if (/^\/(w|home)\//.test(path) && !files.includes(path)) throw new Error('ENOENT')
-    return { value: { kind: 'file', size: text.length, mtimeMs: 0, isLink: false } }
+    // A name in `files` that ends in / is a folder.
+    const isDir = files.includes(`${path}/`)
+    if (/^\/(w|home)\//.test(path) && !files.includes(path) && !isDir) throw new Error('ENOENT')
+    return { value: { kind: isDir ? 'dir' : 'file', size: text.length, mtimeMs: 0, isLink: false } }
   })
   // `editor` holds the files of a VS Code install, by path; any other path reads as the transcript.
   const inEditor = (path: string) => Object.keys(editor).find(file => String(path).replace(/\\/g, '/').endsWith(file))
@@ -815,6 +817,12 @@ test('a relative path resolves against the session folder, ~ against home, and a
   const reply = await replyOf($, on, 'See ./b.ts, `~/notes.md` and src/missing.ts.', 120, ['/w/b.ts', '/home/notes.md'])
   await reply.redraw()
   expect(((await reply.findAll({ type: 'Link' })) as any[]).map(link => link.props.href)).toEqual(['vscode://file/w/b.ts', 'vscode://file/home/notes.md'])
+})
+
+test('a folder link opens in a new VS Code window, so it never replaces an open workspace; a file still opens as a tab', async ($, on) => {
+  const reply = await replyOf($, on, 'Open `src/lib` and `src/a.ts`.', 120, ['/w/src/lib/', '/w/src/a.ts'])
+  await reply.redraw()
+  expect(((await reply.findAll({ type: 'Link' })) as any[]).map(link => link.props.href)).toEqual(['vscode://file/w/src/lib?windowId=_blank', 'vscode://file/w/src/a.ts'])
 })
 
 test('a link inside a table body cell is drawn, and the column is as wide as the pill', async ($, on) => {

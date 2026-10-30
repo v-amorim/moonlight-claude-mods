@@ -48,8 +48,9 @@ const normalize = (path: string) => {
   return out.join('/')
 }
 
-const vscodeAddress = (absolute: string, line?: string, col?: string) =>
-  `vscode://file${absolute.startsWith('/') ? '' : '/'}${encodeURI(absolute).replace(/[?#]/g, mark => encodeURIComponent(mark))}${line ? `:${line}${col ? `:${col}` : ''}` : ''}`
+// A folder opens in a new window: VS Code would otherwise swap the last active window's workspace for it.
+const vscodeAddress = (absolute: string, line?: string, col?: string, isDir = false) =>
+  `vscode://file${absolute.startsWith('/') ? '' : '/'}${encodeURI(absolute).replace(/[?#]/g, mark => encodeURIComponent(mark))}${line ? `:${line}${col ? `:${col}` : ''}` : ''}${isDir ? '?windowId=_blank' : ''}`
 
 // A false answer is asked again after this long, since Claude may write the file it names a moment later.
 const MISSING_MS = 3000
@@ -68,7 +69,7 @@ export function pathTokens(text: string): string[] {
 export class PathLinks {
   cwd = ''
   home = ''
-  private known = new Map<string, { isFound: boolean; at: number }>()
+  private known = new Map<string, { isFound: boolean; isDir: boolean; at: number }>()
 
   clear() {
     this.known.clear()
@@ -85,8 +86,9 @@ export class PathLinks {
   href(token: string): string | undefined {
     const { path, line, col } = splitToken(token)
     const absolute = this.absolute(path)
-    if (!absolute || this.known.get(absolute)?.isFound !== true) return undefined
-    return vscodeAddress(absolute, line, col)
+    const known = absolute ? this.known.get(absolute) : undefined
+    if (!absolute || known?.isFound !== true) return undefined
+    return vscodeAddress(absolute, line, col, known.isDir)
   }
 
   // The address of a file a tool just touched, which needs no stat to be known.
@@ -95,8 +97,8 @@ export class PathLinks {
     return absolute ? vscodeAddress(absolute, line === undefined ? undefined : String(line)) : undefined
   }
 
-  // Asks `exists` about each token not asked yet; `found` runs once when any of them turns out to exist.
-  async watch(tokens: string[], exists: (absolute: string) => Promise<boolean>, found: () => void) {
+  // Asks `kindOf` about each token not asked yet (a rejection means missing); `found` runs once when any of them turns out to exist.
+  async watch(tokens: string[], kindOf: (absolute: string) => Promise<string>, found: () => void) {
     const now = Date.now()
     const asks = new Set<string>()
     for (const token of tokens) {
@@ -104,8 +106,11 @@ export class PathLinks {
       const known = absolute ? this.known.get(absolute) : undefined
       if (absolute && (!known || (!known.isFound && now - known.at > MISSING_MS))) asks.add(absolute)
     }
-    const answers = await Promise.all([...asks].map(async absolute => ({ absolute, isFound: await exists(absolute).catch(() => false) })))
-    for (const { absolute, isFound } of answers) this.known.set(absolute, { isFound, at: now })
+    const answers = await Promise.all([...asks].map(async absolute => {
+      const kind = await kindOf(absolute).catch(() => null)
+      return { absolute, isFound: kind !== null, isDir: kind === 'dir' }
+    }))
+    for (const { absolute, isFound, isDir } of answers) this.known.set(absolute, { isFound, isDir, at: now })
     if (answers.some(answer => answer.isFound)) found()
   }
 }
