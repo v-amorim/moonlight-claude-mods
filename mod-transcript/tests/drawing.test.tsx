@@ -1250,6 +1250,36 @@ for (const [name, tool, output, extra] of FALLBACKS) {
   })
 }
 
+const BAND = { hasSurvey: false, isWorking: false, maxRows: 6, bodyColumns: 100, scroll: { offset: 0, bodyRows: 6 } }
+
+test('in the ctrl+o view an Edit result draws as the card and Claude Code\'s own result is not drawn', async ($, on) => {
+  const mount = await open($, on)
+  await mount('UserMessage', ID(1), prompt('edit it', true))
+  const result = await mount('ToolResult', 'toolu_f', { tool_use_id: 'toolu_f', tool: 'Edit', output: EDIT_OUTPUT, isErrored: false })
+  expect(await result.find({ type: 'Text', text: 'base ToolResult' })).toBeUndefined()
+  expect(textOf(await result.find({ key: `${CARD}-row-2-0-in` }))).toBe('11 + │ const a = "y"')
+  expect(await result.find({ key: 'toggle-bubble' })).toBeUndefined()
+})
+
+test('in the ctrl+o view an unknown result still falls back to Claude Code', async ($, on) => {
+  const mount = await open($, on)
+  await mount('UserMessage', ID(1), prompt('edit it', true))
+  const result = await mount('ToolResult', 'toolu_f', { tool_use_id: 'toolu_f', tool: 'Edit', output: 'Updated', isErrored: false })
+  expect(await result.find({ type: 'Text', text: 'base ToolResult' })).toBeDefined()
+  expect(await result.find({ key: CARD })).toBeUndefined()
+})
+
+test('in a subagent view an Edit result draws as the card alone, and an unknown one falls back', async ($, on) => {
+  const mount = await open($, on)
+  await (await mount('AbovePrompt', 'band', { ...BAND, view: { agentId: 'a1' } })).unmount()
+  const known = await mount('ToolResult', 'toolu_s', { tool_use_id: 'toolu_s', tool: 'Edit', output: EDIT_OUTPUT, isErrored: false })
+  expect(await known.find({ type: 'Text', text: 'base ToolResult' })).toBeUndefined()
+  expect(textOf(await known.find({ key: `${CARD}-row-1-0-in` }))).toBe('11 − │ const a = "x"')
+  const unknown = await mount('ToolResult', 'toolu_u', { tool_use_id: 'toolu_u', tool: 'Edit', output: 'Updated', isErrored: false })
+  expect(await unknown.find({ type: 'Text', text: 'base ToolResult' })).toBeDefined()
+  await (await mount('AbovePrompt', 'band', { ...BAND, view: {} })).unmount()
+})
+
 // A finished turn whose one call carries the given result record, opened through its head, chip and call line.
 const openCall = async ($: any, on: any, tool: string, input: object, output: object) => {
   const turn = [

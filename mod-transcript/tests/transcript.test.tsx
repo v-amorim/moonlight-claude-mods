@@ -804,13 +804,16 @@ test('/mod-transcript settings opens its own panel: a click saves a setting, an 
     requestId: 'toggle-settings',
     props: { title: 'mod-transcript', isFocused: false, bodyColumns: 60, placement: 'dock', scroll: { offset: 0, bodyRows: 20 }, view: {} },
   } as never)
-  expect(await ui.find({ type: 'Text', text: /^Fold finished turns$/ })).toBeDefined()
+  expect(JSON.stringify(await ui.drawn({ in: 'setting-name-0' }))).toContain(' Fold finished turns ')
   expect(JSON.stringify(await ui.drawn())).toMatch(/"flexDirection":"column","paddingX":1,"backgroundColor":"#0D0E17","minHeight":20/)
   // A Button posts no tip, so each action's tip waits hidden in the footer for its pill's hover.
   expect(await ui.find({ key: 'footer-reveal-0' })).toBeDefined()
   expect(JSON.stringify(await ui.drawn())).toContain('"still":false')
   expect(JSON.stringify(await ui.drawn({ in: 'setting-0-flip' }))).toContain('━━')
-  // The example card shows the folded turn this value draws: the prompt, its + line, the reply.
+  // The example card shows the folded turn this value draws once the setting's label is clicked: the prompt, its + line, the reply.
+  expect(await ui.find({ key: 'setting-preview-0' })).toBeUndefined()
+  await pointerOn(ui, { in: 'setting-name-0', type: 'down', button: 'left', x: 1, y: 0 })
+  expect(saved).toEqual([])
   expect(await ui.find({ key: 'setting-preview-0' })).toBeDefined()
   expect(await ui.find({ type: 'Text', text: /^ 2 tools · Edit$/ })).toBeDefined()
   expect(await ui.find({ type: 'Text', text: /^● Fixed.$/ })).toBeDefined()

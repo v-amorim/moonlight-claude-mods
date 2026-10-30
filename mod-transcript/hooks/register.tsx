@@ -21,7 +21,7 @@ import { themeRows, type ThemesMessage, type ThemesProps } from './themes'
 import { entryCells, isTipMessage, tipText, type EntryMessage, type EntryProps, type Tip, type TipMessage } from './entry'
 import { cardFill, detectNerd, FOOTER_ROWS, lookFor, paneFooter, section, type IconMode, withMark } from './look'
 import { pillRow, splitRow, tabRow, tipLine } from './pills'
-import { actionReveals, settingChoice, settingsBody, type Action, type Previews } from './settings'
+import { actionReveals, openSetting, settingChoice, settingsBody, type Action, type Previews } from './settings'
 import style from './style'
 import text from './text'
 import { TOAST_MS, ToastList, toastCards } from './toasts'
@@ -1335,6 +1335,7 @@ export const register: Register = (on, options) => {
         hovered = null
         $.ui.invalidate('ui.render')
       }
+      openSetting($, e.data)
       const change = settingChoice(e.data)
       if (change) await saveSetting($, change.key, change.value)
       const theme = e.data as ThemesMessage
@@ -1432,12 +1433,11 @@ export const register: Register = (on, options) => {
 
     return (
       <Box flexDirection="column" paddingX={1} backgroundColor={THEME.bg} minHeight={e.props.scroll.bodyRows}>
-        {tabRow({ Box, Client, Text }, look.nerd, [{ id: 'mod-transcript-settings-tab', label: `${text.paneHeading} ${MARK.sep} ${text.paneSubheading}`, icon: look.glyph.gear, isOpen: true, tip: { glyph: look.glyph.gear, label: text.paneSubheading, text: text.tipTabSettings } }], still)}
-        <Text wrap="truncate-end" color={statusColor(note)}>{withMark(look, note) || `${text.paneHintClick} ${MARK.sep} ${text.paneHintSaved}`}</Text>
+        {tabRow({ Box, Client, Text }, look.nerd, [{ id: 'mod-transcript-settings-tab', label: `${text.paneHeading} ${MARK.sep} ${text.paneSubheading}`, icon: look.glyph.icon['transcript'] ?? '', isOpen: true, tip: { glyph: look.glyph.gear, label: text.paneSubheading, text: text.tipTabSettings } }], still)}
         {picker}
-        <Box marginTop={0}>{settingsBody({ Box, Button, Client, Text }, look, { rows, actions, working, run, previews, still, tips: text.settingTips })}</Box>
-        <Box key="footer-space" height={FOOTER_ROWS} />
-        {paneFooter({ Box, Text }, hoveredTip(), e.props.bodyColumns, e.props.scroll, actionReveals(actions, look, working))}
+        <Box marginTop={0}>{settingsBody({ Box, Button, Client, Text }, look, { rows, actions, working, run, previews, still, tips: text.settingTips, mod: 'mod-transcript' })}</Box>
+        <Box key="footer-space" height={FOOTER_ROWS} flexShrink={0} />
+        {paneFooter({ Box, Text }, hoveredTip(), e.props.bodyColumns, e.props.scroll, actionReveals(actions, look, working), { hint: `${text.paneHintClick} ${MARK.sep} ${text.paneHintSaved}`, status: withMark(look, note) })}
       </Box>
     )
   })
@@ -1732,14 +1732,33 @@ export const register: Register = (on, options) => {
 
   on('ui.render', { component: 'ToolResult' }, async ($, e, next) => {
     await loadLook($)
-    if (e.surface !== 'terminal' || viewing.agent) return next(e)
+    if (e.surface !== 'terminal') return next(e)
+    if (viewing.agent || isFullView) {
+      // Card only: no folding, hiding or turn grouping, since a subagent's turns are not in the log and the full view shows everything.
+      if (!viewing.agent) {
+        await followSession($)
+        if (isLoaded) log.claim(e.requestId, 'row')
+      }
+      const flat = e.props.isErrored ? null : fileResult(e.props.tool, e.props.output)
+      await loadRoots($)
+      const flatHref = flat ? paths.address(flat.path, flat.line) : undefined
+      if (!flat || !flatHref) return next(e)
+      ensureTheme($)
+      const { Box, Client, Link, Text } = $.ui.resolve(e)
+      const flatId = `result:${e.requestId}`
+      const flatParts = { Box, Client, Text }
+      return resultCard(
+        { Box, Text },
+        flat,
+        { isOpen: flips.tools.includes(`code:${flatId}`), copy: code => copyBlock(flatParts, flatId, code), more: (open, hidden, bg) => moreToggle(flatParts, `code:${flatId}`, open, hidden, bg), Link, nerd: look.nerd, href: flatHref, label: fileLabel(flat.path, flat.line) },
+        widthOf(e) - 2,
+        'toggle-result-card',
+      )
+    }
     await followSession($)
     if (isLoaded) log.claim(e.requestId, 'row')
-    if (isFullView) return next(e)
-    else {
-      if (!isLoaded) await guess($)
-      log.follow(e.requestId)
-    }
+    if (!isLoaded) await guess($)
+    log.follow(e.requestId)
     const turn = log.turnOf(e.requestId)
     seen.set(`ToolResult ${e.requestId}`, Boolean(turn))
     const { Box, Client, Link, Text } = $.ui.resolve(e)
