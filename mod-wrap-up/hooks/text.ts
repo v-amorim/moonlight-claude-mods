@@ -20,8 +20,8 @@ export default {
     "thread": "keeps or drops this thread",
     "also": "keeps or drops this item",
     "name": {
-      "this": "renames this session before the clear, click to skip",
-      "next": "renames the fresh session after the clear, click to skip"
+      "this": "renames this session before the handoff, click to skip",
+      "next": "renames the fresh session once it starts, click to skip"
     },
     "go": {
       "handoff": "writes the handoff and starts a fresh session",
@@ -48,6 +48,16 @@ export default {
     "toCarry": "Carry in",
     "showAll": "Show all",
     "showLess": "Show less"
+  },
+  "window": {
+    "continue": "The previous session handed off to this new one to make room. Continue the open task from this handoff.",
+    "opened": "Opened {name} in a new window",
+    "waiting": "Waiting for the new window to pick up the handoff",
+    "notJoined": "The new window did not pick up the handoff within 30 s, so this session keeps it",
+    "handedOff": "Handed off to {name} in a new window. This session stays open, close it when you are done",
+    "next": "the next session",
+    "title": "Handed off",
+    "tipClose": "hides this card, this session stays open"
   },
   "link": "<-",
   "writingStage": "Writing handoff",

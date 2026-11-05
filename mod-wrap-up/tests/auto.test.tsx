@@ -4,6 +4,7 @@ import { expect, mock, test as kitTest, type TestRest } from 'claude-code/testin
 import { compactNote } from '../hooks/handoff'
 import { latestTitle, lateNext, planNames, remember } from '../hooks/titles'
 import { bytesOf, scanTail, textOf } from '../hooks/tail'
+import { readJoin } from '../hooks/window'
 import { countGates, MAX_PENDING, pendingCandidates } from '../hooks/ledger'
 import { autoPrompt, capWords, clampCompactAt, clampCompactTokens, clampEvery, digest, emptyLedger, flip, gatherFragments, type Delta, isDue, mergeDelta, mergeFragments, parseRelated, parseUpdate, ledgerMarkdown, readLedger, restoreContext, shouldCompact, yieldsToManual } from '../hooks/ledger'
 
@@ -585,6 +586,134 @@ test('the countdown renames this session before the clear and the fresh one righ
   expect(w.clears).toEqual(['rename orders #1: XYZ-1 cache', 'clear', 'rename orders #2: XYZ-1 deploy'])
   expect(w.submittedText).toHaveLength(1)
   await band.unmount()
+})
+
+// A handoff to a new window: Windows Terminal answers, and the join file the window reads is in the mod's data folder.
+const WINDOW_OK = { value: { exitCode: 0, stdout: '', stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }
+const joinOf = (w: World) => [...w.files.entries()].find(([path]) => path.startsWith(`${ROOT}/join-`))
+
+// The new window's own mod empties its join once it picked the handoff up; the launch hands back what the join held.
+function joiningWindow(on: any, runs: string[][]) {
+  const seen = { raw: '', world: undefined as World | undefined }
+  on('process.run', (_$: unknown, e: { argv: string[] }) => {
+    runs.push(e.argv)
+    const join = seen.world && joinOf(seen.world)
+    if (join) {
+      seen.raw = join[1]
+      seen.world!.files.set(join[0], '')
+    }
+    return WINDOW_OK
+  })
+  return seen
+}
+
+test('with Windows Terminal the handoff at the mark opens the next session in a new window and keeps this one, with its automatic handoff stopped', FULL, async ($, on) => {
+  const runs: string[][] = []
+  const seen = joiningWindow(on, runs)
+  const { w, band } = await atTheMark($, on, namedFiles())
+  seen.world = w
+  await w.clock.advance(5000)
+  await w.clock.advance(1)
+  await w.clock.advance(1000)
+  // This session takes its own name and is never cleared; the fresh one names itself in its window.
+  expect(w.clears).toEqual(['rename orders #1: XYZ-1 cache'])
+  expect(runs).toHaveLength(1)
+  expect(runs[0]!.slice(0, 5)).toEqual(['wt.exe', '-w', 'new', '-d', 'C:/work/proj'])
+  const [path] = joinOf(w)!
+  const raw = seen.raw
+  expect(runs[0]!.at(-1)).toContain(`set WRAPUP_JOIN=${path.slice(`${ROOT}/join-`.length, -'.json'.length)}& claude`)
+  expect(readJoin(raw)).toMatchObject({ chain: 's1', title: 'orders #2: XYZ-1 deploy', submit: true, goal: 'Build the orders API' })
+  expect(readJoin(raw)!.text).toContain('The previous session handed off to this new one')
+  expect(w.submittedText).toHaveLength(0)
+  expect(await band.find({ type: 'Text', text: /Handed off to orders #2: XYZ-1 deploy in a new window/ })).toBeDefined()
+  // Past the mark again, it neither updates the ledger nor counts down.
+  const asked = w.prompts.length
+  await $.turn.complete(MAIN_TURN)
+  await w.clock.advance(1)
+  expect(w.prompts).toHaveLength(asked)
+  expect(await band.find({ type: 'Text', text: /handing off in/ })).toBeUndefined()
+  await band.unmount()
+})
+
+test('a window that starts but never picks up the handoff leaves this session handing off by a clear after 30 s, its join emptied', FULL, async ($, on) => {
+  const runs: string[][] = []
+  on('process.run', (_$: unknown, e: { argv: string[] }) => (runs.push(e.argv), WINDOW_OK))
+  const { w, band } = await atTheMark($, on, namedFiles())
+  await w.clock.advance(5000)
+  await w.clock.advance(1)
+  await w.clock.advance(29_000)
+  expect(w.clears).toEqual(['rename orders #1: XYZ-1 cache'])
+  await w.clock.advance(1000)
+  await w.clock.advance(1)
+  expect(runs).toHaveLength(1)
+  expect(w.clears).toEqual(['rename orders #1: XYZ-1 cache', 'clear', 'rename orders #2: XYZ-1 deploy'])
+  expect(readJoin(joinOf(w)![1])).toBeNull()
+  expect(await band.find({ type: 'Text', text: /Handed off to/ })).toBeUndefined()
+  await band.unmount()
+})
+
+test('a draft typed while waiting for a window that never joined is never cleared away', FULL, async ($, on) => {
+  on('process.run', () => WINDOW_OK)
+  const { w, band } = await atTheMark($, on, namedFiles())
+  await w.clock.advance(5000)
+  await w.clock.advance(1)
+  w.flags.draft = 'half a thought'
+  await w.clock.advance(30_000)
+  await w.clock.advance(1)
+  expect(w.clears).toEqual(['rename orders #1: XYZ-1 cache'])
+  await band.unmount()
+})
+
+test('when Windows Terminal does not start, the handoff at the mark clears as before and leaves no join behind', FULL, async ($, on) => {
+  on('process.run', () => ({ value: { ...WINDOW_OK.value, exitCode: 1 } }))
+  const { w, band } = await atTheMark($, on, namedFiles())
+  await w.clock.advance(5000)
+  await w.clock.advance(1)
+  expect(w.clears).toEqual(['rename orders #1: XYZ-1 cache', 'clear', 'rename orders #2: XYZ-1 deploy'])
+  expect(readJoin(joinOf(w)![1])).toBeNull()
+  await band.unmount()
+})
+
+test('with the setting off, the handoff at the mark clears and opens no window', { options: { auto_compact: true, icons: 'safe', new_window: false } }, async ($, on) => {
+  const runs: string[][] = []
+  on('process.run', (_$: unknown, e: { argv: string[] }) => (runs.push(e.argv), WINDOW_OK))
+  const { w, band } = await atTheMark($, on, namedFiles())
+  await w.clock.advance(5000)
+  await w.clock.advance(1)
+  expect(w.clears).toContain('clear')
+  expect(runs).toEqual([])
+  await band.unmount()
+})
+
+test('the window a handoff opened joins the chain, takes its name, continues the open task and empties its join', async ($, on) => {
+  const path = `${ROOT}/join-s1-7.json`
+  const files = namedFiles()
+  files.set(path, JSON.stringify({ chain: 's1', title: 'orders #2: XYZ-1 deploy', text: 'CONTINUE-HANDOFF', submit: true, goal: 'Build the orders API', link: { oldOwn: 'XYZ-1 cache', nextOwn: 'XYZ-1 deploy', topic: 'orders', oldHop: 1, nextHop: 2 } }))
+  const w = world(on, files, () => UPDATE('X'), [], { WRAPUP_JOIN: 's1-7' })
+  w.flags.id = 's2'
+  await $.session.start({ cwd: 'C:/work/proj' } as never)
+  await w.clock.advance(1)
+  expect(saved(w).sessions).toEqual(['s1', 's2'])
+  expect(w.files.has(fileOf('s2'))).toBe(false)
+  expect(w.clears).toEqual(['rename orders #2: XYZ-1 deploy'])
+  expect(w.submittedText).toEqual(['CONTINUE-HANDOFF'])
+  expect(w.files.get(path)).toBe('')
+})
+
+test('a joined window with no open task fills the handoff and sends nothing; a reload after it starts as usual', async ($, on) => {
+  const path = `${ROOT}/join-s1-8.json`
+  const files = namedFiles()
+  files.set(path, JSON.stringify({ chain: 's1', title: '', text: 'FILL-HANDOFF', submit: false, goal: '', link: {} }))
+  const w = world(on, files, () => UPDATE('X'), [], { WRAPUP_JOIN: 's1-8' })
+  w.flags.id = 's2'
+  await $.session.start({ cwd: 'C:/work/proj' } as never)
+  await w.clock.advance(1)
+  expect(w.filled).toEqual(['FILL-HANDOFF'])
+  expect(w.submittedText).toEqual([])
+  await $.session.start({ cwd: 'C:/work/proj' } as never)
+  await w.clock.advance(1)
+  expect(w.filled).toEqual(['FILL-HANDOFF'])
+  expect(saved(w).sessions).toEqual(['s1', 's2'])
 })
 
 test('a session second in its ledger with no hop in its title hands off as hop 2 to hop 3', FULL, async ($, on) => {
@@ -1247,6 +1376,8 @@ test('a transcript past what $.fs.read takes is read from its end in byte chunks
   const argvs: (readonly string[])[] = []
   on('fs.stat', () => ({ value: { kind: 'file', size: file.length, mtimeMs: 0, isLink: false } }))
   on('process.run', (_$, e) => {
+    // No Windows Terminal here, so the handoff clears as before and the title read is all this test sees.
+    if (e.argv[0] === 'wt.exe') return { value: { exitCode: 1, stdout: '', stderr: 'no wt', isStdoutTruncated: false, isStderrTruncated: false } }
     argvs.push(e.argv)
     const [, from, length] = /Seek\((\d+).*::new\((\d+)\)/.exec(e.argv.join(' ')) ?? []
     const chunk = file.subarray(Number(from), Number(from) + Number(length))

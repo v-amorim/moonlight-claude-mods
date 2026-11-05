@@ -15,6 +15,7 @@ import { bridgeOn, endBridge, startBridge, type BridgeRecord } from './bridge'
 import { bytesOf, chunkArgv, scanTail } from './tail'
 import text from './text'
 import { lateNext, latestTitle, planNames, remember, type NamePlan } from './titles'
+import { canOpenWindow, joinFile, joinToken, readJoin, windowArgv, type Join } from './window'
 import style from './style'
 import { fill, MARK, statusColor, THEME } from './theme'
 
@@ -30,6 +31,10 @@ let autoOn = false
 let every = 1
 let marks: CompactMarks = { percent: 65, tokens: 400_000 }
 let compactOn = false
+let newWindow = true
+// The next session's name once this one handed off to a new window: it stays open, its automatic handoff stops, and a card says where the work went.
+let handedOff: string | null = null
+let isHandedOffShown = false
 
 // Counters that reset on a compaction, a clear or a newer run; a result that finds them moved is stale and dropped.
 let turnsSince = 0
@@ -368,6 +373,43 @@ async function planOf($: EngineInterface, names: Names, ledger: Ledger | null): 
   return plan
 }
 
+// Opens the next session in its own window, which joins the chain from the file its token names; false when no window started, so the handoff clears instead.
+async function openNext($: EngineInterface, join: Join) {
+  const config = await configDir($)
+  const cwd = String(await $.session.cwd().catch(() => ''))
+  if (!canOpenWindow(newWindow, config) || !cwd) return false
+  const token = joinToken(await $.session.id().catch(() => ''), await $.clock.now())
+  const path = joinFile(config, token)
+  try {
+    await $.fs.write(path, JSON.stringify(join))
+    const result = await $.process.run(windowArgv(cwd, token), { timeoutMs: 10_000 })
+    // wt.exe exits 0 once it hands the command over, whether or not claude starts, so only the new session emptying its join counts.
+    if (result.exitCode === 0) {
+      $.ui.toast(text.window.waiting)
+      for (let waited = 0; waited < JOIN_WAIT_MS; waited += 1000) {
+        await $.clock.sleep(1000)
+        if (String(await $.fs.read(path).catch(() => '?')) === '') return true
+      }
+      $.ui.toast(text.window.notJoined)
+    }
+  } catch {
+    // The window did not start; the handoff clears this session instead.
+  }
+  // Emptied, the join never lets a window that starts late pick up a handoff this session went on to clear.
+  await $.fs.write(path, '').catch(() => {})
+  return false
+}
+
+// A cold claude start in a new window fits well inside this.
+const JOIN_WAIT_MS = 30_000
+
+function markHandedOff($: EngineInterface, next: string) {
+  handedOff = next
+  isHandedOffShown = true
+  if (countdown) stopCountdown($)
+  $.ui.invalidate('ui.render')
+}
+
 // Summarize through a hidden fork, run /clear, fill the handoff into the new prompt. Nothing is sent. scope is what the card dropped.
 async function startHandoff($: EngineInterface, scope: string, names: Names = NO_NAMES) {
   if (isRunning) return
@@ -401,6 +443,15 @@ async function startHandoff($: EngineInterface, scope: string, names: Names = NO
     const dir = autoOn ? await ledgerDir($) : ''
     const plan = await planOf($, names, dir ? await loadLedger($, dir) : null)
     if (plan.old) await rename($, plan.old, text.renameOldFailed)
+    if (await openNext($, { chain: dir ? chain : '', title: plan.next, text: summary, submit: false, goal: '', link: plan })) {
+      markHandedOff($, plan.next)
+      say($, `${MARK.ok} ${fill(text.window.opened, { name: plan.next || text.window.next })}`)
+      return
+    }
+    if (working) {
+      say($, `${MARK.warn} ${text.startedWorking}`)
+      return
+    }
     manualAt = await $.clock.now()
     await $.store.set('pending', { text: summary, at: manualAt })
     try {
@@ -577,6 +628,35 @@ async function openLedger($: EngineInterface) {
   await ledgerFile($)
 }
 
+// A window a handoff opened carries its token: its first start joins the chain, takes its name and carries the handoff. A later reload finds the file emptied and starts as usual.
+async function startOrJoin($: EngineInterface, token: string) {
+  const path = token ? joinFile(await configDir($), token) : ''
+  const join = path ? readJoin(String(await $.fs.read(path).catch(() => ''))) : null
+  if (!join) {
+    if (autoOn) await openLedger($)
+    return
+  }
+  await $.fs.write(path, '').catch(() => {})
+  if (autoOn && join.chain) {
+    chain = join.chain
+    const dir = await ledgerDir($)
+    const ledger = dir ? await loadLedger($, dir) : null
+    if (dir && ledger) await saveLedger($, dir, withSession(ledger, await $.session.id()))
+  }
+  if (autoOn) await openLedger($)
+  if (join.title) {
+    await keepApplied($, [join.title])
+    await rename($, join.title, text.renameFailed)
+  }
+  showChoice($, 'carried', join.goal, join.link)
+  if (join.submit) {
+    await $.prompt.submit({ text: join.text })
+    return
+  }
+  await $.store.set('pending', { text: join.text, at: await $.clock.now() })
+  if (!(await fillWithRetry($))) $.ui.toast(text.clearedNotFilled)
+}
+
 let isReplaying = false
 
 // A compaction finished: the next update reads only what follows the summary, a run still going is stale, and the next prompt carries the handoff.
@@ -613,7 +693,7 @@ const COUNTDOWN_S = 5
 
 // Between turns past the mark, a countdown card above the prompt; its end hands off. Cancel, a draft or a new turn stops it.
 async function startCountdown($: EngineInterface) {
-  if (!autoOn || !compactOn || working || countdown || isRunning) return
+  if (!autoOn || !compactOn || working || countdown || isRunning || handedOff !== null) return
   const { context } = await $.session.usage()
   if (!shouldCompact(context ?? {}, marks)) return
   if (working || countdown || (await hasDraft($))) return
@@ -668,10 +748,16 @@ async function handOffAtMark($: EngineInterface, token: number) {
     const carried = restoreContext(ledger, mdOf(dir), undefined, await unfinishedRuns($, ledger))
     const hasOpenTask = ledger.tasks.some(task => task.status === 'open')
     stopCountdown($)
-    carriedAt = await $.clock.now()
-    if (!hasOpenTask) await $.store.set('pending', { text: carried, at: carriedAt })
     const plan = await planOf($, ledger.names, ledger)
     if (plan.old) await rename($, plan.old, text.renameOldFailed)
+    if (await openNext($, { chain, title: plan.next, text: hasOpenTask ? `${text.window.continue}\n\n${carried}` : carried, submit: hasOpenTask, goal: ledger.goal, link: plan })) {
+      markHandedOff($, plan.next)
+      return
+    }
+    // A wait for a window that never joined can outlast a draft or a new turn, which a clear must not wipe.
+    if (working || (await hasDraft($))) return
+    carriedAt = await $.clock.now()
+    if (!hasOpenTask) await $.store.set('pending', { text: carried, at: carriedAt })
     try {
       await $.command.run({ command: 'clear' })
     } catch {
@@ -690,8 +776,9 @@ async function handOffAtMark($: EngineInterface, token: number) {
   }
 }
 
+// A session that handed off to a new window leaves the ledger to it, so the two never write the chain at once.
 async function runAuto($: EngineInterface) {
-  if (!autoOn || isRunning) return
+  if (!autoOn || isRunning || handedOff !== null) return
   const mine = (runId += 1)
   const mineEpoch = epoch
   try {
@@ -968,6 +1055,23 @@ function choiceCard({ Box, Client, Text }: Elements, picked: Choice, columns: nu
   )
 }
 
+// The old session after a handoff to a new window: where the work went, and that this one may be closed.
+function handedOffCard({ Box, Client, Text }: Elements, next: string) {
+  const close = bare(look.glyph.close)
+  const line = fill(text.window.handedOff, { name: next || text.window.next })
+  return (
+    <Box key="wrap-up-handed-off-block" flexDirection="column">
+      <Box key="wrap-up-handed-off-card" flexDirection="row" columnGap={1} paddingX={1} borderStyle="round" borderColor={THEME.border} backgroundColor={cardFill()}>
+        <Box key="wrap-up-handed-off-text" flexGrow={1} flexShrink={1}>
+          <Text color={THEME.onSurface} wrap="truncate-end">{line}</Text>
+        </Box>
+        {pill({ Box, Text }, look.nerd, THEME.surface3, <Client key="wrap-up-handed-off-close" module="./entry.tsx" height={1} props={{ id: 'wrap-up-handed-off-close', label: close, isOpen: false, bg: THEME.surface3, nerd: look.nerd, still, tip: { glyph: close, label: close, text: text.window.tipClose } } satisfies EntryProps} />, 'wrap-up-handed-off-close-pill', cardFill())}
+      </Box>
+      {titleEdge({ Box, Text }, look, 'wrap-up-handed-off', '', text.window.title, '', 0)}
+    </Box>
+  )
+}
+
 function countdownCard({ Box, Button, Text }: Elements & { Button: (props: any) => RenderElement }, shown: Countdown, onCancel: () => void) {
   const line = shown.left > 0 ? fill(text.auto.countdown, { tokens: shown.tokens, percent: shown.percent, seconds: shown.left }) : fill(text.auto.updating, { tokens: shown.tokens, percent: shown.percent })
   const scope = 'wrap-up-countdown-cancel-pill'
@@ -1042,6 +1146,7 @@ export const register: Register = (on, options) => {
   autoOn = options.auto_handoff === true
   every = clampEvery(options.auto_every)
   compactOn = options.auto_compact === true
+  newWindow = options.new_window !== false
   marks = { percent: clampCompactAt(options.compact_at), tokens: clampCompactTokens(options.compact_at_tokens) }
   look = lookFor(iconMode === 'nerd')
 
@@ -1062,7 +1167,8 @@ export const register: Register = (on, options) => {
     })
     await $.state.set({ plugin: 'mod-wrap-up', key: 'pane' }, await isOpen($))
     $.ui.invalidate('ui.render')
-    if (autoOn) $.clock.after(0, () => void openLedger($).catch(() => undefined))
+    const token = (await $.env.get('WRAPUP_JOIN').catch(() => undefined)) ?? ''
+    $.clock.after(0, () => void startOrJoin($, token).catch(() => undefined))
 
     return next(e)
   })
@@ -1149,7 +1255,7 @@ export const register: Register = (on, options) => {
     const hidden = await $.state.get({ plugin: 'mod-menu', key: 'hidden' })
     if (e.surface !== 'terminal' || e.props.hasSurvey) return next(e)
     const { Box, Button, Client, Text } = $.ui.resolve(e)
-    const counting = countdown ? [countdownCard({ Box, Button, Client, Text },countdown, () => stopCountdown($))] : []
+    const counting = [...(countdown ? [countdownCard({ Box, Button, Client, Text },countdown, () => stopCountdown($))] : []), ...(handedOff !== null && isHandedOffShown ? [handedOffCard({ Box, Client, Text }, handedOff)] : [])]
     if (hidden.value === true) {
       const shown = [...toastCards({ Box, Client, Text }, toasts, look, text.tipToast), ...counting, ...(choice ? [choiceCard({ Box, Client, Text }, choice, e.props.bodyColumns)] : []), ...(card ? [cardBox({ Box, Client, Text }, card)] : [])]
       if (shown.length === 0) return next(e)
@@ -1234,6 +1340,10 @@ export const register: Register = (on, options) => {
     }
     if (message.id === 'wrap-up-switch-close') {
       choice = null
+      $.ui.invalidate('ui.render')
+    }
+    if (message.id === 'wrap-up-handed-off-close') {
+      isHandedOffShown = false
       $.ui.invalidate('ui.render')
     }
     if (message.id === 'wrap-up-cancel') closeCard($)

@@ -1,6 +1,6 @@
 {
   "name": "mod-wrap-up",
-  "version": "2.0.0",
+  "version": "2.1.0",
   "description": "Wrap up: hand off to a fresh session (summarize, /clear, fill the handoff) or fill a /compact that keeps what you pick",
   "license": "MIT",
   "author": {
@@ -46,6 +46,12 @@
       "title": "Auto handoff at the mark",
       "description": "Clears and hands off at the mark. Once either mark below is reached, a 5 second countdown card appears between turns. Unless you cancel, type a draft or start a turn, the ledger is brought up to date, the chat is cleared and Claude continues the open task from the handoff (with no open task, the handoff is filled into the prompt instead). Meant for sessions with Claude Code's own auto-compact off. Needs Automatic handoff on",
       "default": false
+    },
+    "new_window": {
+      "type": "boolean",
+      "title": "Hand off to a new window",
+      "description": "A handoff opens the next session in a new Windows Terminal window instead of clearing this one. This session stays open with its automatic handoff stopped, so you close it when you are done. Off, or without Windows Terminal, the handoff clears this session as before",
+      "default": true
     },
     "compact_at": {
       "type": "number",

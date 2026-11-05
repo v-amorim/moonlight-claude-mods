@@ -3,6 +3,7 @@
 import { expect, mock, test } from 'claude-code/testing'
 
 import { NAMES_RULE, THREADS_SYSTEM, buildPrompt, clampWords, compactNote, isFresh, parseNames, parseThreads, scopeNote, skillBody } from '../hooks/handoff'
+import { readJoin } from '../hooks/window'
 import { AUTO_SYSTEM } from '../hooks/ledger'
 import { CAPS, THEME } from '../hooks/theme'
 import Choice from '../hooks/choice'
@@ -47,7 +48,7 @@ const BAND = (isWorking = false) =>
 
 // Stubs every op the flow reaches and records the order they were called in.
 // threads is Haiku's reply for the picker. The kit answers no $.ui.ask, so a picker that gets that far sees it dismissed.
-function world(on: any, fork: unknown, runClear: ($: any, e: { command: string }) => unknown = () => ({ text: '' }), messages: unknown[] = [], threads: unknown = answered, fillThrows = false, fillFailsFirst = 0) {
+function world(on: any, fork: unknown, runClear: ($: any, e: { command: string }) => unknown = () => ({ text: '' }), messages: unknown[] = [], threads: unknown = answered, fillThrows = false, fillFailsFirst = 0, env: Record<string, string> = {}) {
   const calls: string[] = []
   const filled: string[] = []
   const forks: string[] = []
@@ -97,7 +98,7 @@ function world(on: any, fork: unknown, runClear: ($: any, e: { command: string }
   on('session.end', (_$: unknown, e: { sessionId: string }) => ({ sessionId: e.sessionId }))
   const clock = mock.clock(on)
   mock.store(on)
-  mock.env(on, {})
+  mock.env(on, env)
   return { calls, filled, forks, toasts, completes, renames, clock }
 }
 
@@ -321,12 +322,35 @@ test('Handoff shows both names; Go renames this session, clears, then renames th
   expect(topicRow.indexOf('" #2 "')).toBeGreaterThan(topicRow.indexOf('" #1 "'))
   expect(await band.find({ type: 'Text', text: '· this session' })).toBeDefined()
   await band.pointer({ type: 'move', x: 1, y: 0, in: 'wrap-up-name-this' } as never)
-  expect(await band.find({ type: 'Text', text: ' renames this session before the clear, click to skip' })).toBeDefined()
+  expect(await band.find({ type: 'Text', text: ' renames this session before the handoff, click to skip' })).toBeDefined()
 
   await click(band, 'wrap-up-go')
   expect(w.calls).toEqual(['threads', 'fork', 'run:rename', 'run:clear', 'run:rename', 'fill'])
   expect(w.renames).toEqual(['build #1: XY-1 build fix', 'build #2: XY-2 deploy'])
   expect(w.filled).toEqual(['Goal: ship it.'])
+  await band.unmount()
+})
+
+test('with Windows Terminal, Go opens the next session in a new window with the handoff to fill, and never clears this one', { options: { icons: 'safe' } }, async ($, on) => {
+  const w = world(on, answered, undefined, SESSION, NAMED, false, 0, { USERPROFILE: 'C:/home' })
+  const runs: string[][] = []
+  const writes = new Map<string, string>()
+  on('session.cwd', () => ({ value: 'C:/work/proj' }))
+  on('fs.write', (_$: unknown, e: { path: string; text: string }) => (writes.set(e.path.replace(/\\/g, '/'), e.text), { value: undefined }))
+  on('process.run', (_$: unknown, e: { argv: string[] }) => (runs.push(e.argv), { value: { exitCode: 0, stdout: '', stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }))
+  const band = await $.ui.mount(BAND())
+  await click(band, 'wrap-up-entry')
+  await choose(band, 'handoff')
+  await w.clock.advance(10)
+  await click(band, 'wrap-up-go')
+  // The world reads every unknown file as empty, as the new window leaves its join once it picked the handoff up.
+  await w.clock.advance(1000)
+  expect(w.calls).toEqual(['threads', 'fork', 'run:rename'])
+  expect(w.renames).toEqual(['build #1: XY-1 build fix'])
+  expect(runs[0]!.slice(0, 5)).toEqual(['wt.exe', '-w', 'new', '-d', 'C:/work/proj'])
+  const [, raw] = [...writes.entries()].find(([path]) => path.includes('/mods-data/mod-wrap-up/join-'))!
+  expect(readJoin(raw)).toMatchObject({ chain: '', title: 'build #2: XY-2 deploy', text: 'Goal: ship it.', submit: false })
+  expect(await band.find({ type: 'Text', text: /Handed off to build #2: XY-2 deploy in a new window/ })).toBeDefined()
   await band.unmount()
 })
 
