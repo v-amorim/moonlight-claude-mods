@@ -819,10 +819,10 @@ test('a relative path resolves against the session folder, ~ against home, and a
   expect(((await reply.findAll({ type: 'Link' })) as any[]).map(link => link.props.href)).toEqual(['vscode://file/w/b.ts', 'vscode://file/home/notes.md'])
 })
 
-test('a folder link opens in a new VS Code window, so it never replaces an open workspace; a file still opens as a tab', async ($, on) => {
-  const reply = await replyOf($, on, 'Open `src/lib` and `src/a.ts`.', 120, ['/w/src/lib/', '/w/src/a.ts'])
+test('a folder gets no VS Code link, so it never opens a new window or replaces the open workspace; a file still opens as a tab at its line', async ($, on) => {
+  const reply = await replyOf($, on, 'Open `src/lib` and src/a.ts:12.', 120, ['/w/src/lib/', '/w/src/a.ts'])
   await reply.redraw()
-  expect(((await reply.findAll({ type: 'Link' })) as any[]).map(link => link.props.href)).toEqual(['vscode://file/w/src/lib?windowId=_blank', 'vscode://file/w/src/a.ts'])
+  expect(((await reply.findAll({ type: 'Link' })) as any[]).map(link => link.props.href)).toEqual(['vscode://file/w/src/a.ts:12'])
 })
 
 test('a link inside a table body cell is drawn, and the column is as wide as the pill', async ($, on) => {

@@ -48,9 +48,8 @@ const normalize = (path: string) => {
   return out.join('/')
 }
 
-// A folder opens in a new window: VS Code would otherwise swap the last active window's workspace for it.
-const vscodeAddress = (absolute: string, line?: string, col?: string, isDir = false) =>
-  `vscode://file${absolute.startsWith('/') ? '' : '/'}${encodeURI(absolute).replace(/[?#]/g, mark => encodeURIComponent(mark))}${line ? `:${line}${col ? `:${col}` : ''}` : ''}${isDir ? '?windowId=_blank' : ''}`
+const vscodeAddress = (absolute: string, line?: string, col?: string) =>
+  `vscode://file${absolute.startsWith('/') ? '' : '/'}${encodeURI(absolute).replace(/[?#]/g, mark => encodeURIComponent(mark))}${line ? `:${line}${col ? `:${col}` : ''}` : ''}`
 
 // A false answer is asked again after this long, since Claude may write the file it names a moment later.
 const MISSING_MS = 3000
@@ -82,13 +81,13 @@ export class PathLinks {
     return this.cwd ? normalize(`${this.cwd}/${slash}`) : null
   }
 
-  // vscode://file/<absolute path>:<line>:<col>, once the path is known to exist.
+  // vscode://file/<absolute path>:<line>:<col>, once the path is known to exist as a file; a folder gets none, since any address for it opens a new window or swaps the open workspace.
   href(token: string): string | undefined {
     const { path, line, col } = splitToken(token)
     const absolute = this.absolute(path)
     const known = absolute ? this.known.get(absolute) : undefined
-    if (!absolute || known?.isFound !== true) return undefined
-    return vscodeAddress(absolute, line, col, known.isDir)
+    if (!absolute || known?.isFound !== true || known.isDir) return undefined
+    return vscodeAddress(absolute, line, col)
   }
 
   // The address of a file a tool just touched, which needs no stat to be known.
