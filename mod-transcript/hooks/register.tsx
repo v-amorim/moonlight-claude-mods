@@ -1452,7 +1452,7 @@ export const register: Register = (on, options) => {
     const others = await next(e)
     const cards = toastCards({ Box, Client, Text }, toasts, look, text.tipToast)
     const { group, row, rest, tip: otherTip } = splitRow(others)
-    if (group.length === 0 && row.length === 0) return cards.length ? <Box key="toasts-transcript" flexDirection="column">{cards}{others}</Box> : others
+    if (group.length === 0 && row.length === 0 && !tip) return cards.length ? <Box key="toasts-transcript" flexDirection="column">{cards}{others}</Box> : others
     return pillRow({ Box, Client, Text }, look.nerd, group, row, [...cards, ...rest], tip ? tipLine({ Box, Text }, tip) : otherTip, e.props.bodyColumns)
   })
 

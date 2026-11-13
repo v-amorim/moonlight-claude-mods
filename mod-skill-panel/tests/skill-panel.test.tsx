@@ -439,7 +439,7 @@ test('its footer entry opens the pane on a press and closes it on the next', asy
     plugin: 'mod-skill-panel',
     surface: 'terminal',
     component: 'AbovePrompt',
-    props: { hasSurvey: false, isWorking: false, maxRows: 6, bodyColumns: 80, scroll: { offset: 0, bodyRows: 6 }, view: {} },
+    props: { hasSurvey: false, isCollapsed: false, isWorking: false, maxRows: 6, bodyColumns: 80, scroll: { offset: 0, bodyRows: 6 }, view: {} },
   } as const
 
   const idle = await $.ui.mount(band)
@@ -480,7 +480,7 @@ test('a pane that waits says why in a wrapped card above the row, not in Claude 
     plugin: 'mod-skill-panel',
     surface: 'terminal',
     component: 'AbovePrompt',
-    props: { hasSurvey: false, isWorking: false, maxRows: 12, bodyColumns: 80, scroll: { offset: 0, bodyRows: 12 }, view: {} },
+    props: { hasSurvey: false, isCollapsed: false, isWorking: false, maxRows: 12, bodyColumns: 80, scroll: { offset: 0, bodyRows: 12 }, view: {} },
   })
 
   await pointing(band).pointer({ type: 'down', x: 1, y: 0, button: 'left', in: 'menu-entry-skills' })
@@ -523,7 +523,7 @@ test('its entry shimmers from the click until the pane draws', async ($, on) => 
     plugin: 'mod-skill-panel',
     surface: 'terminal',
     component: 'AbovePrompt',
-    props: { hasSurvey: false, isWorking: false, maxRows: 6, bodyColumns: 80, scroll: { offset: 0, bodyRows: 6 }, view: {} },
+    props: { hasSurvey: false, isCollapsed: false, isWorking: false, maxRows: 6, bodyColumns: 80, scroll: { offset: 0, bodyRows: 6 }, view: {} },
   })
   // At rest the label is one Text; shimmering, each character is its own Text in the wave's colors.
   const letters = async () => JSON.stringify(await band.drawn({ in: 'menu-entry-skills' })).split('"type":"Text"').length - 1
@@ -539,30 +539,6 @@ test('its entry shimmers from the click until the pane draws', async ($, on) => 
   await band.unmount()
 })
 
-test('its entry joins the row another panel opened, above the hint line', async ($, on) => {
-  on('ui.panes', () => ({ value: [] }))
-  on('ui.render', () => ({
-    type: 'Box',
-    props: { key: 'menu-rows', flexDirection: 'column' },
-    children: [
-      { type: 'Box', props: { key: 'menu-row', flexDirection: 'row' }, children: [{ type: 'Text', props: {}, children: ['Mods'] }] },
-      { type: 'Text', props: {}, children: ['? for shortcuts'] },
-    ],
-  }) as never)
-
-  const ui = await $.ui.mount({
-    plugin: 'mod-skill-panel',
-    surface: 'terminal',
-    component: 'AbovePrompt',
-    props: { hasSurvey: false, isWorking: false, maxRows: 6, bodyColumns: 80, scroll: { offset: 0, bodyRows: 6 }, view: {} },
-  } as never)
-  const tree = (await ui.drawn()) as { children: { children: unknown[] }[] }
-  // The hint, the tip row (kept while empty) and the pill row.
-  expect(tree.children.length).toBe(3)
-  expect(JSON.stringify(tree.children[2])).toMatch(/Skills.*Mods/)
-  expect(JSON.stringify(tree.children[0])).toContain('? for shortcuts')
-  await ui.unmount()
-})
 
 test('a hovered tab or chip puts its tip in the pane footer, and leaving clears it', async ($, on) => {
   on('session.start', () => ({ cwd: '/h' }))
@@ -660,7 +636,7 @@ test('a band tip whose entry was redrawn while hovered clears after 5 s with no 
     return <Text>other mod</Text>
   })
   const clock = mock.clock(on)
-  const band = { plugin: 'mod-skill-panel', surface: 'terminal', component: 'AbovePrompt', props: { hasSurvey: false, isWorking: false, maxRows: 6, bodyColumns: 80, scroll: { offset: 0, bodyRows: 6 }, view: {} } } as const
+  const band = { plugin: 'mod-skill-panel', surface: 'terminal', component: 'AbovePrompt', props: { hasSurvey: false, isCollapsed: false, isWorking: false, maxRows: 6, bodyColumns: 80, scroll: { offset: 0, bodyRows: 6 }, view: {} } } as const
   // Live, a band redraw mid-turn replaced the hovered entry, so its own quiet timer, and the leave, never came.
   const first = await $.ui.mount(band)
   await pointing(first).pointer({ type: 'move', x: 1, y: 0, in: 'menu-entry-skills' })
@@ -698,7 +674,7 @@ test('the menu entry drops its label when mod-menu says labels never, on Nerd on
     const { Text } = $$.ui.resolve(e)
     return <Text>other mod</Text>
   })
-  const band = { plugin: 'mod-skill-panel', surface: 'terminal', component: 'AbovePrompt', props: { hasSurvey: false, isWorking: false, maxRows: 6, bodyColumns: 80, scroll: { offset: 0, bodyRows: 6 }, view: {} } } as const
+  const band = { plugin: 'mod-skill-panel', surface: 'terminal', component: 'AbovePrompt', props: { hasSurvey: false, isCollapsed: false, isWorking: false, maxRows: 6, bodyColumns: 80, scroll: { offset: 0, bodyRows: 6 }, view: {} } } as const
   const ui = await $.ui.mount(band as never)
   const entry = JSON.stringify(await ui.drawn({ in: 'menu-entry-skills' }))
   expect(entry).not.toContain('Skills')

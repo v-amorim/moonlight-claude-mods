@@ -494,7 +494,7 @@ test('the Files pill opens the pane from the band', async ($, on) => {
     plugin: 'mod-file-tree',
     surface: 'terminal',
     component: 'AbovePrompt',
-    props: { hasSurvey: false, isWorking: false, maxRows: 6, bodyColumns: 80, scroll: { offset: 0, bodyRows: 6 }, view: {} },
+    props: { hasSurvey: false, isCollapsed: false, isWorking: false, maxRows: 6, bodyColumns: 80, scroll: { offset: 0, bodyRows: 6 }, view: {} },
   } as never)
   expect(JSON.stringify(await band.drawn({ in: 'menu-entry-filetree' }))).toContain('Files')
   await pointing(band).pointer({ type: 'down', x: 1, y: 0, button: 'left', in: 'menu-entry-filetree' } as never)
@@ -511,7 +511,7 @@ test('a band tip whose entry was redrawn while hovered clears after 5 s with no 
     plugin: 'mod-file-tree',
     surface: 'terminal',
     component: 'AbovePrompt',
-    props: { hasSurvey: false, isWorking: false, maxRows: 6, bodyColumns: 80, scroll: { offset: 0, bodyRows: 6 }, view: {} },
+    props: { hasSurvey: false, isCollapsed: false, isWorking: false, maxRows: 6, bodyColumns: 80, scroll: { offset: 0, bodyRows: 6 }, view: {} },
   } as never
   // Live, a band redraw mid-turn replaced the hovered entry, so its own quiet timer, and the leave, never came.
   const first = await $.ui.mount(band)
@@ -538,7 +538,7 @@ test('mod-menu labels never leaves the Files entry as its icon alone', { options
     plugin: 'mod-file-tree',
     surface: 'terminal',
     component: 'AbovePrompt',
-    props: { hasSurvey: false, isWorking: false, maxRows: 6, bodyColumns: 80, scroll: { offset: 0, bodyRows: 6 }, view: {} },
+    props: { hasSurvey: false, isCollapsed: false, isWorking: false, maxRows: 6, bodyColumns: 80, scroll: { offset: 0, bodyRows: 6 }, view: {} },
   } as never)
   const entry = JSON.stringify(await band.drawn({ in: 'menu-entry-filetree' }))
   expect(entry).toContain('"backgroundColor"')
@@ -555,7 +555,7 @@ test("icons=nerd keeps the band's menu row the same width whether the pane is op
       plugin: 'mod-file-tree',
       surface: 'terminal',
       component: 'AbovePrompt',
-      props: { hasSurvey: false, isWorking: false, maxRows: 6, bodyColumns: 80, scroll: { offset: 0, bodyRows: 6 }, view: {} },
+      props: { hasSurvey: false, isCollapsed: false, isWorking: false, maxRows: 6, bodyColumns: 80, scroll: { offset: 0, bodyRows: 6 }, view: {} },
     } as never)
     const row = await drawnText(band, await band.find({ key: 'menu-row' }))
     await band.unmount()

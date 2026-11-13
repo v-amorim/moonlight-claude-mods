@@ -11,7 +11,8 @@ import { openSetting, settingChoice, settingsBody } from './settings'
 import style from './style'
 import { firstText, isSpeed, replySpeed, watch } from './speed'
 import { fill, MARK, THEME } from './theme'
-import { labelsOf, PILL, pill, pillRow, splitRow, tabRow, tipLine } from './pills'
+import { hiddenReadouts, labelsOf, PILL, pill, pillRow, splitRow, tabRow, tipLine } from './pills'
+import { relayedTo } from './relay'
 import text from './text'
 import { TOAST_MS, ToastList, toastCards } from './toasts'
 
@@ -402,6 +403,74 @@ async function saveSetting($: EngineInterface, key: string, value: ConfigValue) 
   $.ui.invalidate('ui.render')
 }
 
+async function heard($: EngineInterface, data: unknown) {
+  if (isTipMessage(data)) {
+    const tip = data
+    const own = Boolean(tip.id?.startsWith('effort-') || tip.id?.startsWith('toast-effort-'))
+    bandTip = own ? tip : null
+    if (bandTip?.id) expireBandTip($)
+    paneTip = tip.id && !own ? { glyph: tip.glyph ?? '', label: tip.label ?? '', text: tip.text ?? '' } : null
+    $.ui.invalidate('ui.render')
+    return
+  }
+  openSetting($, data)
+  const change = settingChoice(data)
+  if (change) await saveSetting($, change.key, change.value)
+  const clicked = data as EntryMessage
+  const dismissed = clicked?.type === 'menu-entry' ? toasts.idOf(clicked.id) : undefined
+  if (dismissed !== undefined) {
+    toasts.drop(dismissed)
+    $.ui.invalidate('ui.render')
+    return
+  }
+  if (clicked?.type === 'menu-entry' && clicked.id === 'effort-card-close') {
+    isEffortCardOpen = false
+    bandTip = null
+    $.ui.invalidate('ui.render')
+    return
+  }
+  if (clicked?.type === 'menu-entry' && clicked.id === 'effort-model-close') {
+    isModelMenuOpen = false
+    bandTip = null
+    $.ui.invalidate('ui.render')
+    return
+  }
+  if (clicked?.type === 'menu-entry' && clicked.id === 'effort-model-all') {
+    if (isWorking) $.ui.toast(fill(text.modelBusy, { name: text.allModels }))
+    else await openPicker($)
+    return
+  }
+  const picked = clicked?.type === 'menu-entry' && clicked.id.startsWith('effort-model-') ? menuModels[Number(clicked.id.slice('effort-model-'.length))] : undefined
+  if (picked && isWorking) {
+    $.ui.toast(fill(text.modelBusy, { name: displayName(picked) }))
+    return
+  }
+  if (picked) {
+    await switchModel($, picked)
+    return
+  }
+  const message = data as MeterMessage
+  if (message?.type === 'effort-card') {
+    isEffortCardOpen = !isEffortCardOpen
+    isModelMenuOpen = false
+    bandTip = null
+    $.ui.invalidate('ui.render')
+  }
+  if (message?.type === 'model-menu') {
+    isEffortCardOpen = false
+    isModelMenuOpen = !isModelMenuOpen
+    bandTip = null
+    const current = (await $.state.get({ plugin: 'mod-model-effort', key: 'current' })).value
+    menuModels = withModel(await $.store.get('models'), current?.model ?? (await $.session.model().catch(() => undefined)))
+    $.ui.invalidate('ui.render')
+  }
+  if (message?.type === 'set') {
+    isEffortCardOpen = false
+    bandTip = null
+    await setEffort($, message.effort)
+  }
+}
+
 export const register: Register = (on, options) => {
   still = options.animations === false
   toasts.isStill = still
@@ -497,71 +566,14 @@ export const register: Register = (on, options) => {
   })
 
   on('ui.message', async ($, e, next) => {
-    if (isTipMessage(e.data)) {
-      const tip = e.data
-      const own = Boolean(tip.id?.startsWith('effort-') || tip.id?.startsWith('toast-effort-'))
-      bandTip = own ? tip : null
-      if (bandTip?.id) expireBandTip($)
-      paneTip = tip.id && !own ? { glyph: tip.glyph ?? '', label: tip.label ?? '', text: tip.text ?? '' } : null
-      $.ui.invalidate('ui.render')
-      return next(e)
-    }
-    openSetting($, e.data)
-    const change = settingChoice(e.data)
-    if (change) await saveSetting($, change.key, change.value)
-    const clicked = e.data as EntryMessage
-    const dismissed = clicked?.type === 'menu-entry' ? toasts.idOf(clicked.id) : undefined
-    if (dismissed !== undefined) {
-      toasts.drop(dismissed)
-      $.ui.invalidate('ui.render')
-      return next(e)
-    }
-    if (clicked?.type === 'menu-entry' && clicked.id === 'effort-card-close') {
-      isEffortCardOpen = false
-      bandTip = null
-      $.ui.invalidate('ui.render')
-      return next(e)
-    }
-    if (clicked?.type === 'menu-entry' && clicked.id === 'effort-model-close') {
-      isModelMenuOpen = false
-      bandTip = null
-      $.ui.invalidate('ui.render')
-      return next(e)
-    }
-    if (clicked?.type === 'menu-entry' && clicked.id === 'effort-model-all') {
-      if (isWorking) $.ui.toast(fill(text.modelBusy, { name: text.allModels }))
-      else await openPicker($)
-      return next(e)
-    }
-    const picked = clicked?.type === 'menu-entry' && clicked.id.startsWith('effort-model-') ? menuModels[Number(clicked.id.slice('effort-model-'.length))] : undefined
-    if (picked && isWorking) {
-      $.ui.toast(fill(text.modelBusy, { name: displayName(picked) }))
-      return next(e)
-    }
-    if (picked) {
-      await switchModel($, picked)
-      return next(e)
-    }
-    const message = e.data as MeterMessage
-    if (message?.type === 'effort-card') {
-      isEffortCardOpen = !isEffortCardOpen
-      isModelMenuOpen = false
-      bandTip = null
-      $.ui.invalidate('ui.render')
-    }
-    if (message?.type === 'model-menu') {
-      isEffortCardOpen = false
-      isModelMenuOpen = !isModelMenuOpen
-      bandTip = null
-      const current = (await $.state.get({ plugin: 'mod-model-effort', key: 'current' })).value
-      menuModels = withModel(await $.store.get('models'), current?.model ?? (await $.session.model().catch(() => undefined)))
-      $.ui.invalidate('ui.render')
-    }
-    if (message?.type === 'set') {
-      isEffortCardOpen = false
-      bandTip = null
-      await setEffort($, message.effort)
-    }
+    await heard($, e.data)
+
+    return next(e)
+  })
+
+  on('state.set', { plugin: 'mod-menu', key: 'relay' }, async ($, e, next) => {
+    const data = relayedTo(e.value, 'mod-model-effort')
+    if (data !== undefined) $.clock.after(0, () => heard($, data).catch(() => {}))
 
     return next(e)
   })
@@ -611,7 +623,10 @@ export const register: Register = (on, options) => {
     const word = shownWord ? <Text key="menu-flash" color={style.colors.pills.readout}>{(text.levelNames as Record<string, string>)[shownWord] ?? shownWord}</Text> : null
 
     const menu = isModelMenuOpen ? [modelMenu({ Box, Client, Text }, modelId, e.props.bodyColumns)] : isEffortCardOpen ? [effortCard({ Box, Client, Text }, meterProps)] : []
-    return pillRow({ Box, Client, Text }, look.nerd, group, [...row, <Box key="menu-pill" flexDirection="row">{meter}</Box>, word], [...toastCards({ Box, Client, Text }, toasts, look, text.tipToast), ...rest, ...menu], bandTip?.id ? tipLine({ Box, Text }, tipText(bandTip)) : tip, e.props.bodyColumns)
+    const readouts = [<Box key="menu-pill" flexDirection="row">{meter}</Box>, word]
+    const hosted = (await $.state.get({ plugin: 'mod-menu', key: 'host' })).value === true
+
+    return pillRow({ Box, Client, Text }, look.nerd, group, [...row, ...(hosted ? [hiddenReadouts({ Box }, readouts)] : readouts)],[...toastCards({ Box, Client, Text }, toasts, look, text.tipToast), ...rest, ...menu], bandTip?.id ? tipLine({ Box, Text }, tipText(bandTip)) : tip, e.props.bodyColumns)
   })
 
   on('ui.render', { component: 'Pane' }, async ($, e, next) => {

@@ -6,7 +6,7 @@ import text from '../hooks/text'
 
 type On = Parameters<Extract<Parameters<typeof test>[1], (...args: never[]) => unknown>>[1]
 
-const BAND = { plugin: 'mod-menu', surface: 'terminal', component: 'AbovePrompt', props: { hasSurvey: false, isWorking: false, maxRows: 6, bodyColumns: 100, scroll: { offset: 0, bodyRows: 6 }, view: {} } } as never
+const BAND = { plugin: 'mod-menu', surface: 'terminal', component: 'AbovePrompt', props: { hasSurvey: false, isCollapsed: false, isWorking: false, maxRows: 6, bodyColumns: 100, scroll: { offset: 0, bodyRows: 6 }, view: {} } } as never
 
 // The store and the state backed by maps; the test clears the state map the way the host does on a /clear.
 function stubEngine(on: On, installed = ['mod-skill-panel.icons']) {

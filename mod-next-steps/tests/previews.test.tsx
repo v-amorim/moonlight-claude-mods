@@ -12,7 +12,7 @@ import { snapshot } from './previews.snapshot'
 
 const BAND = {
   component: 'AbovePrompt',
-  props: { hasSurvey: false, isWorking: false, maxRows: 6, bodyColumns: 56, scroll: { offset: 0, bodyRows: 6 }, view: {} },
+  props: { hasSurvey: false, isCollapsed: false, isWorking: false, maxRows: 6, bodyColumns: 56, scroll: { offset: 0, bodyRows: 6 }, view: {} },
 } as const
 
 const DONE = { answer: 'All done.', durationMs: 5, isAborted: false, turnId: 't1', reason: 'answer' } as const

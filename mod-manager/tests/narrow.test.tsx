@@ -19,7 +19,7 @@ test('a pane Claude Code will not place in a narrow window says how to open it a
     const { Text } = $$.ui.resolve(e)
     return <Text>base</Text>
   })
-  const band = await $.ui.mount({ plugin: 'mod-manager', surface: 'terminal', component: 'AbovePrompt', props: { hasSurvey: false, isWorking: false, maxRows: 12, bodyColumns: 80, scroll: { offset: 0, bodyRows: 12 }, view: {} } } as never)
+  const band = await $.ui.mount({ plugin: 'mod-manager', surface: 'terminal', component: 'AbovePrompt', props: { hasSurvey: false, isCollapsed: false, isWorking: false, maxRows: 12, bodyColumns: 80, scroll: { offset: 0, bodyRows: 12 }, view: {} } } as never)
   await $.command.run({ command: 'mod-manager' } as never)
   await band.redraw()
   expect(await band.find({ type: 'Text', text: /Window too narrow for Mods\. Type \/mod-manager to open it anyway\./ })).toBeDefined()

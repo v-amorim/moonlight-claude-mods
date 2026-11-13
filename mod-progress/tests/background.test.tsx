@@ -330,7 +330,7 @@ test('icons=safe draws plain glyphs on task lines', { options: { icons: 'safe' }
 const TASK_LINE = 2
 const pointerOn = (mounted: unknown, event: object) => (mounted as { pointer: (event: object) => Promise<void> }).pointer(event)
 const numbered = (n: number, from = 1) => Array.from({ length: n }, (_, at) => `line ${from + at}`).join('\n') + '\n'
-const BAND = { plugin: 'mod-progress', surface: 'terminal', component: 'AbovePrompt', props: { hasSurvey: false, isWorking: false, maxRows: 6, bodyColumns: 100, scroll: { offset: 0, bodyRows: 6 }, view: {} } } as never
+const BAND = { plugin: 'mod-progress', surface: 'terminal', component: 'AbovePrompt', props: { hasSurvey: false, isCollapsed: false, isWorking: false, maxRows: 6, bodyColumns: 100, scroll: { offset: 0, bodyRows: 6 }, view: {} } } as never
 
 test('output text is the program\'s: escapes and control characters are stripped, and the tail keeps the last 20 lines and a half-written one', () => {
   expect(stripControl('\u001b[31mred\u001b[0m \u001b]0;title\u0007ok\u0007\u0000\ttab')).toBe('red ok  tab')

@@ -8,6 +8,7 @@ import { cardFill, detectNerd, FOOTER_ROWS, lookFor, paneFooter, section, withMa
 import { foldTip, layoutLoops, type LoopsMessage, type LoopsProps } from './loops'
 import { badgeOf, labelsOf, menuEntry, PILL, pill, pillRow, splitRow, tabRow, tipLine } from './pills'
 import { addBg, appendTail, applyCall, applyStep, applyTask, bandSummary, bgIdOf, bgOutputOf, bgStartOf, buildRows, emptySnap, endBg, endOfStatus, finishAgent, findBg, firstLine, gatesStemIn, cardWidth, HELD_LINES, hasRunningBg, isGatesPath, MAIN_GATES, mergeStamps, outputRoom, pageOf, parseGates, resyncBg, settle, stemOf, TAIL_LINES, waitingCount, wipeBg, type AgentLite, type BgTask, type Gate, type Row, type Snap, type Tail, type Usage, type UsageLite } from './progress'
+import { relayedTo } from './relay'
 import { stopLine, stopOf } from './stop'
 import { openSetting, settingChoice, settingsBody } from './settings'
 import text from './text'
@@ -471,6 +472,69 @@ const tabs = (open: 'cards' | 'timeline' | 'settings', count: number) => {
 
 const agentCount = (rows: Row[]) => rows.filter(row => !row.isMain).length
 
+async function heard($: EngineInterface, data: unknown) {
+  if (isTipMessage(data)) {
+    // The band's own controls are the pill and its toasts; every other id is a pane control. An empty id clears both.
+    const isBand = data.id === 'progress' || (data.id ? toasts.idOf(data.id) !== undefined : false)
+    if (!data.id) {
+      bandTip = null
+      paneTip = null
+    } else if (isBand) {
+      bandTip = data
+      expireBandTip($)
+    } else paneTip = data
+    $.ui.invalidate('ui.render')
+    return
+  }
+  const clicked = data as EntryMessage
+  const dismissed = clicked?.type === 'menu-entry' ? toasts.idOf(clicked.id) : undefined
+  if (dismissed !== undefined) {
+    toasts.drop(dismissed)
+    $.ui.invalidate('ui.render')
+    return
+  }
+  if (clicked?.type === 'menu-entry' && clicked.id === 'progress') await togglePane($)
+  // The title line's tabs swap the list and the settings; the open tab does nothing.
+  if (clicked?.type === 'menu-entry' && clicked.id === 'progress-settings' && !(await isOpen($, SETTINGS))) await toggleSettings($)
+  if (clicked?.type === 'menu-entry' && clicked.id === OUTPUT_MORE) {
+    const id = await openTask($)
+    const isOpening = !(await isOutputOpen($, id))
+    await $.state.set(OUTPUT_KEY, isOpening ? id : '')
+    // The click swaps the control for its opposite under the pointer, and the old one never posts its leave.
+    const label = isOpening ? text.showLess : outputClosedLabel
+    paneTip = { type: 'tip', id: OUTPUT_MORE, glyph: isOpening ? look.glyph.less : look.glyph.more, label, text: isOpening ? text.tipShowLess : text.tipShowAll }
+    $.ui.invalidate('ui.render')
+  }
+  if (clicked?.type === 'menu-entry' && (clicked.id === 'fold-all' || clicked.id === 'unfold-all')) {
+    const current = await loadSnap($)
+    const isFolding = clicked.id === 'fold-all'
+    const { rows } = await currentRows($)
+    current.folded = isFolding ? rows.filter(each => each.tasks.length > 0).map(each => each.id) : []
+    await saveSnap($)
+    paneTip = isFolding ? { type: 'tip', id: 'unfold-all', glyph: look.glyph.more, label: text.unfoldAll, text: text.tipUnfoldAll } : { type: 'tip', id: 'fold-all', glyph: look.glyph.less, label: text.foldAll, text: text.tipFoldAll }
+    $.ui.invalidate('ui.render')
+  }
+  if (clicked?.type === 'menu-entry' && (clicked.id === VIEW_CARDS || clicked.id === VIEW_TIMELINE)) {
+    const current = await loadSnap($)
+    current.view = clicked.id === VIEW_TIMELINE ? 'timeline' : 'cards'
+    await saveSnap($)
+    // From the settings, a view swaps the panel back to the list.
+    if (!(await isOpen($))) await togglePane($)
+    $.ui.invalidate('ui.render')
+  }
+  if (clicked?.type === 'menu-entry' && clicked.id === 'progress-back') {
+    await $.state.set(OUTPUT_KEY, '')
+    await $.state.set(TASK_KEY, '')
+    await syncOutput($)
+    // Back gives way to the list without posting its leave.
+    paneTip = null
+    $.ui.invalidate('ui.render')
+  }
+  openSetting($, data)
+  const change = settingChoice(data)
+  if (change) await saveSetting($, change.key, change.value)
+}
+
 export const register: Register = (on, options) => {
   still = options.animations === false
   iconMode = (options.icons as IconMode | undefined) ?? 'auto'
@@ -753,7 +817,8 @@ export const register: Register = (on, options) => {
     const badge = summary.count > 0 ? { badge: badgeOf(String(summary.count), shown ? THEME.lifted : PILL.primary) } : {}
     const waiting = waitingCount(rows)
     const pillTip = stop?.line ?? (summary.total > 0 ? `${fill(text.tipPillGates, summary)}${waiting > 0 ? ` ${fill(text.tipPillWaiting, { sep: MARK.sep, n: waiting })}` : ''}` : text.tipPill)
-    const entry = menuEntry({ Box, Client, Text }, nerd, 'progress', { label: text.pillLabel, labels, isOpen: shown, idle: THEME.pill, still, nerd, tip: { glyph: look.glyph.icon.Agent ?? look.glyph.mark.agent ?? look.glyph.title, label: text.pillLabel, text: pillTip }, ...badge })
+    const hosted = (await $.state.get({ plugin: 'mod-menu', key: 'host' })).value === true
+    const entry = menuEntry({ Box, Client, Text }, nerd, 'progress', { label: text.pillLabel, labels, hosted, isOpen: shown, idle: THEME.pill, still, nerd, tip: { glyph: look.glyph.icon.Agent ?? look.glyph.mark.agent ?? look.glyph.title, label: text.pillLabel, text: pillTip }, ...badge })
     // A pill tip is posted once on enter, so its text is redrawn from the figures here, the minute the stop's age ticks.
     const shownTip = bandTip?.id === 'progress' ? { ...bandTip, text: pillTip } : bandTip
 
@@ -761,66 +826,14 @@ export const register: Register = (on, options) => {
   })
 
   on('ui.message', async ($, e, next) => {
-    if (isTipMessage(e.data)) {
-      // The band's own controls are the pill and its toasts; every other id is a pane control. An empty id clears both.
-      const isBand = e.data.id === 'progress' || (e.data.id ? toasts.idOf(e.data.id) !== undefined : false)
-      if (!e.data.id) {
-        bandTip = null
-        paneTip = null
-      } else if (isBand) {
-        bandTip = e.data
-        expireBandTip($)
-      } else paneTip = e.data
-      $.ui.invalidate('ui.render')
-      return next(e)
-    }
-    const clicked = e.data as EntryMessage
-    const dismissed = clicked?.type === 'menu-entry' ? toasts.idOf(clicked.id) : undefined
-    if (dismissed !== undefined) {
-      toasts.drop(dismissed)
-      $.ui.invalidate('ui.render')
-      return next(e)
-    }
-    if (clicked?.type === 'menu-entry' && clicked.id === 'progress') await togglePane($)
-    // The title line's tabs swap the list and the settings; the open tab does nothing.
-    if (clicked?.type === 'menu-entry' && clicked.id === 'progress-settings' && !(await isOpen($, SETTINGS))) await toggleSettings($)
-    if (clicked?.type === 'menu-entry' && clicked.id === OUTPUT_MORE) {
-      const id = await openTask($)
-      const isOpening = !(await isOutputOpen($, id))
-      await $.state.set(OUTPUT_KEY, isOpening ? id : '')
-      // The click swaps the control for its opposite under the pointer, and the old one never posts its leave.
-      const label = isOpening ? text.showLess : outputClosedLabel
-      paneTip = { type: 'tip', id: OUTPUT_MORE, glyph: isOpening ? look.glyph.less : look.glyph.more, label, text: isOpening ? text.tipShowLess : text.tipShowAll }
-      $.ui.invalidate('ui.render')
-    }
-    if (clicked?.type === 'menu-entry' && (clicked.id === 'fold-all' || clicked.id === 'unfold-all')) {
-      const current = await loadSnap($)
-      const isFolding = clicked.id === 'fold-all'
-      const { rows } = await currentRows($)
-      current.folded = isFolding ? rows.filter(each => each.tasks.length > 0).map(each => each.id) : []
-      await saveSnap($)
-      paneTip = isFolding ? { type: 'tip', id: 'unfold-all', glyph: look.glyph.more, label: text.unfoldAll, text: text.tipUnfoldAll } : { type: 'tip', id: 'fold-all', glyph: look.glyph.less, label: text.foldAll, text: text.tipFoldAll }
-      $.ui.invalidate('ui.render')
-    }
-    if (clicked?.type === 'menu-entry' && (clicked.id === VIEW_CARDS || clicked.id === VIEW_TIMELINE)) {
-      const current = await loadSnap($)
-      current.view = clicked.id === VIEW_TIMELINE ? 'timeline' : 'cards'
-      await saveSnap($)
-      // From the settings, a view swaps the panel back to the list.
-      if (!(await isOpen($))) await togglePane($)
-      $.ui.invalidate('ui.render')
-    }
-    if (clicked?.type === 'menu-entry' && clicked.id === 'progress-back') {
-      await $.state.set(OUTPUT_KEY, '')
-      await $.state.set(TASK_KEY, '')
-      await syncOutput($)
-      // Back gives way to the list without posting its leave.
-      paneTip = null
-      $.ui.invalidate('ui.render')
-    }
-    openSetting($, e.data)
-    const change = settingChoice(e.data)
-    if (change) await saveSetting($, change.key, change.value)
+    await heard($, e.data)
+
+    return next(e)
+  })
+
+  on('state.set', { plugin: 'mod-menu', key: 'relay' }, async ($, e, next) => {
+    const data = relayedTo(e.value, 'mod-progress')
+    if (data !== undefined) $.clock.after(0, () => heard($, data).catch(() => {}))
 
     return next(e)
   })

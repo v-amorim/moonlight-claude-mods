@@ -2,6 +2,6 @@
 declare module 'claude-code' {
   interface PluginState {
     'mod-model-effort': { current: { model: string; effort: string } | null; pane: boolean; speed: { first: number; rate: number } | null }
-    'mod-menu': { hidden: boolean; labels: 'always' | 'never' }
+    'mod-menu': { hidden: boolean; labels: 'always' | 'never'; host: boolean; relay: { to: string; n: number; data: object } }
   }
 }

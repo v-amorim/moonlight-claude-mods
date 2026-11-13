@@ -9,7 +9,7 @@ const BAND = {
   plugin: 'mod-wrap-up',
   surface: 'terminal',
   component: 'AbovePrompt',
-  props: { hasSurvey: false, isWorking: false, maxRows: 6, bodyColumns: 80, scroll: { offset: 0, bodyRows: 6 }, view: {} },
+  props: { hasSurvey: false, isCollapsed: false, isWorking: false, maxRows: 6, bodyColumns: 80, scroll: { offset: 0, bodyRows: 6 }, view: {} },
 } as const
 
 function world(on: any, failWrite = false) {

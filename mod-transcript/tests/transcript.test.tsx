@@ -1001,7 +1001,7 @@ test('hovering a copy choice or the fold chip shows its tip in the band tip row,
   await sessionStarted($, clock, 's1', '/t/s1.jsonl', 'startup')
   const mount = (component: string, requestId: string, props: object) =>
     $.ui.mount({ plugin: 'mod-transcript', surface: 'terminal', component, requestId, viewport: { columns: 120, rows: 40 }, props } as never)
-  const band = await $.ui.mount({ plugin: 'mod-transcript', surface: 'terminal', component: 'AbovePrompt', props: { hasSurvey: false, isWorking: false, maxRows: 6, bodyColumns: 100, scroll: { offset: 0, bodyRows: 6 }, view: {} } } as never)
+  const band = await $.ui.mount({ plugin: 'mod-transcript', surface: 'terminal', component: 'AbovePrompt', props: { hasSurvey: false, isCollapsed: false, isWorking: false, maxRows: 6, bodyColumns: 100, scroll: { offset: 0, bodyRows: 6 }, view: {} } } as never)
   const prompt = await mount('UserMessage', ID(1), { text: 'fix the bug\nplease', origin: { kind: 'composer' }, isExpanded: false })
   const reply = await mount('AssistantMessage', ID(4), { text: 'Fixed:\n\n```js\nconst a = 1\n```', isFirstOfReply: true })
   const tip = async () => (await band.find({ type: 'Text', text: /copies|folds or unfolds/ }))?.text
@@ -1037,7 +1037,7 @@ test('this mod draws its own toasts as cards in the band, the × shows its tip, 
     if (e.component === 'AbovePrompt') return <Box key="menu-rows" flexDirection="column"><Box key="menu-row" flexDirection="row"><Text key="pill">Files</Text></Box></Box>
     return <Text>{`base ${e.component}`}</Text>
   })
-  const band = await $.ui.mount({ plugin: 'mod-transcript', surface: 'terminal', component: 'AbovePrompt', props: { hasSurvey: false, isWorking: false, maxRows: 6, bodyColumns: 100, scroll: { offset: 0, bodyRows: 6 }, view: {} } } as never)
+  const band = await $.ui.mount({ plugin: 'mod-transcript', surface: 'terminal', component: 'AbovePrompt', props: { hasSurvey: false, isCollapsed: false, isWorking: false, maxRows: 6, bodyColumns: 100, scroll: { offset: 0, bodyRows: 6 }, view: {} } } as never)
   const toast = () => band.find({ type: 'Text', text: 'Settings panel waiting' })
   expect(await toast()).toBeUndefined()
 
@@ -1124,7 +1124,7 @@ test('with prompt_numbers off, no number and no reserved cells', { options: { pr
 
 test('pointing at the number shows its tip in the band tip row, and leaving clears it', async ($, on) => {
   const first = await mountNumbered($, on, ID(1), 'first')
-  const band = await $.ui.mount({ plugin: 'mod-transcript', surface: 'terminal', component: 'AbovePrompt', props: { hasSurvey: false, isWorking: false, maxRows: 6, bodyColumns: 100, scroll: { offset: 0, bodyRows: 6 }, view: {} } } as never)
+  const band = await $.ui.mount({ plugin: 'mod-transcript', surface: 'terminal', component: 'AbovePrompt', props: { hasSurvey: false, isCollapsed: false, isWorking: false, maxRows: 6, bodyColumns: 100, scroll: { offset: 0, bodyRows: 6 }, view: {} } } as never)
   const tip = async () => (await band.find({ type: 'Text', text: /of the session/ }))?.text
   expect(await tip()).toBeUndefined()
   await first.pointer({ in: 'toggle-prompt-number', type: 'enter', button: 'left', x: 1, y: 1 })

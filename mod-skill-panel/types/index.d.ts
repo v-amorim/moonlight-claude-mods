@@ -3,6 +3,6 @@
 declare module 'claude-code' {
   interface PluginState {
     'mod-skill-panel': { pane: boolean }
-    'mod-menu': { hidden: boolean; labels: 'always' | 'never' }
+    'mod-menu': { hidden: boolean; labels: 'always' | 'never'; host: boolean; relay: { to: string; n: number; data: object } }
   }
 }

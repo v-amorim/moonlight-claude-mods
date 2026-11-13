@@ -495,7 +495,8 @@ export const register: Register = (on, options) => {
       const tip = hovered?.id && hovered !== bandExpired ? tipLine({ Box, Text }, tipText(hovered)) : menuTip
       const view = { now: await $.clock.now(), columns: e.props.bodyColumns, maxRows: e.props.maxRows, still }
       // While a call is held only the card and the pill row draw, so other rows cannot fill the band and cut the card off.
-      return pillRow({ Box, Client, Text }, look.nerd, group, row, [...cards, holdCard({ Box, Button, Client, Input, Link, Text }, look, held, view, { key: id => choose($, id), input: value => typeReason($, value), submit: value => sendReason($, value) })], tip, e.props.bodyColumns)
+      const card = holdCard({ Box, Button, Client, Input, Link, Text }, look, held, view, { key: id => choose($, id), input: value => typeReason($, value), submit: value => sendReason($, value) })
+      return pillRow({ Box, Client, Text }, look.nerd, group, row, [...cards, card, <Box key="band-exclusive" display="none" />], tip, e.props.bodyColumns)
     }
     if (e.surface !== 'terminal' || e.props.hasSurvey) return next(e)
     const { Box, Client, Text } = $.ui.resolve(e)

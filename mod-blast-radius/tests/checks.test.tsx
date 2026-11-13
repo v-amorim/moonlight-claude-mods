@@ -8,7 +8,7 @@ const PLUGIN = 'mod-blast-radius'
 const PANE = (bodyColumns = 100) =>
   ({ component: 'Pane', requestId: 'blast-radius-list', props: { title: 'Blast radius', isFocused: false, bodyColumns, placement: 'dock', scroll: { offset: 0, bodyRows: 60 }, view: {} } }) as const
 const bandOf = (bodyColumns = 120) =>
-  ({ component: 'AbovePrompt', props: { hasSurvey: false, isWorking: true, maxRows: 24, bodyColumns, scroll: { offset: 0, bodyRows: 6 }, view: {} } }) as const
+  ({ component: 'AbovePrompt', props: { hasSurvey: false, isCollapsed: false, isWorking: true, maxRows: 24, bodyColumns, scroll: { offset: 0, bodyRows: 6 }, view: {} } }) as const
 
 declare const setTimeout: (run: (value?: unknown) => void, ms: number) => unknown
 const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms))

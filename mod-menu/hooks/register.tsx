@@ -1,6 +1,8 @@
 // mod-menu / hooks/register.tsx, by v-amorim: the /mod-menu command, hidden and labels
 import type { EngineInterface, Register } from 'claude-code'
 
+import { beaconsOf, clientKeysOf, entryPad, hasKey, hiddenTipOf, pillRow, readoutsOf } from './pills'
+import { revive } from './revive'
 import { fill } from './theme'
 import text from './text'
 
@@ -9,8 +11,20 @@ type Labels = (typeof LABELS)[number]
 const isLabels = (value: unknown): value is Labels => LABELS.some(each => each === value)
 // The mods that draw an entry in the band; each lists its settings rows in config.list once installed and enabled.
 const PANEL_MODS = ['mod-file-tree', 'mod-heads-up', 'mod-manager', 'mod-model-effort', 'mod-progress', 'mod-prompts', 'mod-skill-panel', 'mod-wrap-up']
+const owners = new Map<string, string>()
+let relays = 0
 const BOOT_KEY = { plugin: 'mod-menu', key: 'booted' } as const
 const LABELS_KEY = { plugin: 'mod-menu', key: 'labels' } as const
+
+type Drawn = { type?: string; props?: { display?: string; height?: unknown; borderStyle?: unknown; children?: unknown }; children?: unknown }
+const drawsSomething = (node: unknown): boolean => {
+  if (Array.isArray(node)) return node.some(drawsSomething)
+  if (!node || typeof node !== 'object') return false
+  const { type, props, children } = node as Drawn
+  if (props?.display === 'none' || type === 'engine') return false
+  if (type === 'Text' || type === 'Client' || props?.borderStyle || (typeof props?.height === 'number' && props.height > 0)) return true
+  return drawsSomething(children ?? props?.children)
+}
 
 // The labels state no longer says the setting: a settings pane saved a new one, which reloads this mod with no session start.
 const isStale = async ($: EngineInterface, labels: Labels) => (await $.state.get(LABELS_KEY)).value !== labels
@@ -23,6 +37,7 @@ async function restore($: EngineInterface, labels: Labels) {
     return true
   }
   await $.state.set(BOOT_KEY, true)
+  await $.state.set({ plugin: 'mod-menu', key: 'host' }, true)
   await $.state.set({ plugin: 'mod-menu', key: 'hidden' }, (await $.store.get('hidden')) === true)
   await $.state.set(LABELS_KEY, labels)
 
@@ -51,6 +66,44 @@ export const register: Register = (on, options) => {
         restoring = false
       })
     }
+
+    return next(e)
+  })
+
+  // Each mod draws its entry hidden; the one row of entries is drawn here, and its clicks go back to the owner.
+  on('ui.render', { component: 'AbovePromptList' }, async ($, e, next) => {
+    if (e.surface !== 'terminal' || e.props.hasSurvey) return next(e)
+    if ((await $.state.get({ plugin: 'mod-menu', key: 'hidden' })).value === true) return next(e)
+    const found = e.props.rows.flatMap(row => beaconsOf(row.tree).map(props => ({ plugin: row.plugin, props })))
+    const readouts = e.props.rows.flatMap(row => readoutsOf(row.tree).map(node => ({ plugin: row.plugin, node })))
+    // While a call is held only its card and the pills draw, so other rows cannot fill the band and cut the card off.
+    const holder = e.props.rows.find(row => hasKey(row.tree, 'band-exclusive'))
+    // A row whose only shown node is the engine's still takes lines once stacked, so it is left out.
+    const kept = e.props.rows.filter(row => (holder ? row.plugin === holder.plugin : drawsSomething(row.tree)))
+    const stacked = () => next({ ...e, props: { ...e.props, rows: kept } })
+    if (found.length === 0 && readouts.length === 0) return stacked()
+    owners.clear()
+    // A leave posts no id, so the owner is also found by the drawn entry's key.
+    for (const { plugin, props } of found) owners.set(props.id, plugin).set(`menu-entry-${props.id}`, plugin)
+    for (const { plugin, node } of readouts) for (const key of clientKeysOf(node)) owners.set(key, plugin)
+    const { Box, Client, Text } = $.ui.resolve(e)
+    const tip = e.props.rows.map(row => hiddenTipOf(row.tree)).find(Boolean) ?? null
+    const entries = found.map(({ props }) => entryPad({ Box, Client, Text }, props.nerd === true, props))
+    const row = readouts.map(({ node }) => revive({ Client }, node))
+
+    return (
+      <Box key="menu-host" flexDirection="column">
+        {await stacked()}
+        {pillRow({ Box, Client, Text }, found[0]?.props.nerd === true, entries, row, [], tip, e.props.bodyColumns)}
+      </Box>
+    )
+  })
+
+  // Clicks and hovers land here, since the entries are this mod's; the owner hears them through the relay key.
+  on('ui.message', async ($, e, next) => {
+    const id = (e.data as { id?: unknown } | undefined)?.id
+    const to = owners.get(e.element) ?? (typeof id === 'string' ? owners.get(id) : undefined)
+    if (to) await $.state.set({ plugin: 'mod-menu', key: 'relay' }, { to, data: e.data as object, n: (relays += 1) })
 
     return next(e)
   })

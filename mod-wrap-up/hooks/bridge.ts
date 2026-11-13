@@ -18,7 +18,7 @@ export function bridgeOn(event: string, handler: BridgeHandler) {
   handlers.set(event, handler)
 }
 
-async function folderOf($: EngineInterface, mod: string) {
+export async function folderOf($: EngineInterface, mod: string) {
   const set = ((await $.env.get('CLAUDE_CONFIG_DIR')) ?? '').replace(/\\/g, '/').replace(/\/+$/, '')
   if (set) return `${set}/mods-data/${mod}/bridge`
   // The command hooks write under $HOME, so it comes before USERPROFILE; a Git Bash `/c/Users/x` becomes `C:/Users/x`, which $.fs can open.

@@ -40,6 +40,7 @@ export default {
     "updating": "Context at {tokens} ({percent}%), updating the ledger before the handoff",
     "continue": "The context was cleared to make room. Continue the open task from this handoff.",
     "noHandoff": "No handoff written yet, nothing was cleared",
+    "heldForWork": "Handoff held: {tasks} background task(s) and {crons} scheduled wake-up(s) will still report back. It tries again when the session is idle",
     "clearFailed": "Could not run /clear at the mark, nothing was sent",
     "carried": "Carried over: {goal}",
     "carriedNoGoal": "Carried over the earlier handoff",
@@ -56,6 +57,7 @@ export default {
     "notJoined": "The new window did not pick up the handoff within 30 s, so this session keeps it",
     "handedOff": "Handed off to {name} in a new window. This session stays open, close it when you are done",
     "next": "the next session",
+    "stillWorking": "{name} already took the handoff, so work done here from now on is not in it. Tell it, or use Wrap up again",
     "title": "Handed off",
     "tipClose": "hides this card, this session stays open"
   },

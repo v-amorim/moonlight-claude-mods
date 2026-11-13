@@ -4,7 +4,7 @@ import { expect, mock, test } from 'claude-code/testing'
 import { firstText, replySpeed } from '../hooks/speed'
 
 const pointer = (ui: object, event: object) => (ui as { pointer: (event: object) => Promise<void> }).pointer(event)
-const BAND = { plugin: 'mod-model-effort', surface: 'terminal', component: 'AbovePrompt', props: { hasSurvey: false, isWorking: false, maxRows: 6, bodyColumns: 100, scroll: { offset: 0, bodyRows: 6 }, view: {} } } as never
+const BAND = { plugin: 'mod-model-effort', surface: 'terminal', component: 'AbovePrompt', props: { hasSurvey: false, isCollapsed: false, isWorking: false, maxRows: 6, bodyColumns: 100, scroll: { offset: 0, bodyRows: 6 }, view: {} } } as never
 const TIP = 'last reply: first token 1.2s, 58 tok/s'
 
 test('speed math: first token and tokens per second from the times', () => {

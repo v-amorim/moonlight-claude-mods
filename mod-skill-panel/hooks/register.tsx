@@ -12,6 +12,7 @@ import { cardSpace, HEAD_ROWS, stickyCard } from './card'
 import { isTipMessage, type EntryMessage, type EntryProps, type Tip } from './entry'
 import { cardFill, detectNerd, FOOTER_ROWS, lookFor, paneFooter, section, titleEdge, withMark, type IconMode } from './look'
 import { labelsOf, menuEntry, pillRow, splitRow, tabRow, tipLine } from './pills'
+import { relayedTo } from './relay'
 import { openSetting, settingChoice, settingsBody } from './settings'
 import { TOAST_MS, ToastList, toastCards } from './toasts'
 
@@ -255,6 +256,51 @@ async function openingPane($: EngineInterface) {
   if (!(await isOpen($))) endOpening($)
 }
 
+async function heard($: EngineInterface, data: unknown) {
+  const clicked = data as EntryMessage
+  const dismissed = clicked?.type === 'menu-entry' ? toasts.idOf(clicked.id) : undefined
+  if (dismissed !== undefined) {
+    toasts.drop(dismissed)
+    $.ui.invalidate('ui.render')
+    return
+  }
+  if (isTipMessage(data)) {
+    const { id, glyph, label, text: tipText } = data
+    const isToast = Boolean(id?.startsWith('toast-skills-'))
+    toastTip = isToast ? `${label}: ${tipText}` : ''
+    if (toastTip) expireBandTip($)
+    hoveredTip = !isToast && id && glyph !== undefined && label && tipText ? { glyph, label, text: tipText } : null
+    const chip = id?.startsWith('chip:') ? Number(id.slice(5)) : -1
+    if (chip >= 0) {
+      if (`${view}:${chip}` !== fullCard) fullCard = ''
+      if (view === 'agents') selectedAgent = chip
+      else selected = chip
+    }
+    $.ui.invalidate('ui.render')
+    return
+  }
+  const hover = data as { type?: string; id?: string; isOver?: boolean }
+  if (hover?.type === 'menu-hover' && hover.id === 'skills') {
+    tipShown = hover.isOver === true
+    if (tipShown) expireBandTip($)
+    $.ui.invalidate('ui.render')
+  }
+  const message = data as EntryMessage
+  if (message?.type === 'menu-entry' && message.id === 'skills') await openingPane($)
+  // The title line's tabs swap the lists and the settings; the open tab does nothing.
+  if (message?.type === 'menu-entry' && message.id === 'skills-settings' && !(await isOpen($, SETTINGS))) await toggleSettings($)
+  if (message?.type === 'menu-entry' && message.id === MORE) {
+    const here = `${view}:${view === 'agents' ? selectedAgent : selected}`
+    fullCard = fullCard === here ? '' : here
+    $.ui.invalidate('ui.render')
+  }
+  if (message?.type === 'menu-entry' && message.id === 'skills-tab') await showView($, 'skills')
+  if (message?.type === 'menu-entry' && message.id === 'skills-agents') await showView($, 'agents')
+  openSetting($, data)
+  const change = settingChoice(data)
+  if (change) await saveSetting($, change.key, change.value)
+}
+
 export const register: Register = (on, options) => {
   still = options.animations === false
   iconMode = (options.icons as IconMode | undefined) ?? 'auto'
@@ -371,54 +417,21 @@ export const register: Register = (on, options) => {
     const shown = (await isOpen($)) || (await isOpen($, SETTINGS))
     const { group, row, rest, tip } = splitRow(await next(e))
     // Opening the pane from here queues nothing, so the entry stays live mid-turn.
-    const entry = menuEntry({ Box, Client, Text }, nerd, 'skills', { label: text.pillLabel, isOpen: shown, idle: THEME.pill, isBusy: isOpening, still, labels })
+    const hosted = (await $.state.get({ plugin: 'mod-menu', key: 'host' })).value === true
+    const entry = menuEntry({ Box, Client, Text }, nerd, 'skills', { label: text.pillLabel, hosted, isOpen: shown, idle: THEME.pill, isBusy: isOpening, still, labels })
 
     return pillRow({ Box, Client, Text }, nerd, [entry, ...group], row, [...toastCards({ Box, Client, Text }, toasts, look, text.tipToast), ...rest], toastTip ? tipLine({ Box, Text }, toastTip) : tipShown ? tipLine({ Box, Text }, text.pillTip) : tip, e.props.bodyColumns)
   })
 
   on('ui.message', async ($, e, next) => {
-    const clicked = e.data as EntryMessage
-    const dismissed = clicked?.type === 'menu-entry' ? toasts.idOf(clicked.id) : undefined
-    if (dismissed !== undefined) {
-      toasts.drop(dismissed)
-      $.ui.invalidate('ui.render')
-      return next(e)
-    }
-    if (isTipMessage(e.data)) {
-      const { id, glyph, label, text: tipText } = e.data
-      const isToast = Boolean(id?.startsWith('toast-skills-'))
-      toastTip = isToast ? `${label}: ${tipText}` : ''
-      if (toastTip) expireBandTip($)
-      hoveredTip = !isToast && id && glyph !== undefined && label && tipText ? { glyph, label, text: tipText } : null
-      const chip = id?.startsWith('chip:') ? Number(id.slice(5)) : -1
-      if (chip >= 0) {
-        if (`${view}:${chip}` !== fullCard) fullCard = ''
-        if (view === 'agents') selectedAgent = chip
-        else selected = chip
-      }
-      $.ui.invalidate('ui.render')
-      return next(e)
-    }
-    const hover = e.data as { type?: string; id?: string; isOver?: boolean }
-    if (hover?.type === 'menu-hover' && hover.id === 'skills') {
-      tipShown = hover.isOver === true
-      if (tipShown) expireBandTip($)
-      $.ui.invalidate('ui.render')
-    }
-    const message = e.data as EntryMessage
-    if (message?.type === 'menu-entry' && message.id === 'skills') await openingPane($)
-    // The title line's tabs swap the lists and the settings; the open tab does nothing.
-    if (message?.type === 'menu-entry' && message.id === 'skills-settings' && !(await isOpen($, SETTINGS))) await toggleSettings($)
-    if (message?.type === 'menu-entry' && message.id === MORE) {
-      const here = `${view}:${view === 'agents' ? selectedAgent : selected}`
-      fullCard = fullCard === here ? '' : here
-      $.ui.invalidate('ui.render')
-    }
-    if (message?.type === 'menu-entry' && message.id === 'skills-tab') await showView($, 'skills')
-    if (message?.type === 'menu-entry' && message.id === 'skills-agents') await showView($, 'agents')
-    openSetting($, e.data)
-    const change = settingChoice(e.data)
-    if (change) await saveSetting($, change.key, change.value)
+    await heard($, e.data)
+
+    return next(e)
+  })
+
+  on('state.set', { plugin: 'mod-menu', key: 'relay' }, async ($, e, next) => {
+    const data = relayedTo(e.value, 'mod-skill-panel')
+    if (data !== undefined) $.clock.after(0, () => heard($, data).catch(() => {}))
 
     return next(e)
   })

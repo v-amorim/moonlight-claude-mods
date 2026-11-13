@@ -49,7 +49,7 @@ test('the footer meter follows each request and a click saves that level', async
   const stream = $.turn.step({ turnId: 't1', index: 0, model: 'claude-opus-5-5', effort: 'medium', messageCount: 1 } as never)
   while ((await stream.next()).done !== true);
 
-  const ui = await $.ui.mount({ plugin: 'mod-model-effort', surface: 'terminal', component: 'AbovePrompt', props: { hasSurvey: false, isWorking: false, maxRows: 6, bodyColumns: 100, scroll: { offset: 0, bodyRows: 6 }, view: {} } } as never)
+  const ui = await $.ui.mount({ plugin: 'mod-model-effort', surface: 'terminal', component: 'AbovePrompt', props: { hasSurvey: false, isCollapsed: false, isWorking: false, maxRows: 6, bodyColumns: 100, scroll: { offset: 0, bodyRows: 6 }, view: {} } } as never)
   expect(await ui.find({ type: 'Text', text: 'auto mode' })).toBeDefined()
   const drawn = JSON.stringify(await ui.drawn({ in: 'meter' }))
   expect(drawn).toContain('◐ ')
@@ -112,7 +112,7 @@ async function clickMax($: Parameters<TestBody>[0], on: Parameters<TestBody>[1],
   })
   const stream = $.turn.step({ turnId: 't1', index: 0, model: 'claude-opus-5-5', effort: 'medium', messageCount: 1 } as never)
   while ((await stream.next()).done !== true);
-  const ui = await $.ui.mount({ plugin: 'mod-model-effort', surface: 'terminal', component: 'AbovePrompt', props: { hasSurvey: false, isWorking: false, maxRows: 6, bodyColumns: 100, scroll: { offset: 0, bodyRows: 6 }, view: {} } } as never)
+  const ui = await $.ui.mount({ plugin: 'mod-model-effort', surface: 'terminal', component: 'AbovePrompt', props: { hasSurvey: false, isCollapsed: false, isWorking: false, maxRows: 6, bodyColumns: 100, scroll: { offset: 0, bodyRows: 6 }, view: {} } } as never)
   await pointer(ui, { in: 'meter', type: 'move', x: 1, y: 0 })
   await pointer(ui, { in: 'meter', type: 'down', button: 'left', x: 18, y: 0 })
   await check?.(ui)
@@ -176,7 +176,7 @@ test('the model menu opens when the session cannot name its model', async ($, on
     const { Text } = $$.ui.resolve(e)
     return <Text>base</Text>
   })
-  const ui = await $.ui.mount({ plugin: 'mod-model-effort', surface: 'terminal', component: 'AbovePrompt', props: { hasSurvey: false, isWorking: false, maxRows: 12, bodyColumns: 100, scroll: { offset: 0, bodyRows: 12 }, view: {} } } as never)
+  const ui = await $.ui.mount({ plugin: 'mod-model-effort', surface: 'terminal', component: 'AbovePrompt', props: { hasSurvey: false, isCollapsed: false, isWorking: false, maxRows: 12, bodyColumns: 100, scroll: { offset: 0, bodyRows: 12 }, view: {} } } as never)
   await pointer(ui, { in: 'meter', type: 'down', button: 'left', x: 1, y: 0 })
   expect(await ui.find({ key: 'effort-model-all' })).toBeDefined()
   await ui.unmount()
@@ -201,7 +201,7 @@ test('a click on the model name lists the models used before, and a pick switche
     const { Text } = $$.ui.resolve(e)
     return <Text>base</Text>
   })
-  const ui = await $.ui.mount({ plugin: 'mod-model-effort', surface: 'terminal', component: 'AbovePrompt', props: { hasSurvey: false, isWorking: false, maxRows: 12, bodyColumns: 100, scroll: { offset: 0, bodyRows: 12 }, view: {} } } as never)
+  const ui = await $.ui.mount({ plugin: 'mod-model-effort', surface: 'terminal', component: 'AbovePrompt', props: { hasSurvey: false, isCollapsed: false, isWorking: false, maxRows: 12, bodyColumns: 100, scroll: { offset: 0, bodyRows: 12 }, view: {} } } as never)
   expect(await ui.find({ key: 'effort-model-all' })).toBeUndefined()
 
   // The × closes the menu without switching.
@@ -308,7 +308,7 @@ test('a clicked level rides on each request until Alt+P saves another', async ($
   }
 
   await step(0)
-  const ui = await $.ui.mount({ plugin: 'mod-model-effort', surface: 'terminal', component: 'AbovePrompt', props: { hasSurvey: false, isWorking: false, maxRows: 6, bodyColumns: 100, scroll: { offset: 0, bodyRows: 6 }, view: {} } } as never)
+  const ui = await $.ui.mount({ plugin: 'mod-model-effort', surface: 'terminal', component: 'AbovePrompt', props: { hasSurvey: false, isCollapsed: false, isWorking: false, maxRows: 6, bodyColumns: 100, scroll: { offset: 0, bodyRows: 6 }, view: {} } } as never)
   await pointer(ui, { in: 'meter', type: 'move', x: 1, y: 0 })
   await pointer(ui, { in: 'meter', type: 'down', button: 'left', x: 18, y: 0 })
   await step(1)
@@ -322,7 +322,7 @@ test('a clicked level rides on each request until Alt+P saves another', async ($
   await ui.unmount()
 })
 
-const BAND = { plugin: 'mod-model-effort', surface: 'terminal', component: 'AbovePrompt', props: { hasSurvey: false, isWorking: false, maxRows: 6, bodyColumns: 100, scroll: { offset: 0, bodyRows: 6 }, view: {} } } as never
+const BAND = { plugin: 'mod-model-effort', surface: 'terminal', component: 'AbovePrompt', props: { hasSurvey: false, isCollapsed: false, isWorking: false, maxRows: 6, bodyColumns: 100, scroll: { offset: 0, bodyRows: 6 }, view: {} } } as never
 const CAP = String.fromCodePoint(0xe0b6)
 
 function band(on: (name: string, handler: (...args: any[]) => unknown) => void, model: () => string = () => 'claude-opus-5-5') {
@@ -377,7 +377,7 @@ test('/mod-model-effort settings opens the pane and the pane draws a setting row
   await pane.unmount()
 })
 
-const NARROW = { plugin: 'mod-model-effort', surface: 'terminal', component: 'AbovePrompt', props: { hasSurvey: false, isWorking: false, maxRows: 12, bodyColumns: 80, scroll: { offset: 0, bodyRows: 12 }, view: {} } } as never
+const NARROW = { plugin: 'mod-model-effort', surface: 'terminal', component: 'AbovePrompt', props: { hasSurvey: false, isCollapsed: false, isWorking: false, maxRows: 12, bodyColumns: 80, scroll: { offset: 0, bodyRows: 12 }, view: {} } } as never
 
 test('a hovered control names itself in the tip row, a model menu entry and the model pill alike', { options: { icons: 'safe' } }, async ($, on) => {
   band(on as never)
@@ -658,7 +658,7 @@ test('the meter at rest runs no timer; a new effort fades its lights, then it st
   expect(running.size).toBe(0)
 })
 
-const WORKING = { plugin: 'mod-model-effort', surface: 'terminal', component: 'AbovePrompt', props: { hasSurvey: false, isWorking: true, maxRows: 12, bodyColumns: 100, scroll: { offset: 0, bodyRows: 12 }, view: {} } } as never
+const WORKING = { plugin: 'mod-model-effort', surface: 'terminal', component: 'AbovePrompt', props: { hasSurvey: false, isCollapsed: false, isWorking: true, maxRows: 12, bodyColumns: 100, scroll: { offset: 0, bodyRows: 12 }, view: {} } } as never
 
 test('with the menu hidden the pill steps aside and a toast still draws its card', { options: { icons: 'safe' } }, async ($, on) => {
   band(on as never)

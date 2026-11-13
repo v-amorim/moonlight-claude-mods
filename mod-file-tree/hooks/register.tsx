@@ -9,6 +9,7 @@ import { isTipMessage, mix, type EntryMessage, type EntryProps, type Tip } from 
 import { labelsOf, menuEntry, pill, pillRow, splitRow, tabRow, tipLine } from './pills'
 import { TOAST_MS, ToastList, toastCards } from './toasts'
 import { choiceBar as sharedChoiceBar, openSetting, settingChoice, settingsBody, type Action, type Previews, type Range } from './settings'
+import { relayedTo } from './relay'
 import text from './text'
 import { fill, MARK, THEME } from './theme'
 import { shellPlans, TranscriptFiles } from './transcript'
@@ -609,6 +610,68 @@ const tabs = (isSettings: boolean, touched: number) => {
   ]
 }
 
+async function heard($: EngineInterface, data: unknown) {
+  const clicked = data as EntryMessage
+  const dismissed = clicked?.type === 'menu-entry' ? toasts.idOf(clicked.id) : undefined
+  if (dismissed !== undefined) {
+    toasts.drop(dismissed)
+    $.ui.invalidate('ui.render')
+    return
+  }
+  if (isTipMessage(data)) {
+    const { id, glyph, label, text: tipText } = data
+    const isToast = Boolean(id?.startsWith('toast-filetree-'))
+    toastTip = isToast ? `${label}: ${tipText}` : ''
+    if (toastTip) expireBandTip($)
+    hoveredTip = !isToast && id && glyph !== undefined && label && tipText ? { glyph, label, text: tipText } : null
+    $.ui.invalidate('ui.render')
+    return
+  }
+  const hover = data as { type?: string; id?: string; isOver?: boolean }
+  if (hover?.type === 'menu-hover' && hover.id === 'filetree') {
+    tipShown = hover.isOver === true
+    if (tipShown) expireBandTip($)
+    $.ui.invalidate('ui.render')
+  }
+  try {
+    openSetting($, data)
+    const change = settingChoice(data)
+    if (change) await saveSetting($, change.key, change.value)
+    const message = data as EntryMessage
+    if (message?.type === 'menu-entry') {
+      if (message.id === 'filetree') await openingPane($)
+      if (message.id === 'filetree-settings' && !(await isOpen($, SETTINGS))) await toggleSettings($)
+      if (message.id === 'tab-tree' || message.id === 'tab-replay') {
+        mode = message.id === 'tab-tree' ? 'tree' : 'replay'
+        note = ''
+        // From the settings, a view swaps the panel back to the files.
+        if (!(await isOpen($, PANE))) await togglePane($)
+        $.ui.invalidate('ui.render')
+      }
+      if (message.id === 'scope-turn' || message.id === 'scope-recent' || message.id === 'scope-session') {
+        scope = message.id === 'scope-turn' ? 'turn' : message.id === 'scope-recent' ? 'recent' : 'session'
+        note = ''
+        $.ui.invalidate('ui.render')
+      }
+      if (message.id === 'fold-all' || message.id === 'unfold-all') {
+        const isFolding = message.id === 'fold-all'
+        foldAll($, viewOf(await hydrate($)), isFolding)
+        // The click swaps the toggle for its opposite under the pointer, and the old one never posts its leave.
+        hoveredTip = isFolding ? { glyph: look.glyph.more, label: text.unfoldAll, text: text.unfoldAllTip } : { glyph: look.glyph.less, label: text.foldAll, text: text.foldAllTip }
+      }
+      if (message.id === 'session-reveal') {
+        const cwd = String((await $.session.cwd().catch(() => '')) ?? '').replace(/\\/g, '/')
+        await openFolder($, cwd, cwd.split('/').pop() || text.rootFallback)
+      }
+      if (message.id === 'replay-prev' || message.id === 'replay-next') {
+        walk($, message.id === 'replay-prev' ? -1 : 1, stepsOfTurn(viewOf(await hydrate($)), replayTurn).length)
+      }
+    }
+  } catch {
+    // The tree stays as it was.
+  }
+}
+
 export const register: Register = (on, options) => {
   still = options.animations === false
   toasts.isStill = still
@@ -775,71 +838,21 @@ export const register: Register = (on, options) => {
     const labels = labelsOf((await $.state.get({ plugin: 'mod-menu', key: 'labels' })).value)
     const { group, row, rest, tip } = splitRow(await next(e))
     // Opening the pane from here queues nothing, so the entry stays live mid-turn.
-    const entry = menuEntry({ Box, Client, Text }, look.nerd, 'filetree', { label: text.pill, isOpen: shown, idle: THEME.pill, isBusy: isOpening, still, labels })
+    const hosted = (await $.state.get({ plugin: 'mod-menu', key: 'host' })).value === true
+    const entry = menuEntry({ Box, Client, Text }, look.nerd, 'filetree', { label: text.pill, hosted, isOpen: shown, idle: THEME.pill, isBusy: isOpening, still, labels })
 
     return pillRow({ Box, Client, Text }, look.nerd, [entry, ...group], row, [...toastCards({ Box, Client, Text }, toasts, look, text.tipToast), ...rest], toastTip ? tipLine({ Box, Text }, toastTip) : tipShown ? tipLine({ Box, Text }, text.pillTip) : tip, e.props.bodyColumns)
   })
 
   on('ui.message', async ($, e, next) => {
-    const clicked = e.data as EntryMessage
-    const dismissed = clicked?.type === 'menu-entry' ? toasts.idOf(clicked.id) : undefined
-    if (dismissed !== undefined) {
-      toasts.drop(dismissed)
-      $.ui.invalidate('ui.render')
-      return next(e)
-    }
-    if (isTipMessage(e.data)) {
-      const { id, glyph, label, text: tipText } = e.data
-      const isToast = Boolean(id?.startsWith('toast-filetree-'))
-      toastTip = isToast ? `${label}: ${tipText}` : ''
-      if (toastTip) expireBandTip($)
-      hoveredTip = !isToast && id && glyph !== undefined && label && tipText ? { glyph, label, text: tipText } : null
-      $.ui.invalidate('ui.render')
-      return next(e)
-    }
-    const hover = e.data as { type?: string; id?: string; isOver?: boolean }
-    if (hover?.type === 'menu-hover' && hover.id === 'filetree') {
-      tipShown = hover.isOver === true
-      if (tipShown) expireBandTip($)
-      $.ui.invalidate('ui.render')
-    }
-    try {
-      openSetting($, e.data)
-      const change = settingChoice(e.data)
-      if (change) await saveSetting($, change.key, change.value)
-      const message = e.data as EntryMessage
-      if (message?.type === 'menu-entry') {
-        if (message.id === 'filetree') await openingPane($)
-        if (message.id === 'filetree-settings' && !(await isOpen($, SETTINGS))) await toggleSettings($)
-        if (message.id === 'tab-tree' || message.id === 'tab-replay') {
-          mode = message.id === 'tab-tree' ? 'tree' : 'replay'
-          note = ''
-          // From the settings, a view swaps the panel back to the files.
-          if (!(await isOpen($, PANE))) await togglePane($)
-          $.ui.invalidate('ui.render')
-        }
-        if (message.id === 'scope-turn' || message.id === 'scope-recent' || message.id === 'scope-session') {
-          scope = message.id === 'scope-turn' ? 'turn' : message.id === 'scope-recent' ? 'recent' : 'session'
-          note = ''
-          $.ui.invalidate('ui.render')
-        }
-        if (message.id === 'fold-all' || message.id === 'unfold-all') {
-          const isFolding = message.id === 'fold-all'
-          foldAll($, viewOf(await hydrate($)), isFolding)
-          // The click swaps the toggle for its opposite under the pointer, and the old one never posts its leave.
-          hoveredTip = isFolding ? { glyph: look.glyph.more, label: text.unfoldAll, text: text.unfoldAllTip } : { glyph: look.glyph.less, label: text.foldAll, text: text.foldAllTip }
-        }
-        if (message.id === 'session-reveal') {
-          const cwd = String((await $.session.cwd().catch(() => '')) ?? '').replace(/\\/g, '/')
-          await openFolder($, cwd, cwd.split('/').pop() || text.rootFallback)
-        }
-        if (message.id === 'replay-prev' || message.id === 'replay-next') {
-          walk($, message.id === 'replay-prev' ? -1 : 1, stepsOfTurn(viewOf(await hydrate($)), replayTurn).length)
-        }
-      }
-    } catch {
-      // The tree stays as it was.
-    }
+    await heard($, e.data)
+
+    return next(e)
+  })
+
+  on('state.set', { plugin: 'mod-menu', key: 'relay' }, async ($, e, next) => {
+    const data = relayedTo(e.value, 'mod-file-tree')
+    if (data !== undefined) $.clock.after(0, () => heard($, data).catch(() => {}))
 
     return next(e)
   })

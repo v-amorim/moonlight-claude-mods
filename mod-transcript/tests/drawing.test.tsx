@@ -103,7 +103,7 @@ test('the ctrl+o view draws every row as the engine does, so the mod steps aside
 
 test('while a subagent transcript is on screen its rows draw as the engine draws them and join no main turn', async ($, on) => {
   const mount = await open($, on, EDIT_TURN)
-  const band = (agentId?: string) => mount('AbovePrompt', 'band', { hasSurvey: false, isWorking: false, maxRows: 6, bodyColumns: 100, scroll: { offset: 0, bodyRows: 6 }, view: agentId ? { agentId } : {} })
+  const band = (agentId?: string) => mount('AbovePrompt', 'band', { hasSurvey: false, isCollapsed: false, isWorking: false, maxRows: 6, bodyColumns: 100, scroll: { offset: 0, bodyRows: 6 }, view: agentId ? { agentId } : {} })
   await (await band('a1')).unmount()
   const subPrompt = await mount('UserMessage', ID(50), prompt('the brief'))
   expect(await subPrompt.find({ type: 'Text', text: 'base UserMessage' })).toBeDefined()
@@ -1258,7 +1258,7 @@ for (const [name, tool, output, extra] of FALLBACKS) {
   })
 }
 
-const BAND = { hasSurvey: false, isWorking: false, maxRows: 6, bodyColumns: 100, scroll: { offset: 0, bodyRows: 6 } }
+const BAND = { hasSurvey: false, isCollapsed: false, isWorking: false, maxRows: 6, bodyColumns: 100, scroll: { offset: 0, bodyRows: 6 } }
 
 test('in the ctrl+o view an Edit result draws as the card and Claude Code\'s own result is not drawn', async ($, on) => {
   const mount = await open($, on)

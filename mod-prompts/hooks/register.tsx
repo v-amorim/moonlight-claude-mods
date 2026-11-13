@@ -7,6 +7,7 @@ import { cardSpace, HEAD_ROWS, stickyCard } from './card'
 import { isTipMessage, type EntryMessage, type EntryProps, type Tip } from './entry'
 import { cardFill, detectNerd, FOOTER_ROWS, lookFor, paneFooter, section, sepText, titleEdge, withMark, type IconMode } from './look'
 import { iconChip, labelsOf, menuEntry, pill, pillRow, splitRow, tabRow, tipLine } from './pills'
+import { relayedTo } from './relay'
 import { openSetting, settingChoice, settingsBody } from './settings'
 import { TOAST_MS, ToastList, toastCards } from './toasts'
 import { promptsOf, promptText, rowKey, targetOf, TranscriptRows, type Prompt } from './prompts'
@@ -525,6 +526,53 @@ async function openingPane($: EngineInterface) {
   if (!(await isOpen($))) endOpening($)
 }
 
+async function heard($: EngineInterface, data: unknown) {
+  const clicked = data as EntryMessage
+  const dismissed = clicked?.type === 'menu-entry' ? toasts.idOf(clicked.id) : undefined
+  if (dismissed !== undefined) {
+    toasts.drop(dismissed)
+    $.ui.invalidate('ui.render')
+    return
+  }
+  if (isTipMessage(data)) {
+    const { id, glyph, label, text: tipText } = data
+    const isToast = Boolean(id?.startsWith('toast-prompts-'))
+    toastTip = isToast ? `${label}: ${tipText}` : ''
+    if (toastTip) expireBandTip($)
+    hoveredTip = !isToast && id && glyph !== undefined && label && tipText ? { glyph, label, text: tipText } : null
+    $.ui.invalidate('ui.render')
+    return
+  }
+  const hover = data as { type?: string; id?: string; isOver?: boolean }
+  if (hover?.type === 'menu-hover' && hover.id === 'prompts') {
+    tipShown = hover.isOver === true
+    if (tipShown) expireBandTip($)
+    $.ui.invalidate('ui.render')
+  }
+  try {
+    const message = data as EntryMessage
+    if (message?.type === 'menu-entry' && message.id === 'prompts') await openingPane($)
+    if (message?.type === 'menu-entry' && message.id === 'prompts-settings' && !(await isOpen($, SETTINGS))) await toggleSettings($)
+    if (message?.type === 'menu-entry' && message.id === 'prompts-tab' && !(await isOpen($))) await togglePane($)
+    if (message?.type === 'menu-entry' && message.id === 'prompts-chain-tab' && !(await isOpen($, CHAIN))) await openChain($)
+    if (message?.type === 'menu-entry' && (message.id === 'prompts-page-prev' || message.id === 'prompts-page-next')) {
+      const shown = page < 0 ? Math.floor(Math.max(0, selected) / PAGE_SIZE) : page
+      page = Math.max(0, Math.min(pageCount - 1, shown + (message.id === 'prompts-page-next' ? 1 : -1)))
+      $.ui.invalidate('ui.render')
+    }
+    if (message?.type === 'menu-entry' && message.id.startsWith(MORE)) {
+      const id = message.id.slice(MORE.length)
+      fullPrompt = fullPrompt === id ? '' : id
+      $.ui.invalidate('ui.render')
+    }
+    openSetting($, data)
+    const change = settingChoice(data)
+    if (change) await saveSetting($, change.key, change.value)
+  } catch {
+    // The pane stays as it was.
+  }
+}
+
 export const register: Register = (on, options) => {
   still = options.animations === false
   iconMode = (options.icons as IconMode | undefined) ?? 'auto'
@@ -648,56 +696,21 @@ export const register: Register = (on, options) => {
     const shown = await isAnyOpen($)
     const { group, row, rest, tip } = splitRow(await next(e))
     // Opening the pane from here queues nothing, so the entry stays live mid-turn.
-    const entry = menuEntry({ Box, Client, Text }, nerd, 'prompts', { label: text.pillLabel, labels, isOpen: shown, idle: THEME.pill, isBusy: isOpening, still })
+    const hosted = (await $.state.get({ plugin: 'mod-menu', key: 'host' })).value === true
+    const entry = menuEntry({ Box, Client, Text }, nerd, 'prompts', { label: text.pillLabel, labels, hosted, isOpen: shown, idle: THEME.pill, isBusy: isOpening, still })
 
     return pillRow({ Box, Client, Text }, nerd, [entry, ...group], row, [...toastCards({ Box, Client, Text }, toasts, look, text.tipToast), ...rest], toastTip ? tipLine({ Box, Text }, toastTip) : tipShown ? tipLine({ Box, Text }, text.tip) : tip, e.props.bodyColumns)
   })
 
   on('ui.message', async ($, e, next) => {
-    const clicked = e.data as EntryMessage
-    const dismissed = clicked?.type === 'menu-entry' ? toasts.idOf(clicked.id) : undefined
-    if (dismissed !== undefined) {
-      toasts.drop(dismissed)
-      $.ui.invalidate('ui.render')
-      return next(e)
-    }
-    if (isTipMessage(e.data)) {
-      const { id, glyph, label, text: tipText } = e.data
-      const isToast = Boolean(id?.startsWith('toast-prompts-'))
-      toastTip = isToast ? `${label}: ${tipText}` : ''
-      if (toastTip) expireBandTip($)
-      hoveredTip = !isToast && id && glyph !== undefined && label && tipText ? { glyph, label, text: tipText } : null
-      $.ui.invalidate('ui.render')
-      return next(e)
-    }
-    const hover = e.data as { type?: string; id?: string; isOver?: boolean }
-    if (hover?.type === 'menu-hover' && hover.id === 'prompts') {
-      tipShown = hover.isOver === true
-      if (tipShown) expireBandTip($)
-      $.ui.invalidate('ui.render')
-    }
-    try {
-      const message = e.data as EntryMessage
-      if (message?.type === 'menu-entry' && message.id === 'prompts') await openingPane($)
-      if (message?.type === 'menu-entry' && message.id === 'prompts-settings' && !(await isOpen($, SETTINGS))) await toggleSettings($)
-      if (message?.type === 'menu-entry' && message.id === 'prompts-tab' && !(await isOpen($))) await togglePane($)
-      if (message?.type === 'menu-entry' && message.id === 'prompts-chain-tab' && !(await isOpen($, CHAIN))) await openChain($)
-      if (message?.type === 'menu-entry' && (message.id === 'prompts-page-prev' || message.id === 'prompts-page-next')) {
-        const shown = page < 0 ? Math.floor(Math.max(0, selected) / PAGE_SIZE) : page
-        page = Math.max(0, Math.min(pageCount - 1, shown + (message.id === 'prompts-page-next' ? 1 : -1)))
-        $.ui.invalidate('ui.render')
-      }
-      if (message?.type === 'menu-entry' && message.id.startsWith(MORE)) {
-        const id = message.id.slice(MORE.length)
-        fullPrompt = fullPrompt === id ? '' : id
-        $.ui.invalidate('ui.render')
-      }
-      openSetting($, e.data)
-      const change = settingChoice(e.data)
-      if (change) await saveSetting($, change.key, change.value)
-    } catch {
-      // The pane stays as it was.
-    }
+    await heard($, e.data)
+
+    return next(e)
+  })
+
+  on('state.set', { plugin: 'mod-menu', key: 'relay' }, async ($, e, next) => {
+    const data = relayedTo(e.value, 'mod-prompts')
+    if (data !== undefined) $.clock.after(0, () => heard($, data).catch(() => {}))
 
     return next(e)
   })

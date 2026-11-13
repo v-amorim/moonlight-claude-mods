@@ -138,6 +138,47 @@ export const snapshot: Snapshot = {
               "bg": "#1a1e30"
             }
           ]
+        },
+        {
+          "spans": []
+        },
+        {
+          "spans": [
+            {
+              "text": " "
+            },
+            {
+              "text": "\ue0b6",
+              "color": "surface3",
+              "bg": "#1a1e30"
+            },
+            {
+              "text": "\ue0b6",
+              "color": "#3b446a",
+              "bg": "surface3"
+            },
+            {
+              "text": "\uf054",
+              "color": "accent",
+              "bg": "#3b446a",
+              "bold": true
+            },
+            {
+              "text": "\ue0b4",
+              "color": "#3b446a",
+              "bg": "surface3"
+            },
+            {
+              "text": " Send to prompt ",
+              "color": "onSurface",
+              "bg": "surface3"
+            },
+            {
+              "text": "\ue0b4",
+              "color": "surface3",
+              "bg": "#1a1e30"
+            }
+          ]
         }
       ],
       "safe": [
@@ -207,6 +248,27 @@ export const snapshot: Snapshot = {
             },
             {
               "text": " Dismiss ",
+              "color": "onSurface",
+              "bg": "surface3"
+            }
+          ]
+        },
+        {
+          "spans": []
+        },
+        {
+          "spans": [
+            {
+              "text": " "
+            },
+            {
+              "text": " ↵ ",
+              "color": "accent",
+              "bg": "#3b446a",
+              "bold": true
+            },
+            {
+              "text": " Send to prompt ",
               "color": "onSurface",
               "bg": "surface3"
             }

@@ -64,7 +64,7 @@ test('a write that fails is ignored and the suggestions still arrive', async ($,
     plugin: 'mod-next-steps',
     surface: 'terminal',
     component: 'AbovePrompt',
-    props: { hasSurvey: false, isWorking: false, maxRows: 6, bodyColumns: 80, scroll: { offset: 0, bodyRows: 6 }, view: {} },
+    props: { hasSurvey: false, isCollapsed: false, isWorking: false, maxRows: 6, bodyColumns: 80, scroll: { offset: 0, bodyRows: 6 }, view: {} },
   })
   expect(await ui.find({ key: 'steps-hotkey-button-0' })).toBeDefined()
   await ui.unmount()

@@ -12,7 +12,7 @@ const test = (name: string, ...rest: TestRest) => {
 
 const BAND = {
   component: 'AbovePrompt',
-  props: { hasSurvey: false, isWorking: false, maxRows: 6, bodyColumns: 80, scroll: { offset: 0, bodyRows: 6 }, view: {} },
+  props: { hasSurvey: false, isCollapsed: false, isWorking: false, maxRows: 6, bodyColumns: 80, scroll: { offset: 0, bodyRows: 6 }, view: {} },
 } as const
 
 const DONE = { answer: 'All done.', durationMs: 5, isAborted: false, turnId: 't1', reason: 'answer' } as const
@@ -94,25 +94,6 @@ test('suggestions appear after turn.complete, tidied and capped at the count', a
   expect(drawn).toContain('Ship it')
   expect(drawn).not.toContain('Fourth')
   expect(JSON.stringify(await ui.drawn({ in: 'steps-dismiss' }))).toContain('×')
-  await ui.unmount()
-})
-
-test('with a shared pill row below, the card joins that row instead of wrapping it, so mods drawn around stay on one row', async ($, on) => {
-  const { clock } = setup(on, () => answered('add a test'), ({ Box, Text }: any) => (
-    <Box key="menu-rows" flexDirection="column">
-      <Box key="menu-row" flexDirection="row">
-        <Text key="pill">Files</Text>
-      </Box>
-    </Box>
-  ))
-  await $.turn.complete(DONE as never)
-  await clock.settle()
-  const ui = await mount($)
-  const tree = (await ui.drawn()) as { props?: { key?: string } }
-  expect(tree.props?.key).toBe('menu-rows')
-  expect(JSON.stringify(tree).split('"menu-rows"').length - 1).toBe(1)
-  expect(await ui.find({ key: 'steps-hotkey-button-0' })).toBeDefined()
-  expect(await ui.find({ type: 'Text', text: 'Files' })).toBeDefined()
   await ui.unmount()
 })
 
@@ -384,21 +365,16 @@ for (const icons of ['nerd', 'safe']) {
   })
 }
 
-test('a heads-up card drawn below still sits above the suggestions', async ($, on) => {
-  const { clock } = setup(on, () => answered('add a test'), ({ Box, Text }: any) => (
-    <Box key="menu-rows" flexDirection="column">
-      <Box key="headsup-card"><Text>Heads up</Text></Box>
-      <Box key="other-row"><Text>other</Text></Box>
-      <Box key="menu-row" flexDirection="row"><Text key="pill">Files</Text></Box>
-    </Box>
-  ))
+test('a hovered suggestion lends its tip to the shared tip row, so the suggestions never move', async ($, on) => {
+  const { clock } = setup(on, () => answered('add a test'))
   await $.turn.complete(DONE as never)
   await clock.settle()
   const ui = await mount($)
+  await ui.pointer({ type: 'enter', x: 1, y: 0, in: 'steps-row-0' })
   const tree = JSON.stringify(await ui.drawn())
-  expect(tree.indexOf('"headsup-card"') < tree.indexOf('"nextsteps-block"')).toBe(true)
-  expect(tree.indexOf('"nextsteps-block"') < tree.indexOf('"other-row"')).toBe(true)
-  expect(tree.split('"headsup-card"').length - 1).toBe(1)
+  expect(tree.indexOf('"menu-hosted"')).toBeGreaterThan(-1)
+  // The tip text also sits in the pill's Client props, so the last mention is the tip row's.
+  expect(tree.lastIndexOf('puts this suggestion')).toBeGreaterThan(tree.indexOf('"menu-hosted"'))
   await ui.unmount()
 })
 

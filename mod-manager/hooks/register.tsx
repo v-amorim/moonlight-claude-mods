@@ -10,6 +10,7 @@ import { fill, MARK, THEME } from './theme'
 import text from './text'
 import { isTipMessage, type EntryMessage, type EntryProps, type Tip } from './entry'
 import { labelsOf, menuEntry, pill, pillRow, splitRow, tabRow, tipLine } from './pills'
+import { relayedTo } from './relay'
 import { TOAST_MS, ToastList, toastCards } from './toasts'
 import { cardFill, cardGap, detectNerd, FOOTER_ROWS, lookFor, paneFooter, section, sepText, titleEdge, type IconMode, type Reveal, withMark } from './look'
 import { actionReveals, choiceBar, editorReveals, hairline, settingChoice, settingHead, settingsBody, openSetting, type Action } from './settings'
@@ -503,6 +504,59 @@ async function setAllIcons($: EngineInterface, mode: string) {
   }
 }
 
+async function heard($: EngineInterface, data: unknown) {
+  const clicked = data as EntryMessage
+  const dismissed = clicked?.type === 'menu-entry' ? toasts.idOf(clicked.id) : undefined
+  if (dismissed !== undefined) {
+    toasts.drop(dismissed)
+    $.ui.invalidate('ui.render')
+    return
+  }
+  if (isTipMessage(data)) {
+    const tip = data
+    // A band card's buttons and the toast × show their tip in the band's tip row.
+    const isToast = Boolean(tip.id?.startsWith('toast-manager-') || tip.id?.startsWith('card-'))
+    toastTip = isToast ? `${tip.label}: ${tip.text}` : ''
+    if (toastTip) expireBandTip($)
+    paneTip = tip.id && !isToast ? { glyph: tip.glyph ?? '', label: tip.label ?? '', text: tip.text ?? '' } : null
+    // The list's tip carries the row under the pointer, whose card shows above the list.
+    hovering = tip.id?.startsWith('manager-row-') ? Number(tip.id.slice('manager-row-'.length)) : -1
+    if (hovering >= 0 && mods[hovering]?.name !== fullCard) fullCard = ''
+    // Leaving a row for empty cells or for the card's own control keeps the held card; any other control drops it.
+    if (hovering >= 0 || (tip.id && tip.id !== CARD_MORE)) {
+      heldCard = -1
+      if (hovering < 0) fullCard = ''
+    }
+    $.ui.invalidate('ui.render')
+    return
+  }
+  const hover = data as { type?: string; id?: string; isOver?: boolean }
+  if (hover?.type === 'menu-hover' && hover.id === 'manager') {
+    tipShown = hover.isOver === true
+    if (tipShown) expireBandTip($)
+    $.ui.invalidate('ui.render')
+  }
+  const message = data as EntryMessage
+  if (message?.type === 'menu-entry' && message.id === 'manager') await openingPane($)
+  if (message?.type === 'menu-entry' && message.id === CARD_MORE) {
+    const shown = mods[hovering >= 0 ? hovering : heldCard]
+    if (shown) fullCard = fullCard === shown.name ? '' : shown.name
+    $.ui.invalidate('ui.render')
+  }
+  if (message?.type === 'menu-entry' && message.id === 'manager-features') {
+    featuresOpen = !featuresOpen
+    $.ui.invalidate('ui.render')
+  }
+  if (message?.type === 'menu-entry' && message.id.startsWith('spend-reset-')) await resetSpendOf($, message.id.slice('spend-reset-'.length))
+  if (message?.type === 'menu-entry' && message.id.startsWith('icons-')) await setAllIcons($, message.id.slice('icons-'.length))
+  if (message?.type === 'menu-entry' && message.id === 'manager-apply') await applyChanges($)
+  if (message?.type === 'menu-entry' && message.id.startsWith('card-')) await cardClick($, message.id)
+  if (message?.type === 'menu-entry' && message.id === 'manager-tab' && page >= 0) openPage($, -1)
+  openSetting($, data)
+  const change = settingChoice(data)
+  if (change) await saveSetting($, change.key, change.value)
+}
+
 export const register: Register = (on, options) => {
   still = options.animations === false
   toasts.isStill = still
@@ -615,7 +669,8 @@ export const register: Register = (on, options) => {
     const shown = await isOpen($)
     const { group, row, rest, tip } = splitRow(await next(e))
     // Opening the pane from here queues nothing, so the entry stays live mid-turn.
-    const entry = menuEntry({ Box, Client, Text }, look.nerd, 'manager', { label: look.glyph.gear, isOpen: shown, idle: THEME.pill, isBusy: isOpening, still, labels })
+    const hosted = (await $.state.get({ plugin: 'mod-menu', key: 'host' })).value === true
+    const entry = menuEntry({ Box, Client, Text }, look.nerd, 'manager', { label: look.glyph.gear, hosted, isOpen: shown, idle: THEME.pill, isBusy: isOpening, still, labels })
 
     // splitRow types the tip as unknown (shared pills.tsx); it is always a menu-tip child of the row stack.
     const tipNow = (toastTip ? tipLine({ Box, Text }, toastTip) : tipShown ? tipLine({ Box, Text }, text.pillTip) : tip) as RenderChildren
@@ -625,56 +680,14 @@ export const register: Register = (on, options) => {
   })
 
   on('ui.message', async ($, e, next) => {
-    const clicked = e.data as EntryMessage
-    const dismissed = clicked?.type === 'menu-entry' ? toasts.idOf(clicked.id) : undefined
-    if (dismissed !== undefined) {
-      toasts.drop(dismissed)
-      $.ui.invalidate('ui.render')
-      return next(e)
-    }
-    if (isTipMessage(e.data)) {
-      const tip = e.data
-      // A band card's buttons and the toast × show their tip in the band's tip row.
-      const isToast = Boolean(tip.id?.startsWith('toast-manager-') || tip.id?.startsWith('card-'))
-      toastTip = isToast ? `${tip.label}: ${tip.text}` : ''
-      if (toastTip) expireBandTip($)
-      paneTip = tip.id && !isToast ? { glyph: tip.glyph ?? '', label: tip.label ?? '', text: tip.text ?? '' } : null
-      // The list's tip carries the row under the pointer, whose card shows above the list.
-      hovering = tip.id?.startsWith('manager-row-') ? Number(tip.id.slice('manager-row-'.length)) : -1
-      if (hovering >= 0 && mods[hovering]?.name !== fullCard) fullCard = ''
-      // Leaving a row for empty cells or for the card's own control keeps the held card; any other control drops it.
-      if (hovering >= 0 || (tip.id && tip.id !== CARD_MORE)) {
-        heldCard = -1
-        if (hovering < 0) fullCard = ''
-      }
-      $.ui.invalidate('ui.render')
-      return next(e)
-    }
-    const hover = e.data as { type?: string; id?: string; isOver?: boolean }
-    if (hover?.type === 'menu-hover' && hover.id === 'manager') {
-      tipShown = hover.isOver === true
-      if (tipShown) expireBandTip($)
-      $.ui.invalidate('ui.render')
-    }
-    const message = e.data as EntryMessage
-    if (message?.type === 'menu-entry' && message.id === 'manager') await openingPane($)
-    if (message?.type === 'menu-entry' && message.id === CARD_MORE) {
-      const shown = mods[hovering >= 0 ? hovering : heldCard]
-      if (shown) fullCard = fullCard === shown.name ? '' : shown.name
-      $.ui.invalidate('ui.render')
-    }
-    if (message?.type === 'menu-entry' && message.id === 'manager-features') {
-      featuresOpen = !featuresOpen
-      $.ui.invalidate('ui.render')
-    }
-    if (message?.type === 'menu-entry' && message.id.startsWith('spend-reset-')) await resetSpendOf($, message.id.slice('spend-reset-'.length))
-    if (message?.type === 'menu-entry' && message.id.startsWith('icons-')) await setAllIcons($, message.id.slice('icons-'.length))
-    if (message?.type === 'menu-entry' && message.id === 'manager-apply') await applyChanges($)
-    if (message?.type === 'menu-entry' && message.id.startsWith('card-')) await cardClick($, message.id)
-    if (message?.type === 'menu-entry' && message.id === 'manager-tab' && page >= 0) openPage($, -1)
-    openSetting($, e.data)
-    const change = settingChoice(e.data)
-    if (change) await saveSetting($, change.key, change.value)
+    await heard($, e.data)
+
+    return next(e)
+  })
+
+  on('state.set', { plugin: 'mod-menu', key: 'relay' }, async ($, e, next) => {
+    const data = relayedTo(e.value, 'mod-manager')
+    if (data !== undefined) $.clock.after(0, () => heard($, data).catch(() => {}))
 
     return next(e)
   })

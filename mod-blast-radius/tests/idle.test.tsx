@@ -6,7 +6,7 @@ import { THEME } from '../hooks/theme'
 
 const PLUGIN = 'mod-blast-radius'
 const bandOf = (bodyColumns = 100) =>
-  ({ component: 'AbovePrompt', props: { hasSurvey: false, isWorking: true, maxRows: 24, bodyColumns, scroll: { offset: 0, bodyRows: 6 }, view: {} } }) as const
+  ({ component: 'AbovePrompt', props: { hasSurvey: false, isCollapsed: false, isWorking: true, maxRows: 24, bodyColumns, scroll: { offset: 0, bodyRows: 6 }, view: {} } }) as const
 const BAND = bandOf()
 const COMMAND = 'rm -rf build'
 const MINUTE = 60 * 1000
@@ -20,7 +20,7 @@ const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms))
 const asGiven = (path: string) => path.replace(/\\/g, '/').replace(/^.*?(?=[A-Za-z]:\/)/, '')
 
 // Everything the engine would answer; `labels` is mod-menu's pill-label mode.
-function world(on: (event: string, handler: (...args: any[]) => unknown) => void, labels?: string, verdict = 'allow') {
+function world(on: (event: string, handler: (...args: any[]) => unknown) => void, labels?: string, verdict = 'allow', host = false) {
   const seen = { ran: 0, argv: [] as string[], sent: [] as string[] }
   const clock = mock.clock(on as never)
   on('prompt.submit', (_$: unknown, e: { text: string }) => {
@@ -54,7 +54,7 @@ function world(on: (event: string, handler: (...args: any[]) => unknown) => void
   on('ui.open', () => ({ value: { isPlaced: true } }))
   on('ui.close', () => ({ value: {} }))
   on('state.set', () => ({ value: { isSet: true, version: 1 } }))
-  on('state.get', (_$: unknown, e: { plugin?: string; key?: string }) => ({ value: { value: e.plugin === 'mod-menu' && e.key === 'labels' ? labels : undefined } }))
+  on('state.get', (_$: unknown, e: { plugin?: string; key?: string }) => ({ value: { value: e.plugin !== 'mod-menu' ? undefined : e.key === 'labels' ? labels : e.key === 'host' ? host : undefined } }))
   on('config.list', () => ({ value: [] }))
   on('session.end', (_$: unknown, e: { sessionId: string }) => ({ sessionId: e.sessionId }))
   on('tool.check', () => ({ decision: verdict, ...(verdict === 'ask' ? { reason: 'Claude Code asks' } : {}) }))
@@ -202,12 +202,12 @@ for (const [icons, glyph] of [['nerd', String.fromCodePoint(0xea6c)], ['safe', '
   })
 }
 
-test('the chip sits at the right end of the row, after the other pills, and is still', IDLE, async ($, on) => {
+test('the waiting chip draws and is still', IDLE, async ($, on) => {
   const { seen, clock } = world(on)
   await timeOut($, clock, seen)
   const band = await $.ui.mount({ plugin: PLUGIN, surface: 'terminal', ...BAND })
   const tree = JSON.stringify(await band.drawn())
-  expect(tree.indexOf('blast-wait-pill')).toBeGreaterThan(tree.indexOf('base') - 1)
+  expect(tree).toContain('blast-wait-pill')
   expect(tree).not.toContain('"isBusy":true')
   expect(tree).not.toContain('"spinner":true')
   await band.unmount()
@@ -249,6 +249,18 @@ test('hovering the chip posts its tip', IDLE, async ($, on) => {
   await band.redraw()
   expect(await textOf(band, /opens the card for rm -rf build again/)).toBeDefined()
   expect(await textOf(band, /^Approve 1 command:/)).toBeDefined()
+  await band.unmount()
+})
+
+test('under mod-menu the chip draws hidden for the shared row, and this mod draws no row of its own', IDLE, async ($, on) => {
+  const { seen, clock } = world(on, undefined, 'allow', true)
+  await timeOut($, clock, seen)
+  const band = await $.ui.mount({ plugin: PLUGIN, surface: 'terminal', ...BAND })
+  const drawn = JSON.stringify(await band.drawn())
+  expect(drawn).toContain('"key":"menu-readouts-hidden"')
+  expect(drawn).toContain('"key":"beacon-blast-wait"')
+  expect(await band.find({ key: 'blast-wait' })).toBeUndefined()
+  expect(drawn).not.toContain('"key":"menu-row"')
   await band.unmount()
 })
 

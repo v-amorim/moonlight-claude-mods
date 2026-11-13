@@ -97,7 +97,7 @@ test('the menu entry keeps its gear when mod-menu says labels never', { options:
     const { Text } = $$.ui.resolve(e)
     return <Text>other mod</Text>
   })
-  const band = await $.ui.mount({ plugin: 'mod-manager', surface: 'terminal', component: 'AbovePrompt', props: { hasSurvey: false, isWorking: false, maxRows: 6, bodyColumns: 80, scroll: { offset: 0, bodyRows: 6 }, view: {} } } as never)
+  const band = await $.ui.mount({ plugin: 'mod-manager', surface: 'terminal', component: 'AbovePrompt', props: { hasSurvey: false, isCollapsed: false, isWorking: false, maxRows: 6, bodyColumns: 80, scroll: { offset: 0, bodyRows: 6 }, view: {} } } as never)
   expect(JSON.stringify(await band.drawn({ in: 'menu-entry-manager' }))).toContain(String.fromCodePoint(0xf0493))
   await band.unmount()
 })

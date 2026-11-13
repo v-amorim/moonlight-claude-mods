@@ -31,10 +31,12 @@ Continuing from a previous session. Read this, then act on "Next step".
 
 **Current state:** what works, what is broken, what is half done.
 
-**Files touched:** absolute path, then a few words on the change.
+**Files touched:** absolute path, then a few words on the change. Mark each file written or edited but never run, opened or tested as `unrun`, and say what runs it. A script that exists but was never run is the easiest thing for the next session to miss.
 
 **Run state:** the absolute path and branch of every repo or folder the work happens in, then absolute paths of any plan, progress, ledger or checklist file this session works from, plus any id needed to resume it and the command that restarts what runs. When the run names this session's ledger file, list it first. `none` when there is no such file.
 
 **Open tasks:** bullets, in priority order. Leave this section out when the run says the ledger carries open tasks; spend those words on current state, run state and what is mid-flight.
 
-**Next step:** the single action to take first.
+**Waiting on the user:** for every pick board, question or external job the session is waiting on, give the absolute path of the file where the answer will land (for example `picks.json`) and the command that reopens it. The next session reads that file first, because the wake-up message may never arrive. `none` when nothing is pending.
+
+**Next step:** the single action to take first. When it is "wait for the user", it comes after reading the file named under "Waiting on the user".

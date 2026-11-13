@@ -12,7 +12,7 @@ import { snapshot } from './previews.snapshot'
 
 const BAND = {
   component: 'AbovePrompt',
-  props: { hasSurvey: false, isWorking: false, maxRows: 12, bodyColumns: 56, scroll: { offset: 0, bodyRows: 12 }, view: {} },
+  props: { hasSurvey: false, isCollapsed: false, isWorking: false, maxRows: 12, bodyColumns: 56, scroll: { offset: 0, bodyRows: 12 }, view: {} },
 } as const
 
 const LEARN = 'The main agent cached /ask, so one-off questions cost more.'

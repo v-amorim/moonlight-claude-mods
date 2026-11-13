@@ -280,7 +280,7 @@ test('mod-menu labels never leaves the band entry as its icon alone', { options:
   })
   mock.env(on, {})
   mock.clock(on)
-  const band = await $.ui.mount({ plugin: 'mod-prompts', surface: 'terminal', component: 'AbovePrompt', props: { hasSurvey: false, isWorking: false, maxRows: 6, bodyColumns: 100, scroll: { offset: 0, bodyRows: 6 }, view: {} } } as never)
+  const band = await $.ui.mount({ plugin: 'mod-prompts', surface: 'terminal', component: 'AbovePrompt', props: { hasSurvey: false, isCollapsed: false, isWorking: false, maxRows: 6, bodyColumns: 100, scroll: { offset: 0, bodyRows: 6 }, view: {} } } as never)
   const entry = JSON.stringify(await band.drawn({ in: 'menu-entry-prompts' }))
   expect(entry).toContain('"backgroundColor"')
   expect(entry).not.toContain('Prompts')
@@ -295,7 +295,7 @@ test('a band tip whose entry was redrawn while hovered clears after 5 s with no 
   })
   mock.env(on, {})
   const clock = mock.clock(on)
-  const band = { plugin: 'mod-prompts', surface: 'terminal', component: 'AbovePrompt', props: { hasSurvey: false, isWorking: false, maxRows: 6, bodyColumns: 100, scroll: { offset: 0, bodyRows: 6 }, view: {} } } as const
+  const band = { plugin: 'mod-prompts', surface: 'terminal', component: 'AbovePrompt', props: { hasSurvey: false, isCollapsed: false, isWorking: false, maxRows: 6, bodyColumns: 100, scroll: { offset: 0, bodyRows: 6 }, view: {} } } as const
   // Live, a band redraw mid-turn replaced the hovered entry, so its own quiet timer, and the leave, never came.
   const first = await $.ui.mount(band as never)
   await pointer(first, { type: 'move', x: 1, y: 0, in: 'menu-entry-prompts' })

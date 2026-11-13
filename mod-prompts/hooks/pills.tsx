@@ -115,8 +115,22 @@ const compacted = (node: unknown): unknown => {
 // A count as the neutral Badge: muted, one step above the pill it sits on.
 export const badgeOf = (text: string, on: string) => ({ text, color: THEME.muted, bg: on === THEME.surface3 ? THEME.lifted : THEME.surface3 })
 
-// A panel's entry in the menu group, keyed `menu-pad-<id>` for the row's order; the open one is a pill of its own.
-export function menuEntry({ Box, Client, Text }: Elements & { Client: (props: any) => RenderElement }, nerd: boolean, id: string, { labels, ...props }: Omit<EntryProps, 'id' | 'bg' | 'tight'> & { labels?: LabelsMode }) {
+// An entry as a pill in the menu group, keyed `menu-pad-<id>` for the row's order; the open one is a pill of its own.
+export function entryPad({ Box, Client, Text }: Elements & { Client: (props: any) => RenderElement }, nerd: boolean, props: EntryProps) {
+  const key = props.isOpen ? `menu-open-${props.id}` : `menu-closed-${props.id}`
+  // On Nerd the caps take the label's padding cells, so an entry is as wide as before the caps.
+  const entry = <Client key={`menu-entry-${props.id}`} module="./entry.tsx" height={1} props={props satisfies EntryProps} />
+  return (
+    <Box key={`menu-pad-${props.id}`} flexDirection="row">
+      {/* A closed entry gets caps in the group's own color, so opening a panel never shifts its neighbours. */}
+      {pill({ Box, Text }, nerd, props.bg, entry, key, PILL.primary, props.isOpen ? undefined : THEME.lifted)}
+    </Box>
+  )
+}
+
+// A panel's entry; hosted by mod-menu it draws hidden, a beacon whose props mod-menu reads to draw the one shared row.
+export function menuEntry(elements: Elements & { Client: (props: any) => RenderElement }, nerd: boolean, id: string, { labels, hosted, ...props }: Omit<EntryProps, 'id' | 'bg' | 'tight'> & { labels?: LabelsMode; hosted?: boolean }) {
+  const { Box, Client } = elements
   // The open panel is lifted into its own surface-4 pill in primary-70; a closed one fills to surface-4 under the pointer, caps and all.
   const bg = props.isOpen ? THEME.lifted : PILL.primary
   const key = props.isOpen ? `menu-open-${id}` : `menu-closed-${id}`
@@ -125,14 +139,60 @@ export function menuEntry({ Box, Client, Text }: Elements & { Client: (props: an
   const icon = nerd && !props.lead && glyph ? decodeAll(glyph) : undefined
   // The icon sits tight against the cap, so the label that follows brings its own gap.
   const shown = icon ? { lead: icon, label: labels === 'never' ? '' : ` ${props.label}`, ...(labels === 'auto' ? { compact: false } : {}) } : {}
-  // On Nerd the caps take the label's padding cells, so an entry is as wide as before the caps.
-  const entry = <Client key={`menu-entry-${id}`} module="./entry.tsx" height={1} props={{ id, bg, ...props, ...(props.isOpen ? { color: THEME.ok } : {}), ...shown, ...lift, nerd, tight: nerd } satisfies EntryProps} />
+  const full = { id, bg, ...props, ...(props.isOpen ? { color: THEME.ok } : {}), ...shown, ...lift, nerd, tight: nerd } satisfies EntryProps
+  if (!hosted) return entryPad(elements, nerd, full)
+
   return (
-    <Box key={`menu-pad-${id}`} flexDirection="row">
-      {/* A closed entry gets caps in the group's own color, so opening a panel never shifts its neighbours. */}
-      {pill({ Box, Text }, nerd, bg, entry, key, PILL.primary, props.isOpen ? undefined : THEME.lifted)}
+    <Box key={`menu-beacon-${id}`} display="none">
+      <Client key={`menu-beacon-entry-${id}`} module="./entry.tsx" height={1} props={full} />
     </Box>
   )
+}
+
+// The entry props each hidden beacon in a drawn row carries, in the order drawn.
+export function beaconsOf(tree: unknown): EntryProps[] {
+  const key = keyOf(tree)
+  if (isClient(tree) && key?.startsWith('menu-beacon-entry-')) return [tree.props.props as EntryProps]
+  return childrenOf(tree).flatMap(beaconsOf)
+}
+
+const BEACON = 'beacon-'
+
+// Every key in the nodes prefixed (or unprefixed), so a hidden copy never shares a key with the one mod-menu draws.
+const rekey = (node: unknown, prefix: boolean): unknown => {
+  if (Array.isArray(node)) return node.map(each => rekey(each, prefix))
+  if (!node || typeof node !== 'object') return node
+  const { props, children } = node as NonNullable<Node>
+  const key = props?.key
+  const next = typeof key === 'string' ? { ...props, key: prefix ? `${BEACON}${key}` : key.slice(BEACON.length) } : props
+  return { ...node, ...(next ? { props: next } : {}), ...(children ? { children: children.map(each => rekey(each, prefix)) } : {}) }
+}
+
+// A readout (model meter, wrap-up choice) hidden in the mod's own row; mod-menu draws it in the shared row.
+export function hiddenReadouts({ Box }: Pick<Elements, 'Box'>, nodes: unknown[]) {
+  return <Box key="menu-readouts-hidden" display="none">{rekey(nodes, true)}</Box>
+}
+
+// The readouts a hosted row kept hidden, with their keys restored.
+export function readoutsOf(tree: unknown): unknown[] {
+  if (keyOf(tree) === 'menu-readouts-hidden') return childrenOf(tree).map(node => rekey(node, false))
+  return childrenOf(tree).flatMap(readoutsOf)
+}
+
+// Every Client key in a drawn readout: the owner of a message is found by the Client that posted it.
+export function clientKeysOf(node: unknown): string[] {
+  return (isClient(node) ? [keyOf(node) ?? ''] : []).concat(childrenOf(node).flatMap(clientKeysOf))
+}
+
+// True when a drawn row holds a node with this key, such as the hidden `band-exclusive` marker a hold card leaves.
+export function hasKey(tree: unknown, key: string): boolean {
+  return keyOf(tree) === key || childrenOf(tree).some(child => hasKey(child, key))
+}
+
+// The hover tip a hosted row kept hidden for mod-menu, or null.
+export function hiddenTipOf(tree: unknown): unknown {
+  if (keyOf(tree) === 'menu-hosted') return childrenOf(tree).find(child => keyOf(child) === 'menu-tip') ?? null
+  return childrenOf(tree).map(hiddenTipOf).find(Boolean) ?? null
 }
 
 // The band above the prompt: what else it holds (Claude Code's own effort line), then the pill row, so the pills sit on the input.
@@ -148,20 +208,36 @@ export function pillRow(elements: Elements & { Client?: (props: any) => RenderEl
   const entries = Client
     ? sorted.flatMap((entry, at) => (at === 0 ? [entry] : [<Client key={`menu-group-sep-${at}`} module="./entry.tsx" height={1} props={{ id: `sep-${at}`, label: '', isOpen: false, bg: PILL.primary, rail: true } satisfies EntryProps} />, entry]))
     : sorted
-  const pills = (
-    <Box key="menu-row" flexDirection="row" columnGap={1}>
-      {group.length > 0 ? pill(elements, nerd, PILL.primary, entries, 'menu-group') : null}
-      {row}
-    </Box>
-  )
+  // Every entry and readout hidden: mod-menu draws them in its own row and shows the tip there.
+  const isHidden = (node: unknown) => (node as Node)?.props?.display === 'none'
+  const hiddenRow = row.filter(isHidden)
+  const shownRow = row.filter(node => !isHidden(node))
+  const hosted = group.length > 0 ? group.every(isHidden) : hiddenRow.length > 0 && shownRow.length === 0
+  // A mod with no entries has no tip row of its own: its tip shows in mod-menu's, so a hover never moves the band.
+  const lendsTip = hosted || group.length === 0
+  const pills =
+    lendsTip && shownRow.length === 0 ? null : (
+      <Box key="menu-row" flexDirection="row" columnGap={1}>
+        {group.length > 0 && !hosted ? pill(elements, nerd, PILL.primary, entries, 'menu-group') : null}
+        {shownRow}
+      </Box>
+    )
   // Measured with every label shown, so a row cut to icons never grows back into a row that does not fit.
   const fits = columns === undefined || cellsOf(pills) <= columns
   return (
     <Box key="menu-rows" flexDirection="column">
       {rest}
       {/* Above the row, kept even when empty so nothing above jumps when a tip appears. */}
-      {tip ?? tipLine(elements, ' ')}
-      {fits ? pills : compacted(pills)}
+      {lendsTip ? (
+        <Box key="menu-hosted" display="none">
+          {group}
+          {hiddenRow}
+          {tip}
+        </Box>
+      ) : (
+        (tip ?? tipLine(elements, ' '))
+      )}
+      {pills && (fits ? pills : compacted(pills))}
     </Box>
   )
 }

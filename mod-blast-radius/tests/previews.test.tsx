@@ -14,7 +14,7 @@ const PANE = (requestId: string) =>
 const SETTINGS = PANE('blast-radius-settings')
 const DETAILS = PANE('blast-radius-list')
 const bandOf = (maxRows = 24, bodyColumns = 80) =>
-  ({ component: 'AbovePrompt', props: { hasSurvey: false, isWorking: true, maxRows, bodyColumns, scroll: { offset: 0, bodyRows: 6 }, view: {} } }) as const
+  ({ component: 'AbovePrompt', props: { hasSurvey: false, isCollapsed: false, isWorking: true, maxRows, bodyColumns, scroll: { offset: 0, bodyRows: 6 }, view: {} } }) as const
 const BAND = bandOf()
 // The card is two cells wider than an example line, for its border.
 const CARD_COLUMNS = EXAMPLE_COLUMNS + 2

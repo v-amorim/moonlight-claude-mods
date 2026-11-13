@@ -11,6 +11,7 @@ import { countSpawn, countTool, endTurn, receiptLine, receiptOf, startTurn, type
 import { recordSpend } from './spend'
 import { isPrompt, PLACEHOLDER, PromptNumbers } from './prompts'
 import { badgeOf, iconChip, labelsOf, menuEntry, pill, PILL, pillRow, splitRow, tabRow, tipLine } from './pills'
+import { relayedTo } from './relay'
 import { actionReveals, openSetting, settingChoice, settingsBody, type Action, type Previews } from './settings'
 import text from './text'
 import { fill, MARK, THEME } from './theme'
@@ -414,17 +415,28 @@ async function chat($: EngineInterface, id: string) {
   $.ui.toast(fill(filled.isFilled ? text.chatDropped : text.chatLost, { reason: result.drop }))
 }
 
+async function draft($: EngineInterface, id: string) {
+  const found = noteOf(id)
+  if (!found) return
+  const note = fill(text.draftPrompt, { learn: found.learn })
+  const box = await $.prompt.read().catch(() => ({ text: '' }))
+  const hasText = box.text.trim().length > 0
+  const filled = await $.prompt.fill({ text: hasText ? `\n${note}` : note, mode: hasText ? 'append' : 'replace' }).catch((error: unknown) => ({ isFilled: false, reason: String(error) }))
+  if (!filled.isFilled) $.ui.toast(fill(text.draftFailed, { reason: 'reason' in filled ? filled.reason : '' }))
+}
+
 // The band card's actions.
 async function cardAction($: EngineInterface, id: string) {
   const card = saved.card ?? ''
   if (!card) return
   if (id === 'headsup-card-open') await learnMore($, card)
   // Asking Claude counts as seeing the note; close first, since mid-turn the send waits for idle
-  else if (id === 'headsup-card-chat' || id === 'headsup-card-dismiss') {
+  else if (id === 'headsup-card-chat' || id === 'headsup-card-draft' || id === 'headsup-card-dismiss') {
     bandTip = ''
     await closeCard($)
     await update($, card, { isRead: true })
     if (id === 'headsup-card-chat') await chat($, card)
+    if (id === 'headsup-card-draft') await draft($, card)
   }
 }
 
@@ -605,6 +617,72 @@ const NOTE_TEXT_ROWS = 8
 
 const DIRECTIONS: [Direction, string, string][] = [['simpler', text.simpler, text.tipSimpler], ['less', text.lessDetail, text.tipLess], ['more', text.moreDetail, text.tipMore]]
 
+async function heard($: EngineInterface, data: unknown) {
+  openSetting($, data)
+  const change = settingChoice(data)
+  if (change) await saveSetting($, change.key, change.value)
+  if (isTipMessage(data)) {
+    const tip = data
+    const isBand = tip.id === 'headsup' || Boolean(tip.id?.startsWith('headsup-card')) || Boolean(tip.id?.startsWith('toast-headsup-'))
+    if (!tip.id) {
+      bandTip = ''
+      paneTip = null
+    } else if (isBand) {
+      bandTip = tipText(tip)
+      if (bandTip) expireBandTip($)
+    } else paneTip = { glyph: tip.glyph ?? '', label: tip.label ?? '', text: tip.text ?? '' }
+    $.ui.invalidate('ui.render')
+    return
+  }
+  const clicked = data as EntryMessage
+  if (clicked?.type !== 'menu-entry') return
+  const dismissed = toasts.idOf(clicked.id)
+  if (dismissed !== undefined) {
+    toasts.drop(dismissed)
+    $.ui.invalidate('ui.render')
+    return
+  }
+  const { id } = clicked
+  const card = saved.card ?? ''
+  if (id === 'headsup') await openingPane($, () => togglePane($))
+  else if (id === 'headsup-tab' && !(await isOpen($))) await showPane($)
+  else if (id === 'headsup-settings' && !(await isOpen($, SETTINGS))) await toggleSettings($)
+  else if (id.startsWith('headsup-card-')) await cardAction($, id)
+  else if (id.startsWith('headsup-note-')) {
+    const noteId = id.slice('headsup-note-'.length)
+    await $.state.set(OPEN_KEY, [noteId])
+    isCardClosed = false
+    wording = ''
+    await update($, noteId, { isRead: true })
+  } else if (id === 'headsup-close') {
+    isCardClosed = true
+    wording = ''
+    paneTip = null
+    await $.state.set(OPEN_KEY, [])
+    $.ui.invalidate('ui.render')
+  } else if (id.startsWith('headsup-understood-')) {
+    const noteId = id.slice('headsup-understood-'.length)
+    await setOpen($, noteId, false)
+    wording = ''
+    paneTip = null
+    await knowIt($, noteId)
+  } else if (id.startsWith('headsup-more-')) {
+    const noteId = id.slice('headsup-more-'.length)
+    fullNote = fullNote === noteId ? '' : noteId
+    $.ui.invalidate('ui.render')
+  } else if (id.startsWith('headsup-chat-')) await chat($, id.slice('headsup-chat-'.length))
+  else if (id.startsWith('headsup-draft-')) await draft($, id.slice('headsup-draft-'.length))
+  else if (id.startsWith('headsup-reword-')) {
+    const noteId = id.slice('headsup-reword-'.length)
+    wording = wording === noteId ? '' : noteId
+    $.ui.invalidate('ui.render')
+  } else if (id.startsWith('headsup-redo-')) {
+    const [direction, ...rest] = id.slice('headsup-redo-'.length).split('-')
+    wording = ''
+    await redo($, rest.join('-'), direction as Direction)
+  }
+}
+
 export const register: Register = (on, options) => {
   still = options.animations === false
   enabled = options.enabled === true
@@ -747,68 +825,14 @@ export const register: Register = (on, options) => {
   })
 
   on('ui.message', async ($, e, next) => {
-    openSetting($, e.data)
-    const change = settingChoice(e.data)
-    if (change) await saveSetting($, change.key, change.value)
-    if (isTipMessage(e.data)) {
-      const tip = e.data
-      const isBand = tip.id === 'headsup' || Boolean(tip.id?.startsWith('headsup-card')) || Boolean(tip.id?.startsWith('toast-headsup-'))
-      if (!tip.id) {
-        bandTip = ''
-        paneTip = null
-      } else if (isBand) {
-        bandTip = tipText(tip)
-        if (bandTip) expireBandTip($)
-      } else paneTip = { glyph: tip.glyph ?? '', label: tip.label ?? '', text: tip.text ?? '' }
-      $.ui.invalidate('ui.render')
-      return next(e)
-    }
-    const clicked = e.data as EntryMessage
-    if (clicked?.type !== 'menu-entry') return next(e)
-    const dismissed = toasts.idOf(clicked.id)
-    if (dismissed !== undefined) {
-      toasts.drop(dismissed)
-      $.ui.invalidate('ui.render')
-      return next(e)
-    }
-    const { id } = clicked
-    const card = saved.card ?? ''
-    if (id === 'headsup') await openingPane($, () => togglePane($))
-    else if (id === 'headsup-tab' && !(await isOpen($))) await showPane($)
-    else if (id === 'headsup-settings' && !(await isOpen($, SETTINGS))) await toggleSettings($)
-    else if (id.startsWith('headsup-card-')) await cardAction($, id)
-    else if (id.startsWith('headsup-note-')) {
-      const noteId = id.slice('headsup-note-'.length)
-      await $.state.set(OPEN_KEY, [noteId])
-      isCardClosed = false
-      wording = ''
-      await update($, noteId, { isRead: true })
-    } else if (id === 'headsup-close') {
-      isCardClosed = true
-      wording = ''
-      paneTip = null
-      await $.state.set(OPEN_KEY, [])
-      $.ui.invalidate('ui.render')
-    } else if (id.startsWith('headsup-understood-')) {
-      const noteId = id.slice('headsup-understood-'.length)
-      await setOpen($, noteId, false)
-      wording = ''
-      paneTip = null
-      await knowIt($, noteId)
-    } else if (id.startsWith('headsup-more-')) {
-      const noteId = id.slice('headsup-more-'.length)
-      fullNote = fullNote === noteId ? '' : noteId
-      $.ui.invalidate('ui.render')
-    } else if (id.startsWith('headsup-chat-')) await chat($, id.slice('headsup-chat-'.length))
-    else if (id.startsWith('headsup-reword-')) {
-      const noteId = id.slice('headsup-reword-'.length)
-      wording = wording === noteId ? '' : noteId
-      $.ui.invalidate('ui.render')
-    } else if (id.startsWith('headsup-redo-')) {
-      const [direction, ...rest] = id.slice('headsup-redo-'.length).split('-')
-      wording = ''
-      await redo($, rest.join('-'), direction as Direction)
-    }
+    await heard($, e.data)
+
+    return next(e)
+  })
+
+  on('state.set', { plugin: 'mod-menu', key: 'relay' }, async ($, e, next) => {
+    const data = relayedTo(e.value, 'mod-heads-up')
+    if (data !== undefined) $.clock.after(0, () => heard($, data).catch(() => {}))
 
     return next(e)
   })
@@ -825,6 +849,9 @@ export const register: Register = (on, options) => {
     const shown = saved.card && !isHolding ? noteOf(saved.card) : undefined
     const action = (id: string, label: string, glyph: string, tipBody: string) =>
       pill({ Box, Text }, nerd, THEME.surface3, <Client key={id} module="./entry.tsx" height={1} props={{ id, label, isOpen: true, bg: THEME.surface3, nerd, still, subLead: glyph, tip: { glyph, label, text: tipBody } } satisfies EntryProps} />, `${id}-pill`, cardFill())
+    // The four buttons take 70 cells in the nerd look; a narrower band puts Send to prompt on its own row.
+    const isWide = e.props.bodyColumns >= 74
+    const draftAction = action('headsup-card-draft', text.toPrompt, bare(look.glyph.go), text.tipToPrompt)
     const card = shown ? (
       <Box key="headsup-card-block" flexDirection="column">
         <Box key="headsup-card" flexDirection="column" paddingX={1} borderStyle="round" borderColor={THEME.border} backgroundColor={cardFill()}>
@@ -834,8 +861,14 @@ export const register: Register = (on, options) => {
           <Box key="headsup-card-keys" flexDirection="row" columnGap={2} marginTop={1}>
             {action('headsup-card-open', text.open, bare(look.glyph.go), text.tipOpen)}
             {action('headsup-card-chat', text.askClaude, bare(look.glyph.go), text.tipAsk)}
+            {isWide ? draftAction : null}
             {action('headsup-card-dismiss', text.dismiss, bare(look.glyph.close), text.tipDismiss)}
           </Box>
+          {isWide ? null : (
+            <Box key="headsup-card-draft-row" flexDirection="row" marginTop={1}>
+              {draftAction}
+            </Box>
+          )}
         </Box>
         {titleEdge({ Box, Text }, look, 'headsup-card', '', text.pillLabel, shown.tag, 0)}
       </Box>
@@ -856,7 +889,8 @@ export const register: Register = (on, options) => {
     // The count is the neutral Badge on whatever the entry sits on: the group fill, or the lifted pill once the pane is open.
     const badge = unread > 0 ? { badge: badgeOf(String(unread), isShown ? THEME.lifted : PILL.primary) } : {}
     // Opening the pane from here queues nothing, so the entry stays live mid-turn.
-    const entry = menuEntry({ Box, Client, Text }, nerd, 'headsup', { label: text.pillLabel, isOpen: isShown, idle: THEME.pill, isBusy: isOpening || isChecking || rewriting !== '', still, nerd, tip: { glyph: nerd ? bare(look.glyph.warn) : MARK.bullet, label: text.pillLabel, text: receipt ? receiptLine(receipt) : text.tipPill }, labels, ...badge })
+    const hosted = (await $.state.get({ plugin: 'mod-menu', key: 'host' })).value === true
+    const entry = menuEntry({ Box, Client, Text }, nerd, 'headsup', { label: text.pillLabel, hosted, isOpen: isShown, idle: THEME.pill, isBusy: isOpening || isChecking || rewriting !== '', still, nerd, tip: { glyph: nerd ? bare(look.glyph.warn) : MARK.bullet, label: text.pillLabel, text: receipt ? receiptLine(receipt) : text.tipPill }, labels, ...badge })
 
     return pillRow({ Box, Client, Text }, nerd, [entry, ...group], row, [...items, ...rest], bandTip ? tipLine({ Box, Text }, bandTip) : tip, e.props.bodyColumns)
   })
@@ -975,6 +1009,7 @@ export const register: Register = (on, options) => {
       const isRewording = wording === found.id
       const reword = pill({ Box, Text }, nerd, THEME.surface3, <Client key={`headsup-reword-${found.id}`} module="./entry.tsx" height={1} props={{ id: `headsup-reword-${found.id}`, label: text.reword, isOpen: true, bg: THEME.surface3, nerd, still, isBusy: rewriting.endsWith(`-${found.id}`), spinner: rewriting.endsWith(`-${found.id}`), subLead: bare(look.glyph.cycle), tip: { glyph: bare(look.glyph.cycle), label: text.reword, text: text.tipReword } } satisfies EntryProps} />, `headsup-reword-${found.id}-pill`, cardFill())
       return (
+        <Box key="headsup-actions-block" flexDirection="column" flexShrink={0}>
         <Box key="headsup-actions" flexDirection="row" columnGap={1} flexShrink={0} marginTop={1}>
           {isRewording ? null : entryPill(`headsup-understood-${found.id}`, text.gotIt, bare(look.glyph.ok), { glyph: bare(look.glyph.ok), label: text.gotIt, text: text.tipGotIt })}
           {isRewording ? null : entryPill(`headsup-chat-${found.id}`, text.askClaude, bare(look.glyph.go), { glyph: bare(look.glyph.go), label: text.askClaude, text: text.tipAsk })}
@@ -989,6 +1024,12 @@ export const register: Register = (on, options) => {
           ), `redo-${found.id}`, cardFill()) : null}
           {more ? <Box key="headsup-more-gap" flexGrow={1} /> : null}
           {more}
+        </Box>
+        {isRewording ? null : (
+          <Box key="headsup-draft-row" flexDirection="row" marginTop={1}>
+            {entryPill(`headsup-draft-${found.id}`, text.toPrompt, bare(look.glyph.go), { glyph: bare(look.glyph.go), label: text.toPrompt, text: text.tipToPrompt })}
+          </Box>
+        )}
         </Box>
       )
     }

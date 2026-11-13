@@ -7,11 +7,13 @@ import { ALSO_KEEP, buildPrompt, LANGUAGE_RULE, clampWords, compactNote, FORK_FA
 import { cardFill, detectNerd, FOOTER_ROWS, lookFor, paneFooter, sepText, titleEdge, type IconMode, withMark } from './look'
 import { isTipMessage, tipText, type EntryMessage, type EntryProps, type Tip, type TipMessage } from './entry'
 import { choiceCells, type ChoiceProps } from './choice'
-import { labelsOf, PILL, pill, pillRow, splitRow, tabRow, tipLine } from './pills'
+import { hiddenReadouts, labelsOf, PILL, pill, pillRow, splitRow, tabRow, tipLine } from './pills'
+import { relayedTo } from './relay'
 import { TOAST_MS, ToastList, toastCards } from './toasts'
 import { actionReveals, openSetting, settingChoice, settingsBody, type Action, type Previews, type Range } from './settings'
 import { recordSpend } from './spend'
-import { bridgeOn, endBridge, startBridge, type BridgeRecord } from './bridge'
+import { bridgeOn, endBridge, folderOf, startBridge, type BridgeRecord } from './bridge'
+import { hasInflight, NONE as NO_WORK, readInflight, stopFile, type Inflight } from './inflight'
 import { bytesOf, chunkArgv, scanTail } from './tail'
 import text from './text'
 import { lateNext, latestTitle, planNames, remember, type NamePlan } from './titles'
@@ -32,9 +34,13 @@ let every = 1
 let marks: CompactMarks = { percent: 65, tokens: 400_000 }
 let compactOn = false
 let newWindow = true
+// /resume lists sessions by the folder they started in, so the next window opens there however far this session's cwd has moved.
+let rootCwd = ''
 // The next session's name once this one handed off to a new window: it stays open, its automatic handoff stops, and a card says where the work went.
 let handedOff: string | null = null
 let isHandedOffShown = false
+// Work done here after the handoff never reaches the new session, so the handed off card says so once a turn starts here.
+let isStillWorkingShown = false
 
 // Counters that reset on a compaction, a clear or a newer run; a result that finds them moved is stale and dropped.
 let turnsSince = 0
@@ -376,7 +382,7 @@ async function planOf($: EngineInterface, names: Names, ledger: Ledger | null): 
 // Opens the next session in its own window, which joins the chain from the file its token names; false when no window started, so the handoff clears instead.
 async function openNext($: EngineInterface, join: Join) {
   const config = await configDir($)
-  const cwd = String(await $.session.cwd().catch(() => ''))
+  const cwd = rootCwd || String(await $.session.cwd().catch(() => ''))
   if (!canOpenWindow(newWindow, config) || !cwd) return false
   const token = joinToken(await $.session.id().catch(() => ''), await $.clock.now())
   const path = joinFile(config, token)
@@ -406,6 +412,7 @@ const JOIN_WAIT_MS = 30_000
 function markHandedOff($: EngineInterface, next: string) {
   handedOff = next
   isHandedOffShown = true
+  isStillWorkingShown = false
   if (countdown) stopCountdown($)
   $.ui.invalidate('ui.render')
 }
@@ -726,6 +733,15 @@ function tickCountdown($: EngineInterface, token: number) {
   })
 }
 
+// What the Stop command hook last wrote for this session: background tasks and scheduled wake-ups that will start a turn later.
+async function inflightNow($: EngineInterface): Promise<Inflight> {
+  const folder = await folderOf($, 'mod-wrap-up').catch(() => '')
+  const session = String(await $.session.id().catch(() => ''))
+  if (!folder || !session) return NO_WORK
+  const raw = String(await $.fs.read(stopFile(folder, session)).catch(() => ''))
+  return readInflight(raw, await $.clock.now())
+}
+
 // The countdown ran out: bring the ledger up to date, clear keeping the chain, then continue the open task or fill the handoff.
 async function handOffAtMark($: EngineInterface, token: number) {
   const isLive = () => countdown?.token === token
@@ -735,6 +751,13 @@ async function handOffAtMark($: EngineInterface, token: number) {
     if (!isLive()) return
     if (working || (await hasDraft($))) {
       stopCountdown($)
+      return
+    }
+    // A background task or a wake-up reports back into this session, so a handoff now would leave that work behind; the next turn counts down again.
+    const work = await inflightNow($)
+    if (hasInflight(work)) {
+      stopCountdown($)
+      $.ui.toast(fill(text.auto.heldForWork, { tasks: String(work.tasks), crons: String(work.crons) }))
       return
     }
     const dir = await ledgerDir($)
@@ -1056,14 +1079,15 @@ function choiceCard({ Box, Client, Text }: Elements, picked: Choice, columns: nu
 }
 
 // The old session after a handoff to a new window: where the work went, and that this one may be closed.
-function handedOffCard({ Box, Client, Text }: Elements, next: string) {
+function handedOffCard({ Box, Client, Text }: Elements, next: string, isStill: boolean) {
   const close = bare(look.glyph.close)
   const line = fill(text.window.handedOff, { name: next || text.window.next })
   return (
     <Box key="wrap-up-handed-off-block" flexDirection="column">
       <Box key="wrap-up-handed-off-card" flexDirection="row" columnGap={1} paddingX={1} borderStyle="round" borderColor={THEME.border} backgroundColor={cardFill()}>
-        <Box key="wrap-up-handed-off-text" flexGrow={1} flexShrink={1}>
+        <Box key="wrap-up-handed-off-text" flexDirection="column" flexGrow={1} flexShrink={1}>
           <Text color={THEME.onSurface} wrap="truncate-end">{line}</Text>
+          {isStill ? <Text key="wrap-up-handed-off-still" color={THEME.onSurface} wrap="truncate-end">{fill(text.window.stillWorking, { name: next || text.window.next })}</Text> : null}
         </Box>
         {pill({ Box, Text }, look.nerd, THEME.surface3, <Client key="wrap-up-handed-off-close" module="./entry.tsx" height={1} props={{ id: 'wrap-up-handed-off-close', label: close, isOpen: false, bg: THEME.surface3, nerd: look.nerd, still, tip: { glyph: close, label: close, text: text.window.tipClose } } satisfies EntryProps} />, 'wrap-up-handed-off-close-pill', cardFill())}
       </Box>
@@ -1126,6 +1150,60 @@ async function saveSetting($: EngineInterface, key: string, value: ConfigValue) 
   say($, 'deny' in result && result.deny ? `${MARK.warn} ${result.deny}` : `${MARK.ok} ${fill(text.settingSaved, { label: row.label })}`)
 }
 
+async function heard($: EngineInterface, data: unknown) {
+  if (isTipMessage(data)) {
+    const tip = data
+    const own = Boolean(tip.id?.startsWith('wrap-up-') || tip.id?.startsWith('toast-wrap-up-'))
+    bandTip = own ? tip : null
+    if (bandTip?.id) expireBandTip($)
+    paneTip = tip.id && !own ? { glyph: tip.glyph ?? '', label: tip.label ?? '', text: tip.text ?? '' } : null
+    $.ui.invalidate('ui.render')
+    return
+  }
+  openSetting($, data)
+  const change = settingChoice(data)
+  if (change) await saveSetting($, change.key, change.value)
+  const clicked = data as EntryMessage
+  const dismissed = clicked?.type === 'menu-entry' ? toasts.idOf(clicked.id) : undefined
+  if (dismissed !== undefined) {
+    toasts.drop(dismissed)
+    $.ui.invalidate('ui.render')
+    return
+  }
+  const message = data as EntryMessage
+  if (message?.type !== 'menu-entry') return
+  const picksFromMenu = message.id === 'wrap-up-handoff' || message.id === 'wrap-up-compact' || message.id === 'wrap-up-auto'
+  const wasMenuOpen = isMenuOpen
+  if (message.id === 'wrap-up-menu-close' || picksFromMenu) isMenuOpen = false
+  if (message.id === 'wrap-up-entry-open') isMenuOpen = !isMenuOpen && !working
+  if (wasMenuOpen !== isMenuOpen) {
+    bandTip = null
+    $.ui.invalidate('ui.render')
+  }
+  const isChoice = message.id === 'wrap-up-entry' || message.id === 'wrap-up-entry-open' || message.id === 'wrap-up-handoff' || message.id === 'wrap-up-compact' || message.id === 'wrap-up-auto'
+  if (isChoice && working) $.ui.toast(text.claudeWorkingPill)
+  else if (message.id === 'wrap-up-handoff') openCard($, 'handoff')
+  else if (message.id === 'wrap-up-compact') openCard($, 'compact')
+  // Saving reloads the mod, which redraws the switch with the new mark.
+  else if (message.id === 'wrap-up-auto') await $.config.set({ key: 'mod-wrap-up.auto_compact', value: !compactOn })
+  if (message.id === 'wrap-up-switch') await flipChoice($)
+  if (message.id === 'wrap-up-choice-more' && choice) {
+    choice = { ...choice, isFull: !choice.isFull }
+    $.ui.invalidate('ui.render')
+  }
+  if (message.id === 'wrap-up-switch-close') {
+    choice = null
+    $.ui.invalidate('ui.render')
+  }
+  if (message.id === 'wrap-up-handed-off-close') {
+    isHandedOffShown = false
+    $.ui.invalidate('ui.render')
+  }
+  if (message.id === 'wrap-up-cancel') closeCard($)
+  if (message.id === 'wrap-up-go') await finishCard($)
+  toggleLine($, message.id)
+}
+
 export const register: Register = (on, options) => {
   still = options.animations === false
   toasts.isStill = still
@@ -1151,6 +1229,7 @@ export const register: Register = (on, options) => {
   look = lookFor(iconMode === 'nerd')
 
   on('session.start', async ($, e, next) => {
+    rootCwd = typeof e.cwd === 'string' ? e.cwd : ''
     bridgeOn('SessionStart', record => sessionStarted($, record))
     // A reload replays the last record the file holds; a compaction from before it is not a new one.
     isReplaying = true
@@ -1203,6 +1282,7 @@ export const register: Register = (on, options) => {
   on('turn.start', async ($, e, next) => {
     if (!(e as { agentId?: string }).agentId) {
       if (countdown) stopCountdown($)
+      if (handedOff !== null) isStillWorkingShown = true
       working = true
       $.ui.invalidate('ui.render')
     }
@@ -1255,7 +1335,7 @@ export const register: Register = (on, options) => {
     const hidden = await $.state.get({ plugin: 'mod-menu', key: 'hidden' })
     if (e.surface !== 'terminal' || e.props.hasSurvey) return next(e)
     const { Box, Button, Client, Text } = $.ui.resolve(e)
-    const counting = [...(countdown ? [countdownCard({ Box, Button, Client, Text },countdown, () => stopCountdown($))] : []), ...(handedOff !== null && isHandedOffShown ? [handedOffCard({ Box, Client, Text }, handedOff)] : [])]
+    const counting = [...(countdown ? [countdownCard({ Box, Button, Client, Text },countdown, () => stopCountdown($))] : []), ...(handedOff !== null && isHandedOffShown ? [handedOffCard({ Box, Client, Text }, handedOff, isStillWorkingShown)] : [])]
     if (hidden.value === true) {
       const shown = [...toastCards({ Box, Client, Text }, toasts, look, text.tipToast), ...counting, ...(choice ? [choiceCard({ Box, Client, Text }, choice, e.props.bodyColumns)] : []), ...(card ? [cardBox({ Box, Client, Text }, card)] : [])]
       if (shown.length === 0) return next(e)
@@ -1294,61 +1374,21 @@ export const register: Register = (on, options) => {
     const menuHint = `${text.label}: ${fill(text.menu.hint, { close: bare(look.glyph.close) })}`
     const shownTip = bandTip?.id ? tipLine({ Box, Text }, tipText(bandTip)) : menu ? tipLine({ Box, Text }, menuHint) : tip
 
-    return pillRow({ Box, Client, Text }, look.nerd, group, [...row, isRunning ? pill({ Box, Text }, look.nerd, PILL.secondary, body, 'wrap-up-pill') : <Box key="wrap-up-pill" flexDirection="row">{body}</Box>], [...toastCards({ Box, Client, Text }, toasts, look, text.tipToast), ...cards, ...rest], shownTip, e.props.bodyColumns)
+    const readout = isRunning ? pill({ Box, Text }, look.nerd, PILL.secondary, body, 'wrap-up-pill') : <Box key="wrap-up-pill" flexDirection="row">{body}</Box>
+    const hosted = (await $.state.get({ plugin: 'mod-menu', key: 'host' })).value === true
+
+    return pillRow({ Box, Client, Text }, look.nerd, group, [...row, hosted ? hiddenReadouts({ Box }, [readout]) : readout],[...toastCards({ Box, Client, Text }, toasts, look, text.tipToast), ...cards, ...rest], shownTip, e.props.bodyColumns)
   })
 
   on('ui.message', async ($, e, next) => {
-    if (isTipMessage(e.data)) {
-      const tip = e.data
-      const own = Boolean(tip.id?.startsWith('wrap-up-') || tip.id?.startsWith('toast-wrap-up-'))
-      bandTip = own ? tip : null
-      if (bandTip?.id) expireBandTip($)
-      paneTip = tip.id && !own ? { glyph: tip.glyph ?? '', label: tip.label ?? '', text: tip.text ?? '' } : null
-      $.ui.invalidate('ui.render')
-      return next(e)
-    }
-    openSetting($, e.data)
-    const change = settingChoice(e.data)
-    if (change) await saveSetting($, change.key, change.value)
-    const clicked = e.data as EntryMessage
-    const dismissed = clicked?.type === 'menu-entry' ? toasts.idOf(clicked.id) : undefined
-    if (dismissed !== undefined) {
-      toasts.drop(dismissed)
-      $.ui.invalidate('ui.render')
-      return next(e)
-    }
-    const message = e.data as EntryMessage
-    if (message?.type !== 'menu-entry') return next(e)
-    const picksFromMenu = message.id === 'wrap-up-handoff' || message.id === 'wrap-up-compact' || message.id === 'wrap-up-auto'
-    const wasMenuOpen = isMenuOpen
-    if (message.id === 'wrap-up-menu-close' || picksFromMenu) isMenuOpen = false
-    if (message.id === 'wrap-up-entry-open') isMenuOpen = !isMenuOpen && !working
-    if (wasMenuOpen !== isMenuOpen) {
-      bandTip = null
-      $.ui.invalidate('ui.render')
-    }
-    const isChoice = message.id === 'wrap-up-entry' || message.id === 'wrap-up-entry-open' || message.id === 'wrap-up-handoff' || message.id === 'wrap-up-compact' || message.id === 'wrap-up-auto'
-    if (isChoice && working) $.ui.toast(text.claudeWorkingPill)
-    else if (message.id === 'wrap-up-handoff') openCard($, 'handoff')
-    else if (message.id === 'wrap-up-compact') openCard($, 'compact')
-    // Saving reloads the mod, which redraws the switch with the new mark.
-    else if (message.id === 'wrap-up-auto') await $.config.set({ key: 'mod-wrap-up.auto_compact', value: !compactOn })
-    if (message.id === 'wrap-up-switch') await flipChoice($)
-    if (message.id === 'wrap-up-choice-more' && choice) {
-      choice = { ...choice, isFull: !choice.isFull }
-      $.ui.invalidate('ui.render')
-    }
-    if (message.id === 'wrap-up-switch-close') {
-      choice = null
-      $.ui.invalidate('ui.render')
-    }
-    if (message.id === 'wrap-up-handed-off-close') {
-      isHandedOffShown = false
-      $.ui.invalidate('ui.render')
-    }
-    if (message.id === 'wrap-up-cancel') closeCard($)
-    if (message.id === 'wrap-up-go') await finishCard($)
-    toggleLine($, message.id)
+    await heard($, e.data)
+
+    return next(e)
+  })
+
+  on('state.set', { plugin: 'mod-menu', key: 'relay' }, async ($, e, next) => {
+    const data = relayedTo(e.value, 'mod-wrap-up')
+    if (data !== undefined) $.clock.after(0, () => heard($, data).catch(() => {}))
 
     return next(e)
   })

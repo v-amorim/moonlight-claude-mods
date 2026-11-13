@@ -98,7 +98,7 @@ const rig = ($: any, on: any, { store: initial = [], env = {}, extra = {}, hidde
     return <Text>other mod</Text>
   })
   const band = (props: Record<string, unknown> = {}, surface = 'terminal') =>
-    $.ui.mount({ plugin: 'mod-manager', surface, component: 'AbovePrompt', props: { hasSurvey: false, isWorking: false, maxRows: 12, bodyColumns: 80, scroll: { offset: 0, bodyRows: 12 }, view: {}, ...props } } as never)
+    $.ui.mount({ plugin: 'mod-manager', surface, component: 'AbovePrompt', props: { hasSurvey: false, isCollapsed: false, isWorking: false, maxRows: 12, bodyColumns: 80, scroll: { offset: 0, bodyRows: 12 }, view: {}, ...props } } as never)
   return { files, store, events, opened, band }
 }
 

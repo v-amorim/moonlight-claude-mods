@@ -16,7 +16,7 @@ const PANE = (requestId: string) =>
 const SETTINGS = PANE('blast-radius-settings')
 const DETAILS = PANE('blast-radius-list')
 const bandOf = (maxRows = 24, bodyColumns = 80) =>
-  ({ component: 'AbovePrompt', props: { hasSurvey: false, isWorking: true, maxRows, bodyColumns, scroll: { offset: 0, bodyRows: 6 }, view: {} } }) as const
+  ({ component: 'AbovePrompt', props: { hasSurvey: false, isCollapsed: false, isWorking: true, maxRows, bodyColumns, scroll: { offset: 0, bodyRows: 6 }, view: {} } }) as const
 const BAND = bandOf()
 
 // What every preview git call must carry, so a repo's own config cannot run code.
@@ -721,10 +721,11 @@ test('Cancel comes first, Details second, the consequence last, each a numbered 
   })
 })
 
-test('the card shows only while a call is held, and then it is the only row besides the pills', async ($, on) => {
+test('the card shows only while a call is held, and then it marks the band exclusive so mod-menu drops the other rows', async ($, on) => {
   const { seen } = world(on)
   const idle = await $.ui.mount({ plugin: PLUGIN, surface: 'terminal', ...BAND })
   expect(await textOf(idle, /Delete 2 files/)).toBeUndefined()
+  expect(await idle.find({ key: 'band-exclusive' })).toBeUndefined()
   expect(await textOf(idle, /^base$/)).toBeDefined()
   await idle.unmount()
 
@@ -732,7 +733,7 @@ test('the card shows only while a call is held, and then it is the only row besi
   await holding(seen)
   const held = await $.ui.mount({ plugin: PLUGIN, surface: 'terminal', ...BAND })
   expect(await textOf(held, /Delete 2 files/)).toBeDefined()
-  expect(await textOf(held, /^base$/)).toBeUndefined()
+  expect(await held.find({ key: 'band-exclusive' })).toBeDefined()
   await click(held, 'blast-run')
   await call
   await held.redraw()
@@ -907,7 +908,8 @@ for (const [name, command, setup] of FIT_CASES) {
     test(`fit: the ${name} card at ${columns} columns keeps every row inside the width`, async ($, on) => {
       await withCard($, on, command, setup, async (band, seen) => {
         expect(seen.ran).toBe(0)
-        const rows = ((await band.findAll({ type: 'Text' })) as { text: string }[]).filter(row => !row.text.startsWith('▎'))
+        // `base` stands for another plugin's row, which mod-menu drops while a call is held.
+        const rows = ((await band.findAll({ type: 'Text' })) as { text: string }[]).filter(row => !row.text.startsWith('▎') && row.text !== 'base')
         for (const row of rows) expect(row.text.length, row.text).toBeLessThanOrEqual(width)
         const labels = [await labelOf(band, 'blast-cancel'), await labelOf(band, 'blast-details'), await labelOf(band, 'blast-run')]
         expect(labels.reduce((sum, label) => sum + label.length, 0) + 6).toBeLessThanOrEqual(width)
@@ -917,7 +919,8 @@ for (const [name, command, setup] of FIT_CASES) {
 
     test(`fit: the ${name} card at ${columns} columns and six rows keeps only the heading and the actions`, async ($, on) => {
       await withCard($, on, command, setup, async band => {
-        const rows = ((await band.findAll({ type: 'Text' })) as { text: string }[]).filter(row => !row.text.startsWith('▎'))
+        // `base` stands for another plugin's row, which mod-menu drops while a call is held.
+        const rows = ((await band.findAll({ type: 'Text' })) as { text: string }[]).filter(row => !row.text.startsWith('▎') && row.text !== 'base')
         for (const row of rows) expect(row.text.length, row.text).toBeLessThanOrEqual(width)
         // The sentence, the paths and the command go to Details; the figures stay in the heading and the Run label. The title sits on the border, not in a row.
         const edge = new Set([`${MARK.rule} `, text.card.title, ` ${text.card.titleHint}`])

@@ -16,7 +16,7 @@ declare const setTimeout: (handler: (value: unknown) => void, ms: number) => unk
 
 const BAND = {
   component: 'AbovePrompt',
-  props: { hasSurvey: false, isWorking: false, maxRows: 12, bodyColumns: 100, scroll: { offset: 0, bodyRows: 12 }, view: {} },
+  props: { hasSurvey: false, isCollapsed: false, isWorking: false, maxRows: 12, bodyColumns: 100, scroll: { offset: 0, bodyRows: 12 }, view: {} },
 } as const
 
 const PANE_PROPS = { title: 'Heads up', isFocused: false, bodyColumns: 70, placement: 'dock', scroll: { offset: 0, bodyRows: 40 }, view: {} }
@@ -213,8 +213,6 @@ test('the entry shimmers while the check runs, then the card shows the note abov
   const tree = JSON.stringify(await ui.drawn())
   expect(tree).toContain('The main agent cached /ask')
   expect(tree.indexOf('headsup-card') < tree.indexOf('nextsteps-rows')).toBe(true)
-  // One pill row: the card joins the shared row instead of wrapping it.
-  expect(tree.split('"menu-rows"').length - 1).toBe(1)
   const entry = JSON.stringify(await ui.find({ key: 'menu-entry-headsup' }))
   expect(entry).toContain('"isBusy":false')
   expect(entry).toContain('"text":"1"')
@@ -508,7 +506,7 @@ test('the card has three unnumbered actions on a row under the note: Open, Ask C
   const ui = await band($)
   const tree = JSON.stringify(await ui.drawn())
   const ids = [...tree.matchAll(/"id":"(headsup-card-[a-z]+)"/g)].map(each => each[1])
-  expect([...new Set(ids.filter(id => id !== 'headsup-card-tag'))].sort()).toEqual(['headsup-card-chat', 'headsup-card-dismiss', 'headsup-card-open'])
+  expect([...new Set(ids.filter(id => id !== 'headsup-card-tag'))].sort()).toEqual(['headsup-card-chat', 'headsup-card-dismiss', 'headsup-card-draft', 'headsup-card-open'])
   expect(tree).not.toContain('Know this')
   expect(tree.indexOf('"headsup-card-text"') < tree.indexOf('"headsup-card-keys"')).toBe(true)
   expect(await ui.find({ key: 'headsup-card-line' })).toBeUndefined()
@@ -532,6 +530,38 @@ test('Ask Claude on the card sends the note to Claude, closes the card and reads
   expect(await ui.find({ key: 'headsup-card' })).toBeUndefined()
   expect(JSON.stringify(await ui.find({ key: 'menu-entry-headsup' }))).not.toContain('"text":"1"')
   await ui.unmount()
+})
+
+test('Send to prompt on the card fills the box without sending, closes the card and reads the note', async ($, on) => {
+  const { clock, sent, fills } = setup(on)
+  await finding($, clock)
+  const ui = await band($)
+  await click(ui, 'headsup-card-draft')
+  await clock.settle()
+  expect(sent.slice(1)).toHaveLength(0)
+  expect(fills).toHaveLength(1)
+  expect(fills[0]?.mode).toBe('replace')
+  expect(fills[0]?.text).toMatch(/^A heads-up note/)
+  expect(await ui.find({ key: 'headsup-card' })).toBeUndefined()
+  expect(JSON.stringify(await ui.find({ key: 'menu-entry-headsup' }))).not.toContain('"text":"1"')
+  await ui.unmount()
+})
+
+test('Send to prompt in the panel fills the box without sending', async ($, on) => {
+  const { clock, sent, fills } = setup(on)
+  await finding($, clock)
+  const ui = await band($)
+  await click(ui, 'headsup-card-open')
+  await clock.settle()
+  await ui.unmount()
+  const panel = await pane($)
+  const id = String(JSON.stringify(await panel.drawn()).match(/"id":"headsup-draft-([^"]+)"/)?.[1])
+  await click(panel, `headsup-draft-${id}`)
+  await clock.settle()
+  expect(sent.slice(1)).toHaveLength(0)
+  expect(fills).toHaveLength(1)
+  expect(fills[0]?.text).toMatch(/^A heads-up note/)
+  await panel.unmount()
 })
 
 test('Ask Claude mid-turn closes the card at once, before the turn ends and the note is sent', async ($, on) => {

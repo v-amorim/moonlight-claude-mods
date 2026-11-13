@@ -10,7 +10,7 @@ const NOW = 1_800_000_000_000
 const MIN = 60000
 const DIR = '/h/.claude/mods-data/mod-collision-guard/sessions'
 const FILE = '/work/app.ts'
-const BAND = { component: 'AbovePrompt', props: { hasSurvey: false, isWorking: false, maxRows: 24, bodyColumns: 80, scroll: { offset: 0, bodyRows: 12 }, view: {} } } as const
+const BAND = { component: 'AbovePrompt', props: { hasSurvey: false, isCollapsed: false, isWorking: false, maxRows: 24, bodyColumns: 80, scroll: { offset: 0, bodyRows: 12 }, view: {} } } as const
 const REASON = 'guard-reason'
 
 declare const setTimeout: (run: (value?: unknown) => void, ms: number) => unknown
@@ -319,13 +319,14 @@ test('the call stays held until the person answers: no timeout, and the edit has
   await ui.unmount()
 })
 
-test('while held the card is the only row besides the pills, and it goes when the call is answered', async ($, on) => {
+test('while held the card marks the band exclusive so mod-menu drops the other rows, and it goes when the call is answered', async ($, on) => {
   const { pending, ui } = await held($, on, OTHER)
-  expect(await textOf(ui, /^base$/)).toBeUndefined()
+  expect(await ui.find({ key: 'band-exclusive' })).toBeDefined()
   await click(ui, 'guard-proceed')
   await pending
   await ui.redraw()
   expect(await textOf(ui, /^Paused$/)).toBeUndefined()
+  expect(await ui.find({ key: 'band-exclusive' })).toBeUndefined()
   expect(await textOf(ui, /^base$/)).toBeDefined()
   await ui.unmount()
 })
@@ -792,7 +793,7 @@ const bandOf = async ($: any, on: any) => {
     plugin: 'mod-collision-guard',
     surface: 'terminal',
     component: 'AbovePrompt',
-    props: { hasSurvey: false, isWorking: false, maxRows: 12, bodyColumns: 80, scroll: { offset: 0, bodyRows: 12 }, view: {} },
+    props: { hasSurvey: false, isCollapsed: false, isWorking: false, maxRows: 12, bodyColumns: 80, scroll: { offset: 0, bodyRows: 12 }, view: {} },
   } as never)
   return { ui, clock }
 }

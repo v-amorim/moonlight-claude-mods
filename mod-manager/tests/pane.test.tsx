@@ -310,7 +310,7 @@ test('apply: lines never cut, a long line wraps whole at a narrow width', { opti
 
 test('apply: a failed install is a toast and the rest still run', async ($, on) => {
   const { ui, events, stop } = await mount($, on, { failing: 'install newmod' })
-  const band = await $.ui.mount({ plugin: 'mod-manager', surface: 'terminal', component: 'AbovePrompt', props: { hasSurvey: false, isWorking: false, maxRows: 12, bodyColumns: 80, scroll: { offset: 0, bodyRows: 12 }, view: {} } } as never)
+  const band = await $.ui.mount({ plugin: 'mod-manager', surface: 'terminal', component: 'AbovePrompt', props: { hasSurvey: false, isCollapsed: false, isWorking: false, maxRows: 12, bodyColumns: 80, scroll: { offset: 0, bodyRows: 12 }, view: {} } } as never)
   await click(ui, 'list-install', 0)
   await click(ui, 'list-install', 1)
   await click(ui, 'manager-apply')

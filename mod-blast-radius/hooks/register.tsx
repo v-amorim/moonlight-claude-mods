@@ -4,7 +4,8 @@ import type { ConfigValue, EngineInterface, Register, RenderElement, SessionMess
 
 import { cardFill, cardGap, detectNerd, FOOTER_ROWS, lookFor, paneFooter, section, titleEdge, type IconMode, type Look, withMark } from './look'
 import { entryCells, isTipMessage, tipText, type EntryMessage, type EntryProps, type Tip, type TipMessage } from './entry'
-import { labelsOf, pill, pillRow, splitRow, tabRow, tipLine } from './pills'
+import { hiddenReadouts, labelsOf, pill, pillRow, splitRow, tabRow, tipLine } from './pills'
+import { relayedTo } from './relay'
 import { TOAST_MS, ToastList, toastCards } from './toasts'
 import { ACTION_EXTRA, ACTION_GAP, actionLabels, canOpenDoes, cardRows, HOTKEY, plainFor, segmentsOf, stepsView, whyOf, type Plain } from './explain'
 import { describePrompt, parseDescribed, recentPrompts, SYSTEM, verdictOf, type Described } from './haiku'
@@ -94,6 +95,12 @@ function expireBandTip($: EngineInterface) {
     bandExpired = hovered
     $.ui.invalidate('ui.render')
   })
+}
+
+function hover($: EngineInterface, tip: TipMessage) {
+  hovered = tip
+  if (tip.id) expireBandTip($)
+  $.ui.invalidate('ui.render')
 }
 let actions: Action[] = []
 let previews: Previews | undefined
@@ -1265,12 +1272,23 @@ export const register: Register = (on, options) => {
     )
   })
 
+  // The waiting chip is drawn by mod-menu, which hands its hovers and clicks back here.
+  on('state.set', { plugin: 'mod-menu', key: 'relay' }, async ($, e, next) => {
+    const data = relayedTo(e.value, 'mod-blast-radius')
+    if (data !== undefined) {
+      $.clock.after(0, async () => {
+        if (isTipMessage(data)) hover($, data)
+        else if ((data as EntryMessage)?.type === 'menu-entry' && (data as EntryMessage).id === WAIT_CHIP) await reopenWaiting($).catch(() => {})
+      })
+    }
+
+    return next(e)
+  })
+
   // Cancel, Details and Run are entry Clients in the card; a click posts the entry's id.
   on('ui.message', async ($, e, next) => {
     if (isTipMessage(e.data)) {
-      hovered = e.data
-      if (hovered.id) expireBandTip($)
-      $.ui.invalidate('ui.render')
+      hover($, e.data)
       return next(e)
     }
     openSetting($, e.data)
@@ -1311,6 +1329,9 @@ export const register: Register = (on, options) => {
     const chips = [...waiting.values()]
     const drawRow = async (group: unknown[], row: unknown[], rest: unknown[], tip: unknown) => {
       const labels = labelsOf((await $.state.get({ plugin: 'mod-menu', key: 'labels' }).catch(() => undefined))?.value)
+      // mod-menu draws the chip in the one shared row and fits that row itself.
+      const hosted = (await $.state.get({ plugin: 'mod-menu', key: 'host' }).catch(() => undefined))?.value === true
+      if (hosted) return pillRow({ Box, Client, Text }, look.nerd, group, [...row, hiddenReadouts({ Box }, [waitChip({ Box, Client, Text }, labels === 'never' ? 'count' : 'full', chips)])], rest, tip, e.props.bodyColumns)
       const draw = (mode: 'full' | 'count') => pillRow({ Box, Client, Text }, look.nerd, group, [...row, waitChip({ Box, Client, Text }, mode, chips)], rest, tip, e.props.bodyColumns)
       const full = draw(labels === 'never' ? 'count' : 'full')
       return labels !== 'never' && isChipCut(full) ? draw('count') : full
@@ -1337,7 +1358,8 @@ export const register: Register = (on, options) => {
 
     // While a call is held only the card and the pill row draw, so other rows cannot fill the band and cut the card off.
     const card = holdCard({ Box, Button, Client, Input, Text }, shown, e.props.bodyColumns, e.props.maxRows, id => choose($, id), value => typeReason($, value), value => sendReason($, value), sessionCount(checks))
-    if (chips.length > 0) return drawRow(group, row, [...cards, card], tip)
-    return pillRow({ Box, Client, Text }, look.nerd, group, row, [...cards, card], tip, e.props.bodyColumns)
+    const exclusive = <Box key="band-exclusive" display="none" />
+    if (chips.length > 0) return drawRow(group, row, [...cards, card, exclusive], tip)
+    return pillRow({ Box, Client, Text }, look.nerd, group, row, [...cards, card, exclusive], tip, e.props.bodyColumns)
   })
 }

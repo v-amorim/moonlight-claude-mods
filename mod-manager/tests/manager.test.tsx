@@ -861,7 +861,7 @@ test('its footer entry opens the pane on a press and closes it on the next', asy
     plugin: 'mod-manager',
     surface: 'terminal',
     component: 'AbovePrompt',
-    props: { hasSurvey: false, isWorking: false, maxRows: 6, bodyColumns: 80, scroll: { offset: 0, bodyRows: 6 }, view: {} },
+    props: { hasSurvey: false, isCollapsed: false, isWorking: false, maxRows: 6, bodyColumns: 80, scroll: { offset: 0, bodyRows: 6 }, view: {} },
   } as const
 
   const idle = await $.ui.mount(band)
@@ -892,7 +892,7 @@ test('a pill tip whose entry was redrawn while hovered clears after 5 s with no 
     plugin: 'mod-manager',
     surface: 'terminal',
     component: 'AbovePrompt',
-    props: { hasSurvey: false, isWorking: false, maxRows: 6, bodyColumns: 80, scroll: { offset: 0, bodyRows: 6 }, view: {} },
+    props: { hasSurvey: false, isCollapsed: false, isWorking: false, maxRows: 6, bodyColumns: 80, scroll: { offset: 0, bodyRows: 6 }, view: {} },
   } as const
   const shows = async (ui: { drawn(): Promise<unknown> }) => JSON.stringify(await ui.drawn()).includes('turn each mod on or off')
   // Live, a band redraw mid-turn replaced the hovered entry, so its own quiet timer, and the leave, never came.

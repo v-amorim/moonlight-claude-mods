@@ -43,7 +43,7 @@ const BAND = (isWorking = false) =>
     plugin: 'mod-wrap-up',
     surface: 'terminal',
     component: 'AbovePrompt',
-    props: { hasSurvey: false, isWorking, maxRows: 6, bodyColumns: 80, scroll: { offset: 0, bodyRows: 6 }, view: {} },
+    props: { hasSurvey: false, isCollapsed: false, isWorking, maxRows: 6, bodyColumns: 80, scroll: { offset: 0, bodyRows: 6 }, view: {} },
   }) as const
 
 // Stubs every op the flow reaches and records the order they were called in.
@@ -337,7 +337,7 @@ test('with Windows Terminal, Go opens the next session in a new window with the 
   const writes = new Map<string, string>()
   on('session.cwd', () => ({ value: 'C:/work/proj' }))
   on('fs.write', (_$: unknown, e: { path: string; text: string }) => (writes.set(e.path.replace(/\\/g, '/'), e.text), { value: undefined }))
-  on('process.run', (_$: unknown, e: { argv: string[] }) => (runs.push(e.argv), { value: { exitCode: 0, stdout: '', stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }))
+  on('process.run', (_$: unknown, e: { argv: readonly string[] }) => (runs.push([...e.argv]), { value: { exitCode: 0, stdout: '', stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }))
   const band = await $.ui.mount(BAND())
   await click(band, 'wrap-up-entry')
   await choose(band, 'handoff')

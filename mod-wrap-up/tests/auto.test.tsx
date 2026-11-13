@@ -5,6 +5,7 @@ import { compactNote } from '../hooks/handoff'
 import { latestTitle, lateNext, planNames, remember } from '../hooks/titles'
 import { bytesOf, scanTail, textOf } from '../hooks/tail'
 import { readJoin } from '../hooks/window'
+import { hasInflight, MAX_AGE_S, readInflight, stopFile } from '../hooks/inflight'
 import { countGates, MAX_PENDING, pendingCandidates } from '../hooks/ledger'
 import { autoPrompt, capWords, clampCompactAt, clampCompactTokens, clampEvery, digest, emptyLedger, flip, gatherFragments, type Delta, isDue, mergeDelta, mergeFragments, parseRelated, parseUpdate, ledgerMarkdown, readLedger, restoreContext, shouldCompact, yieldsToManual } from '../hooks/ledger'
 
@@ -26,7 +27,7 @@ const BAND = {
   plugin: 'mod-wrap-up',
   surface: 'terminal',
   component: 'AbovePrompt',
-  props: { hasSurvey: false, isWorking: false, maxRows: 6, bodyColumns: 80, scroll: { offset: 0, bodyRows: 6 }, view: {} },
+  props: { hasSurvey: false, isCollapsed: false, isWorking: false, maxRows: 6, bodyColumns: 80, scroll: { offset: 0, bodyRows: 6 }, view: {} },
 } as const
 
 const seeded = () => {
@@ -345,7 +346,8 @@ function world(on: any, files: Map<string, string>, reply: (system: string, prom
     return { text: e.text, context: e.context }
   })
   on('session.end', (_$: unknown, e: { sessionId: string }) => ({ sessionId: e.sessionId }))
-  on('ui.toast', () => ({ value: undefined }))
+  const toasts: string[] = []
+  on('ui.toast', (_$: unknown, e: { text: string }) => (toasts.push(e.text), { value: undefined }))
   on('turn.complete', (_$: unknown, e: { answer: string }) => ({ text: e.answer }))
   on('session.start', (_$: unknown, e: { cwd: string }) => ({ cwd: e.cwd }))
   on('command.register', () => ({ value: { isRegistered: true } }))
@@ -364,7 +366,7 @@ function world(on: any, files: Map<string, string>, reply: (system: string, prom
   on('store.delete', (_$: unknown, e: { key: string }) => ({ value: stored.delete(e.key) }))
   on('store.keys', () => ({ value: [...stored.keys()] }))
   mock.env(on, { USERPROFILE: 'C:/home', ...env })
-  return { prompts, filled, submitted, submittedText, clears, forks, files, clock, flags, stored }
+  return { prompts, filled, submitted, submittedText, clears, forks, files, clock, flags, stored, toasts }
 }
 
 const UPDATE = (handoff: string, delta: Record<string, unknown> = {}) => ({ isAnswered: true, text: JSON.stringify({ delta, handoff }), usage: USAGE })
@@ -637,7 +639,7 @@ test('with Windows Terminal the handoff at the mark opens the next session in a 
 
 test('a window that starts but never picks up the handoff leaves this session handing off by a clear after 30 s, its join emptied', FULL, async ($, on) => {
   const runs: string[][] = []
-  on('process.run', (_$: unknown, e: { argv: string[] }) => (runs.push(e.argv), WINDOW_OK))
+  on('process.run', (_$: unknown, e: { argv: readonly string[] }) => (runs.push([...e.argv]), WINDOW_OK))
   const { w, band } = await atTheMark($, on, namedFiles())
   await w.clock.advance(5000)
   await w.clock.advance(1)
@@ -674,9 +676,81 @@ test('when Windows Terminal does not start, the handoff at the mark clears as be
   await band.unmount()
 })
 
+const NOW_S = Math.floor(Date.now() / 1000)
+const stopRecord = (event: object, at = NOW_S) => `${at}\n${JSON.stringify(event)}`
+const RUNNING = { background_tasks: [{ id: 'b1', type: 'shell', status: 'running', description: 'pick board' }], session_crons: [] }
+const STOP_FILE = stopFile(`${ROOT}/bridge`, 's1')
+
+test('the Stop record reads as tasks and wake-ups still in flight, and a torn, empty or stale one reads as none', () => {
+  expect(readInflight(stopRecord(RUNNING), NOW_S * 1000)).toEqual({ tasks: 1, crons: 0 })
+  expect(readInflight(stopRecord({ background_tasks: [], session_crons: [{ id: 'c1' }, { id: 'c2' }] }), NOW_S * 1000)).toEqual({ tasks: 0, crons: 2 })
+  expect(hasInflight(readInflight(stopRecord({ stop_hook_active: false }), NOW_S * 1000))).toBe(false)
+  expect(readInflight('', NOW_S * 1000)).toEqual({ tasks: 0, crons: 0 })
+  expect(readInflight(`${NOW_S}\n{ torn`, NOW_S * 1000)).toEqual({ tasks: 0, crons: 0 })
+  expect(readInflight('soon\n{}', NOW_S * 1000)).toEqual({ tasks: 0, crons: 0 })
+  expect(hasInflight(readInflight(stopRecord(RUNNING, NOW_S - MAX_AGE_S - 60), NOW_S * 1000))).toBe(false)
+})
+
+test('a background task still running holds the handoff at the mark: nothing clears, no window opens, and once the task is done the next turn hands off', FULL, async ($, on) => {
+  const runs: (readonly string[])[] = []
+  on('process.run', (_$: unknown, e: { argv: readonly string[] }) => (runs.push(e.argv), WINDOW_OK))
+  const files = namedFiles()
+  files.set(STOP_FILE, stopRecord(RUNNING))
+  const { w, band } = await atTheMark($, on, files)
+  await w.clock.advance(5000)
+  await w.clock.advance(1)
+  expect(w.clears).toHaveLength(0)
+  expect(runs).toHaveLength(0)
+  expect(await band.find({ key: 'wrap-up-countdown-card' })).toBeUndefined()
+  expect(w.toasts.join(' ')).toContain('Handoff held: 1 background task(s)')
+  // The task reports back; that turn ends with nothing left in flight, so the countdown runs out into the handoff.
+  w.files.set(STOP_FILE, stopRecord({ background_tasks: [], session_crons: [] }))
+  await $.turn.complete(MAIN_TURN)
+  await w.clock.advance(1)
+  await w.clock.advance(5000)
+  await w.clock.advance(1)
+  expect(runs).toHaveLength(1)
+  await band.unmount()
+})
+
+test('a scheduled wake-up also holds the handoff at the mark', FULL, async ($, on) => {
+  const files = autoFiles()
+  files.set(STOP_FILE, stopRecord({ background_tasks: [], session_crons: [{ id: 'c1' }] }))
+  const { w, band } = await atTheMark($, on, files)
+  await w.clock.advance(5000)
+  await w.clock.advance(1)
+  expect(w.clears).toHaveLength(0)
+  expect(w.submittedText).toHaveLength(0)
+  await band.unmount()
+})
+
+test('with no Stop record at all the handoff at the mark goes ahead as before', FULL, async ($, on) => {
+  const { w, band } = await atTheMark($, on)
+  await w.clock.advance(5000)
+  await w.clock.advance(1)
+  expect(w.clears).toEqual(['clear'])
+  await band.unmount()
+})
+
+test('a turn that starts here after the handoff to a new window adds a line to the handed off card saying the work does not reach it', FULL, async ($, on) => {
+  const runs: string[][] = []
+  const seen = joiningWindow(on, runs)
+  const { w, band } = await atTheMark($, on, namedFiles())
+  seen.world = w
+  await w.clock.advance(5000)
+  await w.clock.advance(1)
+  await w.clock.advance(1000)
+  expect(await band.find({ type: 'Text', text: /Handed off to/ })).toBeDefined()
+  expect(await band.find({ type: 'Text', text: /already took the handoff/ })).toBeUndefined()
+  await $.turn.start({ turnId: 't2' } as never)
+  await w.clock.advance(1)
+  expect(await band.find({ type: 'Text', text: /orders #2: XYZ-1 deploy already took the handoff/ })).toBeDefined()
+  await band.unmount()
+})
+
 test('with the setting off, the handoff at the mark clears and opens no window', { options: { auto_compact: true, icons: 'safe', new_window: false } }, async ($, on) => {
   const runs: string[][] = []
-  on('process.run', (_$: unknown, e: { argv: string[] }) => (runs.push(e.argv), WINDOW_OK))
+  on('process.run', (_$: unknown, e: { argv: readonly string[] }) => (runs.push([...e.argv]), WINDOW_OK))
   const { w, band } = await atTheMark($, on, namedFiles())
   await w.clock.advance(5000)
   await w.clock.advance(1)
@@ -714,6 +788,19 @@ test('a joined window with no open task fills the handoff and sends nothing; a r
   await w.clock.advance(1)
   expect(w.filled).toEqual(['FILL-HANDOFF'])
   expect(saved(w).sessions).toEqual(['s1', 's2'])
+})
+
+test('the new window opens in the folder the session started in, not where its cwd has moved to', FULL, async ($, on) => {
+  const runs: string[][] = []
+  const seen = joiningWindow(on, runs)
+  const { w } = await atTheMark($, on, namedFiles())
+  seen.world = w
+  await $.session.start({ cwd: 'C:/work/proj' } as never)
+  w.flags.cwd = 'C:/work/proj/deep/sub'
+  await w.clock.advance(5000)
+  await w.clock.advance(1)
+  await w.clock.advance(1000)
+  expect(runs[0]!.slice(0, 5)).toEqual(['wt.exe', '-w', 'new', '-d', 'C:/work/proj'])
 })
 
 test('a session second in its ledger with no hop in its title hands off as hop 2 to hop 3', FULL, async ($, on) => {
