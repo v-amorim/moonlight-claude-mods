@@ -47,7 +47,30 @@ export default {
   "deny": {
     "held": "Blast radius held this command and did not run it: {why}. Do not retry it unless the user asks you to.",
     "heldWhy": "Blast radius held this command and did not run it: {why}. Reason: {reason}. It would have: {summary}. Do not retry it unless the user asks you to.",
-    "idle": "Blast radius held this command and the user did not answer for {minutes} minutes. The command did not run. Do not rephrase it to try again: a changed command opens a new card. Carry on with any work that does not need it; if there is none, tell the user the command is waiting for them to run or cancel from the chip, and stop."
+    "idle": "Blast radius held this command and the user did not answer for {minutes} minutes. The command did not run. Do not rephrase it to try again: a changed command opens a new card. Carry on with any work that does not need it; if there is none, tell the user the command is waiting for them to run or cancel from the chip, and stop.",
+    "afk": "Blast radius did not run this command. The user turned on a pass that lets most risky commands run without a card, but this kind always waits for their answer: {reason}. Do not rephrase it to try again: a changed command is held the same way. Carry on with any work that does not need it; if there is none, tell the user the command is waiting for them to run or cancel from the chip, and stop."
+  },
+  "afk": {
+    "label": "{time}",
+    "forever": "∞",
+    "off": "Off",
+    "minutes": "{n}m",
+    "tipHead": "risky commands run without a card, except the ones that always wait for you",
+    "offLabel": "Pass",
+    "tipOffHead": "off: risky commands wait for you; pick a length to let them run without a card",
+    "tipStart": "starts the pass for {time}",
+    "tipStartForever": "starts the pass until you turn it off",
+    "tipLength": "restarts the pass for {time}",
+    "tipForever": "keeps the pass on until you turn it off",
+    "tipOff": "ends the pass, so risky commands wait for you again",
+    "ran": { "one": "{n} ran without a card", "many": "{n} ran without a card" },
+    "ranTip": "ran with no card during the pass, last: {command}; click to clear",
+    "started": "Pass on for {time}: risky commands run without a card, except the ones that always wait for you",
+    "startedForever": "Pass on until you turn it off: risky commands run without a card, except the ones that always wait for you",
+    "ended": "Pass ended: risky commands wait for you again",
+    "onlyTyped": "The pass starts only from a command you type, a click on the pill, or the settings panel",
+    "usage": "Use /mod-blast-radius pass 15, 30, 60, inf or off",
+    "isOn": " Pass on: {left}."
   },
   "waiting": {
     "approve": { "one": "Approve {n} command", "many": "Approve {n} commands" },
@@ -208,7 +231,8 @@ export default {
     "kindRedirect": "Truncating an existing file with > redirection",
     "kindRule": "Matched a rule",
     "evaluateError": "Blast radius could not evaluate this command ({why})",
-    "checkFailed": "The check failed ({why}), so Blast radius holds this command"
+    "checkFailed": "The check failed ({why}), so Blast radius holds this command",
+    "afkShell": "Hands text to a shell (bash -c, eval, powershell -Command), which the checks cannot see into"
   },
   "labels": {
     "yourRule": "your rule",
@@ -312,7 +336,7 @@ export default {
     "notifyTitle": "Blast radius",
     "notifyHeld": "Waiting for you: {command}",
     "paneName": "Blast radius",
-    "commandDescription": "Show what blast radius holds; `settings` opens its settings panel",
+    "commandDescription": "Show what blast radius holds; `settings` opens its settings panel; `pass 15|30|60|inf|off` lets risky commands run without a card for a while",
     "listWaiting": "List waiting: {reason}",
     "settingsWaiting": "Settings panel waiting: {reason}",
     "isOn": "Blast radius is on: {builtIn} built-in checks{mine}{bad}",

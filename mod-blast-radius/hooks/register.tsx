@@ -4,14 +4,15 @@ import type { ConfigValue, EngineInterface, Register, RenderElement, SessionMess
 
 import { cardFill, cardGap, detectNerd, FOOTER_ROWS, lookFor, paneFooter, section, titleEdge, type IconMode, type Look, withMark } from './look'
 import { entryCells, isTipMessage, tipText, type EntryMessage, type EntryProps, type Tip, type TipMessage } from './entry'
-import { hiddenReadouts, labelsOf, pill, pillRow, splitRow, tabRow, tipLine } from './pills'
+import { hiddenReadouts, labelsOf, pill, pillRow, splitRow, tabRow, tipLine, type LabelsMode } from './pills'
 import { relayedTo } from './relay'
 import { TOAST_MS, ToastList, toastCards } from './toasts'
 import { ACTION_EXTRA, ACTION_GAP, actionLabels, canOpenDoes, cardRows, HOTKEY, plainFor, segmentsOf, stepsView, whyOf, type Plain } from './explain'
 import { describePrompt, parseDescribed, recentPrompts, SYSTEM, verdictOf, type Described } from './haiku'
 import { colorLines, colorStep, LEGEND, wrapSpans, type Role, type Span } from './syntax'
 import { measure, tilde, type Io, type Report } from './preview'
-import { CHECKS, compileRules, errorRisk, evaluate, type Risk, type Session, type UserRule } from './risk'
+import { afkFloor, CHECKS, compileRules, errorRisk, evaluate, type Risk, type Session, type UserRule } from './risk'
+import { choiceCells, type ChoiceProps } from './choice'
 import { countdownOf, countdownParts } from './countdown'
 import { outsideTargets, planRecycle, sessionRoot } from './recycle'
 import { approvalKey, approveOutside, birthArgv, compileKeep, parseBirths, type Keep, type OutsideFs } from './outside'
@@ -46,6 +47,18 @@ const waiting = new Map<string, Waiting>()
 // Trailing whitespace is dropped from the key: a command retried from the nudge's code block loses its final newline.
 const keyOf = (command: string) => command.trimEnd()
 const WAIT_CHIP = 'blast-wait'
+
+// The AFK pass ends at afkUntil (Infinity: never, 0: off); afkRan holds what ran with no card during it.
+const AFK_CHIP = 'blast-afk'
+const AFK_RAN_CHIP = 'blast-afk-ran'
+const AFK_MINUTES = [15, 30, 60]
+const AFK_RAN_MAX = 50
+const AFK_OFF_COLOR = THEME.muted
+let afkUntil = 0
+let afkTotal = 0
+let afkRan: string[] = []
+let afkTick = 0
+let isAfkLoaded = false
 
 const MORE = 'blast-more'
 const DOES_MORE = 'blast-does-more'
@@ -458,16 +471,21 @@ async function toggleSettings($: EngineInterface) {
   await $.state.set({ plugin: 'mod-blast-radius', key: 'pane' }, opened.isPlaced)
 }
 
-// What `/mod-blast-radius <args>` does; the panel's own actions call it directly, since $.command.run skips the calling plugin.
-async function answer($: EngineInterface, args: string) {
-  if (args.trim() === 'settings') {
+// What `/mod-blast-radius <args>` does; the panel calls it directly (with isPerson), since $.command.run skips the calling plugin.
+async function answer($: EngineInterface, args: string, isPerson = false) {
+  const [verb, word = '30'] = args.trim().split(/\s+/)
+  if (verb === 'settings') {
     await toggleSettings($)
     return ''
   }
+  if (verb === 'pass') return afkCommand($, word.toLowerCase(), isPerson)
   const { rules, notes } = await loadRules($)
   const mine = rules.length ? fill(text.ui.mine, { n: rules.length }) : ''
   const bad = notes.length ? fill(text.ui.bad, { n: notes.length }) : ''
-  return isEnabled ? fill(text.ui.isOn, { builtIn: BUILT_IN.length, mine, bad }) : text.ui.isOff
+  await loadAfk($)
+  const now = await $.clock.now()
+  const away = isAfkOn(now) ? fill(text.afk.isOn, { left: afkUntil === Infinity ? text.afk.forever : countdownOf(afkUntil - now, afkTotal).time }) : ''
+  return isEnabled ? `${fill(text.ui.isOn, { builtIn: BUILT_IN.length, mine, bad })}${away}` : text.ui.isOff
 }
 
 // A control glyph without the brackets and padding it has as a standalone button, for the tip row.
@@ -995,6 +1013,149 @@ function warnOnce($: EngineInterface, error: unknown) {
   void Promise.resolve().then(() => toast($, text.ui.checkFailed)).catch(() => undefined)
 }
 
+const MINUTE = 60000
+
+const isAfkOn = (now: number) => afkUntil === Infinity || afkUntil > now
+
+// $.state keeps the pass across a reload; JSON has no Infinity, so -1 stands for a pass with no end.
+function keepAfk($: EngineInterface) {
+  const kept = { until: afkUntil === Infinity ? -1 : afkUntil, total: afkTotal, ran: afkRan }
+  void Promise.resolve($.state.set({ plugin: 'mod-blast-radius', key: 'afk' }, kept)).catch(() => undefined)
+}
+
+async function loadAfk($: EngineInterface) {
+  if (isAfkLoaded) return
+  isAfkLoaded = true
+  try {
+    const kept = (await $.state.get({ plugin: 'mod-blast-radius', key: 'afk' }))?.value as { until?: unknown; total?: unknown; ran?: unknown } | undefined
+    if (typeof kept?.until !== 'number') return
+    afkUntil = kept.until === -1 ? Infinity : kept.until
+    afkTotal = typeof kept.total === 'number' ? kept.total : 0
+    afkRan = Array.isArray(kept.ran) ? kept.ran.filter((each): each is string => typeof each === 'string') : []
+    if (afkUntil !== 0) scheduleAfk($)
+  } catch {
+    // Nothing kept: the pass is off.
+  }
+}
+
+// One wake per change of the shown time, each minute and then each second of the last one; the last wake ends the pass.
+function scheduleAfk($: EngineInterface) {
+  const token = ++afkTick
+  const step = async () => {
+    if (token !== afkTick || afkUntil === Infinity) return
+    const left = afkUntil - (await $.clock.now())
+    if (left <= 0) {
+      endAfk($)
+      toast($, text.afk.ended)
+      return
+    }
+    $.ui.invalidate('ui.render')
+    $.clock.after(left > MINUTE ? left % MINUTE || MINUTE : left % 1000 || 1000, () => void step().catch(() => undefined))
+  }
+  void step().catch(() => undefined)
+}
+
+// minutes null: a pass with no end. Starting from off clears the last pass's list.
+async function startAfk($: EngineInterface, minutes: number | null) {
+  await loadAfk($)
+  const now = await $.clock.now()
+  if (!isAfkOn(now)) afkRan = []
+  afkUntil = minutes === null ? Infinity : now + minutes * MINUTE
+  afkTotal = minutes === null ? 0 : minutes * MINUTE
+  keepAfk($)
+  scheduleAfk($)
+  $.ui.invalidate('ui.render')
+  return minutes === null ? text.afk.startedForever : fill(text.afk.started, { time: fill(text.card.idleMin, { n: minutes }) })
+}
+
+function endAfk($: EngineInterface) {
+  afkUntil = 0
+  afkTotal = 0
+  afkTick++
+  keepAfk($)
+  $.ui.invalidate('ui.render')
+}
+
+// Anyone may end the pass; only the person starts it, so Claude cannot lift its own holds.
+async function afkCommand($: EngineInterface, word: string, isPerson: boolean) {
+  if (word === 'off') {
+    await loadAfk($)
+    if (afkUntil !== 0) endAfk($)
+    return text.afk.ended
+  }
+  if (!isPerson) return text.afk.onlyTyped
+  if (word === 'inf' || word === text.afk.forever) return startAfk($, null)
+  const minutes = Number(word)
+  return AFK_MINUTES.includes(minutes) ? startAfk($, minutes) : text.afk.usage
+}
+
+// A click on the AFK pill or the ran chip; false when the id is neither.
+async function heardAfk($: EngineInterface, id: string) {
+  if (id === AFK_RAN_CHIP) {
+    afkRan = []
+    keepAfk($)
+    $.ui.invalidate('ui.render')
+    return true
+  }
+  if (!id.startsWith(`${AFK_CHIP}-`)) return id === AFK_CHIP
+  const word = id.slice(AFK_CHIP.length + 1)
+  if (word !== 'open') toast($, await afkCommand($, word, true))
+  return true
+}
+
+// During an AFK pass: a held command runs with no card, unless it is on the floor, which refuses it and leaves it on the chip.
+async function passAway($: EngineInterface, risk: Risk, command: string, rules: UserRule[], session: Session | undefined): Promise<'run' | { deny: string }> {
+  const floor = risk.isError ? risk : afkFloor(command, rules, session)
+  if (!floor) {
+    afkRan = [...afkRan, command].slice(-AFK_RAN_MAX)
+    keepAfk($)
+    $.ui.invalidate('ui.render')
+    return 'run'
+  }
+  try {
+    const report = await measure(ioOf($), floor)
+    waiting.set(keyOf(command), { held: { command, risk: floor, report, plain: plainFor(floor, report), decision: 'idle' }, answer: null })
+  } catch {
+    // With no report the card could not draw, so the command is only refused.
+  }
+  $.ui.invalidate('ui.render')
+  return { deny: fill(text.deny.afk, { reason: floor.reason }) }
+}
+
+// The AFK pill: while the pass runs its time left and Off; while off its icon alone, which opens the lengths to start one. Then the ran chip, once a pass ended.
+function afkReadouts({ Box, Client, Text }: Pick<Elements, 'Box' | 'Client' | 'Text'>, now: number, labels: LabelsMode): unknown[] {
+  const lead = bare(look.glyph.warn)
+  const pillOf = (props: ChoiceProps) => <Box key={`${AFK_CHIP}-pill`} flexDirection="row"><Client key={AFK_CHIP} module="./choice.tsx" height={1} props={props} /></Box>
+  if (isAfkOn(now)) {
+    const fold = labels === 'never' ? { compact: true } : labels === 'auto' ? { compact: false } : {}
+    const forever = afkUntil === Infinity
+    const label = fill(text.afk.label, { time: forever ? text.afk.forever : countdownOf(afkUntil - now, afkTotal).time })
+    const lengths = AFK_MINUTES.map(n => ({ id: `${AFK_CHIP}-${n}`, label: fill(text.afk.minutes, { n }), isOn: !forever && afkTotal === n * MINUTE }))
+    const options = [...lengths, { id: `${AFK_CHIP}-inf`, label: text.afk.forever, isOn: forever }, { id: `${AFK_CHIP}-off`, label: text.afk.off }]
+    const tips = [
+      { glyph: lead, label, text: text.afk.tipHead },
+      ...lengths.map(each => ({ glyph: lead, label: each.label, text: fill(text.afk.tipLength, { time: each.label }) })),
+      { glyph: lead, label: text.afk.forever, text: text.afk.tipForever },
+      { glyph: lead, label: text.afk.off, text: text.afk.tipOff },
+    ]
+    // The lead takes a space and its glyph before the label.
+    return [pillOf({ id: AFK_CHIP, label, options, mode: null, bg: THEME.surface3, nerd: look.nerd, isIdle: true, still, tips, lead, leadColor: THEME.alert, icon: lead, cells: 2 + choiceCells(label, look.nerd), ...fold })]
+  }
+  const lengths = AFK_MINUTES.map(n => ({ id: `${AFK_CHIP}-${n}`, label: fill(text.afk.minutes, { n }) }))
+  const tips = [
+    { glyph: lead, label: text.afk.offLabel, text: text.afk.tipOffHead },
+    ...lengths.map(each => ({ glyph: lead, label: each.label, text: fill(text.afk.tipStart, { time: each.label }) })),
+    { glyph: lead, label: text.afk.forever, text: text.afk.tipStartForever },
+  ]
+  // The caps on Nerd, a space and the glyph, then the head's one trailing space.
+  const off = pillOf({ id: AFK_CHIP, label: '', options: [...lengths, { id: `${AFK_CHIP}-inf`, label: text.afk.forever }], mode: null, bg: THEME.surface3, nerd: look.nerd, isIdle: true, still, tips, lead, leadColor: AFK_OFF_COLOR, cells: (look.nerd ? 2 : 0) + 3 })
+  if (afkRan.length === 0) return [off]
+  const label = fill(afkRan.length === 1 ? text.afk.ran.one : text.afk.ran.many, { n: afkRan.length })
+  const tip = { glyph: bare(look.glyph.ok), label, text: fill(text.afk.ranTip, { command: oneLine(afkRan[afkRan.length - 1]!) }) }
+  const props = { id: AFK_RAN_CHIP, label: labels === 'never' ? String(afkRan.length) : label, isOpen: true, bg: THEME.surface3, color: THEME.muted, lead: look.glyph.ok, leadColor: THEME.good, nerd: look.nerd, still, tip, ...(labels === 'never' ? {} : { compact: false }) } satisfies EntryProps
+  return [off, pill({ Box, Text }, look.nerd, THEME.surface3, <Client key={AFK_RAN_CHIP} module="./entry.tsx" height={1} props={props} />, `${AFK_RAN_CHIP}-pill`)]
+}
+
 export const register: Register = (on, options) => {
   still = options.animations === false
   toasts.isStill = still
@@ -1064,7 +1225,11 @@ export const register: Register = (on, options) => {
     if (!judged.risk) return next(e)
     let outcome: 'run' | { deny: string }
     try {
-      outcome = (await useStored($, next, judged.command)) ?? (await holdRisky($, next, judged.risk, judged.command))
+      await loadAfk($)
+      const isAway = isAfkOn(await $.clock.now())
+      // A failed check, even a lost rules.json, could hide a hold the floor keeps, so the pass refuses it.
+      const awayRisk = judged.failed === undefined ? judged.risk : errorRisk(judged.failed)
+      outcome = (await useStored($, next, judged.command)) ?? (isAway ? await passAway($, awayRisk, judged.command, judged.rules ?? [], judged.session) : await holdRisky($, next, judged.risk, judged.command))
     } catch {
       outcome = { deny: 'Blast radius hit an error while checking this command and did not run it. Do not retry it unless the user asks you to.' }
     }
@@ -1140,7 +1305,7 @@ export const register: Register = (on, options) => {
     return next(e)
   })
 
-  on('command.run', { command: 'mod-blast-radius' }, async ($, e) => ({ text: await answer($, e.args) }))
+  on('command.run', { command: 'mod-blast-radius' }, async ($, e) => ({ text: await answer($, e.args, e.origin?.kind === 'composer') }))
 
   on('ui.render', { component: 'Pane' }, async ($, e, next) => {
     await loadLook($)
@@ -1242,7 +1407,7 @@ export const register: Register = (on, options) => {
     const rows = (await $.config.list()).filter(row => row.key.startsWith('mod-blast-radius.'))
     // A saved change reloads this mod, which redraws the panel with the new value.
     const run = async (action: Action) => {
-      const said = action.command === 'mod-blast-radius' ? answer($, action.args ?? '') : $.command.run({ command: action.command, args: action.args ?? '' }).then(() => fill(text.ui.ran, { command: action.command }))
+      const said = action.command === 'mod-blast-radius' ? answer($, action.args ?? '', true) : $.command.run({ command: action.command, args: action.args ?? '' }).then(() => fill(text.ui.ran, { command: action.command }))
       note = await said.then(reply => `${MARK.ok} ${reply || action.label}`).catch(error => `${MARK.warn} ${String(error)}`)
       $.ui.invalidate('ui.render')
     }
@@ -1279,6 +1444,7 @@ export const register: Register = (on, options) => {
       $.clock.after(0, async () => {
         if (isTipMessage(data)) hover($, data)
         else if ((data as EntryMessage)?.type === 'menu-entry' && (data as EntryMessage).id === WAIT_CHIP) await reopenWaiting($).catch(() => {})
+        else if ((data as EntryMessage)?.type === 'menu-entry') await heardAfk($, (data as EntryMessage).id).catch(() => false)
       })
     }
 
@@ -1303,6 +1469,7 @@ export const register: Register = (on, options) => {
     }
     const message = e.data as EntryMessage
     if (message?.type === 'menu-entry' && message.id === WAIT_CHIP) await reopenWaiting($)
+    if (message?.type === 'menu-entry' && (await heardAfk($, message.id))) return next(e)
     if (message?.type === 'menu-entry') await choose($, message.id)
     // The Details pane's expand control only changes how much of the command it draws; the card's Run and Cancel never read it.
     if (message?.type === 'menu-entry' && message.id === DOES_MORE && held) {
@@ -1327,23 +1494,28 @@ export const register: Register = (on, options) => {
     const { Box, Button, Client, Input, Text } = $.ui.resolve(e)
     // The waiting chip ends the pill row; with labels off, or a row too narrow for the words, it shows the icon and the count only.
     const chips = [...waiting.values()]
+    await loadAfk($)
+    const now = await $.clock.now()
+    // The AFK pill shows whenever holds are on, so the pass is one hover away.
+    const hasAfk = isEnabled
     const drawRow = async (group: unknown[], row: unknown[], rest: unknown[], tip: unknown) => {
       const labels = labelsOf((await $.state.get({ plugin: 'mod-menu', key: 'labels' }).catch(() => undefined))?.value)
+      const readouts = (mode: 'full' | 'count') => [...afkReadouts({ Box, Client, Text }, now, labels), ...(chips.length > 0 ? [waitChip({ Box, Client, Text }, mode, chips)] : [])]
       // mod-menu draws the chip in the one shared row and fits that row itself.
       const hosted = (await $.state.get({ plugin: 'mod-menu', key: 'host' }).catch(() => undefined))?.value === true
-      if (hosted) return pillRow({ Box, Client, Text }, look.nerd, group, [...row, hiddenReadouts({ Box }, [waitChip({ Box, Client, Text }, labels === 'never' ? 'count' : 'full', chips)])], rest, tip, e.props.bodyColumns)
-      const draw = (mode: 'full' | 'count') => pillRow({ Box, Client, Text }, look.nerd, group, [...row, waitChip({ Box, Client, Text }, mode, chips)], rest, tip, e.props.bodyColumns)
+      if (hosted) return pillRow({ Box, Client, Text }, look.nerd, group, [...row, hiddenReadouts({ Box }, readouts(labels === 'never' ? 'count' : 'full'))], rest, tip, e.props.bodyColumns)
+      const draw = (mode: 'full' | 'count') => pillRow({ Box, Client, Text }, look.nerd, group, [...row, ...readouts(mode)], rest, tip, e.props.bodyColumns)
       const full = draw(labels === 'never' ? 'count' : 'full')
       return labels !== 'never' && isChipCut(full) ? draw('count') : full
     }
     // The hold can end while next(e) is awaited, which nulls `held`; this render draws the card it started with.
     const shown = held
     if (!shown || !shown.report || !shown.plain || shown.decision !== null) {
-      if (toasts.items.length === 0 && chips.length === 0) return next(e)
+      if (toasts.items.length === 0 && chips.length === 0 && !hasAfk) return next(e)
       const others = await next(e)
       const { group, row, rest, tip } = splitRow(others)
       const cards = toastCards({ Box, Client, Text }, toasts, look, text.tipToast)
-      if (chips.length > 0) return drawRow(group, row, [...cards, ...rest], hovered?.id && hovered !== bandExpired ? tipLine({ Box, Text }, tipText(hovered)) : tip)
+      if (chips.length > 0 || hasAfk) return drawRow(group, row, [...cards, ...rest], hovered?.id && hovered !== bandExpired ? tipLine({ Box, Text }, tipText(hovered)) : tip)
       if (group.length > 0 || row.length > 0) return pillRow({ Box, Client, Text }, look.nerd, group, row, [...cards, ...rest], tip, e.props.bodyColumns)
       return (
         <Box key="toasts-blast" flexDirection="column">
@@ -1359,7 +1531,7 @@ export const register: Register = (on, options) => {
     // While a call is held only the card and the pill row draw, so other rows cannot fill the band and cut the card off.
     const card = holdCard({ Box, Button, Client, Input, Text }, shown, e.props.bodyColumns, e.props.maxRows, id => choose($, id), value => typeReason($, value), value => sendReason($, value), sessionCount(checks))
     const exclusive = <Box key="band-exclusive" display="none" />
-    if (chips.length > 0) return drawRow(group, row, [...cards, card, exclusive], tip)
+    if (chips.length > 0 || hasAfk) return drawRow(group, row, [...cards, card, exclusive], tip)
     return pillRow({ Box, Client, Text }, look.nerd, group, row, [...cards, card, exclusive], tip, e.props.bodyColumns)
   })
 }

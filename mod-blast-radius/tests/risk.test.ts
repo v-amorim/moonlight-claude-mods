@@ -354,6 +354,10 @@ const TABLE: Row[] = [
   ['cmd 2>/dev/null', null],
   ['cmd > /dev/null 2>&1', null],
   ['echo "a > b.py"', null],
+  ['mkdir -p /tmp/an && cat > /tmp/an/a.py <<\'EOF\'\nprint(1)\nEOF\npython -I /tmp/an/a.py', null],
+  ['echo x > /c/Users/me/AppData/Local/Temp/x/a.json', null],
+  ['echo x > /tmp/../etc/a.py', 'redirect', REDIRECT],
+  ['echo x > /tmp/a.py; echo y > main.py', 'redirect', REDIRECT],
   // beyond the core checks: other redirects, mv, Windows deletion, cmdlets
   ['echo hi > out.txt', null],
   ['echo hi >> out.txt', null],

@@ -6,6 +6,8 @@ declare module 'claude-code' {
       pane: boolean
       holding: boolean
       checks: { id: string; tool: string; family: string; summary: string; verdict: string; isAgent: boolean; at: number }[]
+      // The AFK pass: until is its end in ms (-1: no end, 0: off), total its length, ran what ran with no card.
+      afk: { until: number; total: number; ran: string[] }
     }
     // Read only: mod-menu's label mode, which the pill row follows, and the pane flag every mod sets while its panel is open.
     // Read only, soft: the absolute paths mod-wrap-up's ledger names in open tasks and live decisions. Absent without that mod.

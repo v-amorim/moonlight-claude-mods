@@ -40,8 +40,8 @@ export type Risk = {
   source?: 'hook' | 'blast' | 'rules' | 'error'
 }
 
-// action pass: a matching step skips the checks, unless a critical check marks it; alone: only when every step passes, as typed.
-export type UserRule = { re: RegExp; reason: string; action?: 'pass'; alone?: true }
+// action pass: a matching step skips the checks, unless a critical check marks it; alone: only when every step passes; afk pass: an AFK pass lets this hold through.
+export type UserRule = { re: RegExp; reason: string; action?: 'pass'; alone?: true; afk?: 'pass' }
 
 // Where the session runs: its folder (null when unknown) and the person's home folder.
 export type Session = { cwd: string | null; home: string }
@@ -489,8 +489,8 @@ export function stripTempSafeDeletes(text: string) {
 
 // ---- Built-in CHECKS, in order so the sharper reason wins ----
 
-// cmd: the command word a check applies to; unmasked: it reads quoted operands, which are its targets.
-type Check = { label: string; pattern: RegExp; reason: string; source: 'normalized' | 'raw' | 'temp'; kinds: RiskKind[]; kind?: RiskKind; cmd?: RegExp; viaXargs?: boolean; unmasked?: boolean; critical?: boolean }
+// cmd: the command word it applies to; unmasked: it reads quoted operands; floor (and critical): an AFK pass still holds it.
+type Check = { label: string; pattern: RegExp; reason: string; source: 'normalized' | 'raw' | 'temp'; kinds: RiskKind[]; kind?: RiskKind; cmd?: RegExp; viaXargs?: boolean; unmasked?: boolean; critical?: boolean; floor?: boolean }
 
 // Directories that should never be recursively deleted, grouped as the hook groups them.
 const CRITICAL_DIR_NAMES = [
@@ -547,6 +547,7 @@ export const CHECKS: Check[] = [
   {
     // Unity Catalog widens the destructive DDL surface to SCHEMA, CATALOG and VOLUME; VACUUM drops Delta history.
     label: 'sql',
+    floor: true,
     pattern: /\bDROP\s+(TABLE|DATABASE|SCHEMA|CATALOG|VIEW|FUNCTION|VOLUME)\b|\bTRUNCATE\s+(TABLE\s+)?\S|\bDELETE\s+FROM\s+\S+\s*;?\s*$|\bALTER\s+TABLE\s+\S+\s+DROP\s+(COLUMN|CONSTRAINT|FEATURE)\b|\bALTER\s+(TABLE|SCHEMA)\s+\S+\s+RENAME\b|\bVACUUM\s+\S/i,
     reason: words.reasons.sql,
     source: 'normalized',
@@ -556,6 +557,7 @@ export const CHECKS: Check[] = [
   {
     // \s(--force|-f) catches both "git push --force" and "git push origin -f".
     label: 'git push --force',
+    floor: true,
     cmd: /^git$/,
     pattern: /\bgit\s+push\b.*\s(--force|-f)(\s|$)|\bgit\s+push\b.*--force-with-lease\b|\bgit\s+reset\s+--hard\b/,
     reason: words.reasons.gitForce,
@@ -581,6 +583,7 @@ export const CHECKS: Check[] = [
   },
   {
     label: 'git push --delete',
+    floor: true,
     cmd: /^git$/,
     pattern: /\bgit\s+push\b.*--delete\b/,
     reason: words.reasons.gitPushDelete,
@@ -589,6 +592,7 @@ export const CHECKS: Check[] = [
   },
   {
     label: 'make deploy',
+    floor: true,
     cmd: /^make$/,
     pattern: /\bmake\s+(bundle-deploy|app-deploy|deploy)\b.*(TARGET|ENV)=(prod|production)\b/i,
     reason: words.reasons.makeDeploy,
@@ -597,6 +601,7 @@ export const CHECKS: Check[] = [
   },
   {
     label: 'databricks bundle destroy',
+    floor: true,
     cmd: /^databricks$/,
     pattern: /\bdatabricks\s+bundle\s+destroy\b/,
     reason: words.reasons.bundleDestroy,
@@ -605,6 +610,7 @@ export const CHECKS: Check[] = [
   },
   {
     label: 'deploy to prod',
+    floor: true,
     cmd: /deploy|^gcloud$/,
     pattern: /\bdeploy.*--env[= ](prod|production)\b|\bgcloud.*--project[= ][\w-]*-prod\b/i,
     reason: words.reasons.deployProd,
@@ -613,6 +619,7 @@ export const CHECKS: Check[] = [
   },
   {
     label: 'gcloud delete',
+    floor: true,
     cmd: /^(gcloud|gsutil)$/,
     // gsutil takes options before the verb (`gsutil -m rm -r`), and removing one object is still a deletion.
     pattern: /\bgsutil\s+(?:-\S+\s+)*(rm|del|delete)\b|\bgcloud\s+storage\s+rm\b|\bgcloud\s+(dataproc|composer|sql).*delete\b|\bgcloud\s+projects\s+delete\b/i,
@@ -622,6 +629,7 @@ export const CHECKS: Check[] = [
   },
   {
     label: 'az delete',
+    floor: true,
     cmd: /^az$/,
     pattern: /\baz\s+group\s+delete\b|\baz\s+storage\s+(blob|container)\s+(delete|delete-batch)\b|\baz\s+databricks\s+workspace\s+delete\b|\baz\s+keyvault\s+(delete|purge)\b/i,
     reason: words.reasons.azDelete,
@@ -630,6 +638,7 @@ export const CHECKS: Check[] = [
   },
   {
     label: 'databricks delete',
+    floor: true,
     cmd: /^databricks$/,
     pattern: /\bdatabricks\s+secrets\s+delete-scope\b|\bdatabricks\s+workspace\s+delete\b/,
     reason: words.reasons.databricksDelete,
@@ -646,6 +655,7 @@ export const CHECKS: Check[] = [
   },
   {
     label: 'curl | sh',
+    floor: true,
     cmd: /^(curl|wget|fetch)$/,
     pattern: /\b(curl|wget|fetch)\b.*\|\s*(bash|sh|zsh|python|perl|ruby)\b/,
     reason: words.reasons.curlSh,
@@ -654,6 +664,7 @@ export const CHECKS: Check[] = [
   },
   {
     label: 'secret read',
+    floor: true,
     cmd: /^(cat|less|head|tail|more|source|grep|sed|awk|bat|echo)$/,
     pattern: /\b(cat|less|head|tail|more|source|grep|sed|awk|bat)\s+(\.env\b|\.databrickscfg\b|\.mcp\.json\b)|\becho.*\$\(.*\.env/,
     reason: words.reasons.secretRead,
@@ -663,6 +674,7 @@ export const CHECKS: Check[] = [
   {
     // Quoted or not, an echoed substitution that reads .env prints the secret; the substitution is split out of the normalized steps, so only the raw text still shows it.
     label: 'secret read',
+    floor: true,
     cmd: /^echo$/,
     unmasked: true,
     pattern: /\becho\b.*\$\(.*\.env\b/,
@@ -672,6 +684,7 @@ export const CHECKS: Check[] = [
   },
   {
     label: 'credential read',
+    floor: true,
     cmd: /^(cat|less|head|tail|more|bat)$/,
     pattern: /\b(cat|less|head|tail|more|bat)\b.+(\.databricks\/\.databricks\.env|\.aws\/(credentials|config)|\.ssh\/(config|known_hosts|authorized_keys)|id_rsa|id_ed25519)/,
     reason: words.reasons.credentialRead,
@@ -914,26 +927,52 @@ function withoutPassed(command: string, rules: UserRule[], depth: number, sessio
   return dropped ? kept.join('\n') : null
 }
 
-// The first risky thing in a command line, or null: the built-in checks, then what shells run, then this mod's extras, then the person's rules.
-export function classify(original: string, rules: UserRule[] = [], depth = 0, session?: Session): Risk | null {
-  const command = stripHeredocs(original)
-  const rest = withoutPassed(command, rules, depth, session)
-  if (rest !== null) return classify(rest, rules.filter(rule => rule.action !== 'pass'), depth, session)
+// Which built-in checks a command (heredocs already stripped) trips.
+function checkerFor(command: string) {
   // Temp logic reads whole lines, so `$(mktemp -d)` stays in one piece; the checks read the steps with substitutions split out.
   const lineText = normalizeSteps(command, false)
   const normalized = normalizeSteps(command)
-  const temp: TempContext = { resolved: resolveTempVars(expandMktemp(lineText)) }
-  const found = structural(expandMktemp(command), temp, null)
   const steps = stepsOf(normalized)
   const tempSteps = stepsOf(normalizeSteps(stripTempSafeDeletes(lineText)))
   const hasClient = steps.some(step => SQL_CLIENTS.has(step.cmd))
-
   const applies = (check: Check, step: Step) => (!check.cmd || check.cmd.test(step.cmd)) && (!check.viaXargs || step.viaXargs)
   const isHit = (check: Check) => {
     if (check.kind === 'sql') return hasClient && check.pattern.test(normalized)
     if (check.source === 'raw') return steps.some(step => applies(check, step)) && check.pattern.test(check.unmasked ? command : maskQuoted(command))
     return (check.source === 'temp' ? tempSteps : steps).some(step => applies(check, step) && check.pattern.test(check.unmasked ? step.line : maskQuoted(step.line)))
   }
+  return { steps, isHit }
+}
+
+// A `..` or a whole place counts only where it is the thing deleted or moved: `cd ..` is fine.
+const PLACE_MOVERS = new Set(['rm', 'rmdir', 'mv', 'find', 'chmod', 'chown'])
+
+// What an AFK pass still holds, or null: a floor or critical check, a whole place, text handed to a shell, or a hold rule without afk pass.
+export function afkFloor(original: string, rules: UserRule[] = [], session?: Session): Risk | null {
+  const stripped = stripHeredocs(original)
+  const command = withoutPassed(stripped, rules, 0, session) ?? stripped
+  if (!command.trim()) return null
+  const { steps, isHit } = checkerFor(command)
+  const hit = CHECKS.find(check => (check.floor || check.critical) && isHit(check))
+  if (hit) return { ...RULE, label: hit.label, reason: hit.reason, source: 'hook' }
+  if (steps.some(step => PLACE_MOVERS.has(step.cmd) && isCriticalStep(step))) return { ...RULE, label: 'rm', reason: words.reasons.rootDelete, source: 'hook' }
+  // The text a shell runs is a string the checks above cannot see into.
+  const shell = steps.find(step => innerOf(step) !== undefined)
+  if (shell) return { ...RULE, label: shell.cmd, reason: words.reasons.afkShell, source: 'hook' }
+  const rule = rules.find(each => each.action !== 'pass' && each.afk !== 'pass' && passes(each, command))
+  if (rule) return { ...RULE, label: words.labels.yourRule, reason: rule.reason, pattern: rule.re.source, source: 'rules' }
+  return null
+}
+
+// The first risky thing in a command line, or null: the built-in checks, then what shells run, then this mod's extras, then the person's rules.
+export function classify(original: string, rules: UserRule[] = [], depth = 0, session?: Session): Risk | null {
+  const command = stripHeredocs(original)
+  const rest = withoutPassed(command, rules, depth, session)
+  if (rest !== null) return classify(rest, rules.filter(rule => rule.action !== 'pass'), depth, session)
+  const lineText = normalizeSteps(command, false)
+  const temp: TempContext = { resolved: resolveTempVars(expandMktemp(lineText)) }
+  const found = structural(expandMktemp(command), temp, null)
+  const { steps, isHit } = checkerFor(command)
 
   const hit = CHECKS.find(isHit)
   if (hit) {
@@ -953,9 +992,9 @@ export function classify(original: string, rules: UserRule[] = [], depth = 0, se
     }
   }
 
-  const code = CODE_REDIRECT.exec(maskQuoted(command))
-  // A target built from a shell variable or a glob is never held: it is not a file a check could name.
-  if (code && !/[$`*?]/.test(code[1]!)) return { kind: 'redirect', label: 'redirect >', reason: REASON.redirect, targets: [code[1]!], args: [code[1]!], dir: found?.dir ?? null, source: 'hook' }
+  // A target built from a shell variable or a glob is never held: it is not a file a check could name. A temp file is scratch.
+  const code = [...maskQuoted(command).matchAll(new RegExp(CODE_REDIRECT, 'g'))].map(match => match[1]!).find(target => !/[$`*?]/.test(target) && !isSafeTempPath(target))
+  if (code) return { kind: 'redirect', label: 'redirect >', reason: REASON.redirect, targets: [code], args: [code], dir: found?.dir ?? null, source: 'hook' }
 
   if (found && !found.isPreviewOnly) return found
 
@@ -1001,7 +1040,7 @@ export function compileRules(text: string): { rules: UserRule[]; notes: string[]
   const rules: UserRule[] = []
   const notes: string[] = []
   data.forEach((entry, index) => {
-    const item = entry as { pattern?: unknown; reason?: unknown; flags?: unknown; action?: unknown; alone?: unknown } | null
+    const item = entry as { pattern?: unknown; reason?: unknown; flags?: unknown; action?: unknown; alone?: unknown; afk?: unknown } | null
     if (!item || typeof item.pattern !== 'string' || typeof item.reason !== 'string' || (item.flags !== undefined && typeof item.flags !== 'string') || (item.action !== undefined && typeof item.action !== 'string')) {
       notes.push(fill(words.rulesNotes.needsFields, { n: index + 1 }))
       return
@@ -1011,7 +1050,7 @@ export function compileRules(text: string): { rules: UserRule[]; notes: string[]
       return
     }
     try {
-      rules.push({ re: new RegExp(item.pattern, (item.flags ?? '').replace(/[gy]/g, '')), reason: item.reason, ...(item.action === 'pass' ? { action: 'pass' as const, ...(item.alone === true ? { alone: true as const } : {}) } : {}) })
+      rules.push({ re: new RegExp(item.pattern, (item.flags ?? '').replace(/[gy]/g, '')), reason: item.reason, ...(item.action === 'pass' ? { action: 'pass' as const, ...(item.alone === true ? { alone: true as const } : {}) } : {}), ...(item.afk === 'pass' ? { afk: 'pass' as const } : {}) })
     } catch (error) {
       notes.push(fill(words.rulesNotes.skipped, { n: index + 1, why: String((error as Error).message).slice(0, 60) }))
     }
