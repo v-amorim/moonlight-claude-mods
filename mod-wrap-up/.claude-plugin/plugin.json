@@ -1,6 +1,6 @@
 {
   "name": "mod-wrap-up",
-  "version": "2.1.0",
+  "version": "2.2.0",
   "description": "Wrap up: hand off to a fresh session (summarize, /clear, fill the handoff) or fill a /compact that keeps what you pick",
   "license": "MIT",
   "author": {
@@ -49,8 +49,8 @@
     },
     "new_window": {
       "type": "boolean",
-      "title": "Hand off to a new window",
-      "description": "A handoff opens the next session in a new Windows Terminal window instead of clearing this one. This session stays open with its automatic handoff stopped, so you close it when you are done. Off, or without Windows Terminal, the handoff clears this session as before",
+      "title": "Hand off to a new tab",
+      "description": "A handoff opens the next session in a new tab of this Windows Terminal window instead of clearing this one. This session stays open with its automatic handoff stopped, so you close it when you are done. Off, or without Windows Terminal, the handoff clears this session as before",
       "default": true
     },
     "compact_at": {

@@ -36,7 +36,7 @@ let compactOn = false
 let newWindow = true
 // /resume lists sessions by the folder they started in, so the next window opens there however far this session's cwd has moved.
 let rootCwd = ''
-// The next session's name once this one handed off to a new window: it stays open, its automatic handoff stops, and a card says where the work went.
+// The next session's name once this one handed off to a new tab: it stays open, its automatic handoff stops, and a card says where the work went.
 let handedOff: string | null = null
 let isHandedOffShown = false
 // Work done here after the handoff never reaches the new session, so the handed off card says so once a turn starts here.
@@ -406,7 +406,7 @@ async function openNext($: EngineInterface, join: Join) {
   return false
 }
 
-// A cold claude start in a new window fits well inside this.
+// A cold claude start in a new tab fits well inside this.
 const JOIN_WAIT_MS = 30_000
 
 function markHandedOff($: EngineInterface, next: string) {
@@ -799,7 +799,7 @@ async function handOffAtMark($: EngineInterface, token: number) {
   }
 }
 
-// A session that handed off to a new window leaves the ledger to it, so the two never write the chain at once.
+// A session that handed off to a new tab leaves the ledger to it, so the two never write the chain at once.
 async function runAuto($: EngineInterface) {
   if (!autoOn || isRunning || handedOff !== null) return
   const mine = (runId += 1)
@@ -1078,7 +1078,7 @@ function choiceCard({ Box, Client, Text }: Elements, picked: Choice, columns: nu
   )
 }
 
-// The old session after a handoff to a new window: where the work went, and that this one may be closed.
+// The old session after a handoff to a new tab: where the work went, and that this one may be closed.
 function handedOffCard({ Box, Client, Text }: Elements, next: string, isStill: boolean) {
   const close = bare(look.glyph.close)
   const line = fill(text.window.handedOff, { name: next || text.window.next })

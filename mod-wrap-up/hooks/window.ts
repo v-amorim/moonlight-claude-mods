@@ -1,7 +1,7 @@
-// mod-wrap-up / hooks/window.ts, by v-amorim: a handoff that opens the next session in a new Windows Terminal window instead of clearing this one; pure, the reads stay in register.tsx.
+// mod-wrap-up / hooks/window.ts, by v-amorim: a handoff that opens the next session in a new Windows Terminal tab instead of clearing this one; pure, the reads stay in register.tsx.
 import type { NamePlan } from './titles'
 
-// What the new window's own mod reads at its start, through the token its environment carries.
+// What the new tab's own mod reads at its start, through the token its environment carries.
 export type Join = {
   chain: string
   title: string
@@ -18,7 +18,8 @@ export const joinFile = (config: string, token: string) => `${config}/mods-data/
 export const joinToken = (session: string, now: number) => `${session.slice(0, 8)}-${now}`.replace(/[^A-Za-z0-9-]/g, '')
 
 // A child of a Claude session inherits CLAUDE_CODE_CHILD_SESSION (transcripts off) and Git Bash's MSYS_NO_PATHCONV (hooks break), so cmd clears both before it starts claude.
-export const windowArgv = (cwd: string, token: string) => ['wt.exe', '-w', 'new', '-d', cwd, 'cmd', '/c', `set CLAUDE_CODE_CHILD_SESSION=& set MSYS_NO_PATHCONV=& set WRAPUP_JOIN=${token}& claude`]
+// `-w 0` is the window used last, the one this session runs in, so the next session lands beside it as a tab.
+export const windowArgv = (cwd: string, token: string) => ['wt.exe', '-w', '0', 'new-tab', '-d', cwd, 'cmd', '/c', `set CLAUDE_CODE_CHILD_SESSION=& set MSYS_NO_PATHCONV=& set WRAPUP_JOIN=${token}& claude`]
 
 // Only Windows Terminal opens the window, so a config folder without a drive letter means the handoff clears as before.
 export const canOpenWindow = (isOn: boolean, config: string) => isOn && /^[A-Za-z]:/.test(config)
@@ -26,7 +27,7 @@ export const canOpenWindow = (isOn: boolean, config: string) => isOn && /^[A-Za-
 const str = (value: unknown) => (typeof value === 'string' ? value : '')
 const num = (value: unknown) => (typeof value === 'number' && Number.isFinite(value) ? value : 0)
 
-// An emptied or torn file is no join, so a reload of the new window never joins twice.
+// An emptied or torn file is no join, so a reload of the new tab never joins twice.
 export function readJoin(raw: string): Join | null {
   try {
     const data = JSON.parse(raw)

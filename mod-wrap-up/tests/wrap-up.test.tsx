@@ -347,10 +347,10 @@ test('with Windows Terminal, Go opens the next session in a new window with the 
   await w.clock.advance(1000)
   expect(w.calls).toEqual(['threads', 'fork', 'run:rename'])
   expect(w.renames).toEqual(['build #1: XY-1 build fix'])
-  expect(runs[0]!.slice(0, 5)).toEqual(['wt.exe', '-w', 'new', '-d', 'C:/work/proj'])
+  expect(runs[0]!.slice(0, 6)).toEqual(['wt.exe', '-w', '0', 'new-tab', '-d', 'C:/work/proj'])
   const [, raw] = [...writes.entries()].find(([path]) => path.includes('/mods-data/mod-wrap-up/join-'))!
   expect(readJoin(raw)).toMatchObject({ chain: '', title: 'build #2: XY-2 deploy', text: 'Goal: ship it.', submit: false })
-  expect(await band.find({ type: 'Text', text: /Handed off to build #2: XY-2 deploy in a new window/ })).toBeDefined()
+  expect(await band.find({ type: 'Text', text: /Handed off to build #2: XY-2 deploy in a new tab/ })).toBeDefined()
   await band.unmount()
 })
 

@@ -10,7 +10,7 @@ import { CAPS, THEME } from './theme'
 // mode: the id of the option the open card is in, and isOn an option that is switched on: both drawn as the lifted subpill of the track and keeping the pill open; isIdle false mutes it while Claude works.
 // still: the animations setting is off, so an option's hover color switches at once.
 // The pill's own caps are drawn here too, so the pointer on a cap is still on the pill and the options stay open.
-export type ChoiceProps = { id: string; label: string; options: { id: string; label: string; isOn?: boolean }[]; mode: string | null; bg: string; nerd: boolean; isIdle: boolean; tips: Tip[]; still?: boolean; icon?: string; cells?: number; compact?: boolean; isMenuOpen?: boolean }
+export type ChoiceProps = { id: string; label: string; options: { id: string; label: string; isOn?: boolean }[]; mode: string | null; bg: string; nerd: boolean; isIdle: boolean; tips: Tip[]; still?: boolean; icon?: string; cells?: number; compact?: boolean; isMenuOpen?: boolean; lead?: string; leadColor?: string }
 
 export const choiceCells = (label: string, nerd: boolean) => (nerd ? 2 : 0) + [...label].length + 2
 
@@ -67,13 +67,15 @@ const Choice: ClientModule<ChoiceProps, Hover> = (props, surface) => {
   const over = surface.state?.over ?? -2
   const isFolded = props.compact === true
   const isExpanded = !isFolded && props.isIdle && (over !== -2 || props.mode !== null)
-  const head = ` ${props.compact && props.icon ? props.icon : props.label} `
+  // An empty label leaves the lead alone in the head, padded on its right.
+  const head = props.compact && props.icon ? ` ${props.icon} ` : props.label ? ` ${props.label} ` : ' '
+  const lead = props.lead && !(props.compact && props.icon) ? ` ${props.lead}` : ''
 
   if (!surface.state) surface.setState({ over: -2, at: 0 })
 
   const optionAt = (x: number) => {
     // The head pill, a space, then the track: its cap (Nerd) or a space of padding.
-    let start = head.length + (props.nerd ? 4 : 2)
+    let start = lead.length + head.length + (props.nerd ? 4 : 2)
     for (const [index, option] of props.options.entries()) {
       const end = start + widthOf(option.label, index)
       if (x >= start && x < end) return index
@@ -122,6 +124,7 @@ const Choice: ClientModule<ChoiceProps, Hover> = (props, surface) => {
   return (
     <Box flexDirection="row">
       {props.nerd ? <Text key="cap-left" color={props.bg}>{CAPS.left}</Text> : null}
+      {lead ? <Text key="lead" color={props.leadColor ?? THEME.onSurface} backgroundColor={props.bg}>{lead}</Text> : null}
       <Text key="head" color={props.isIdle ? (isExpanded ? THEME.muted : THEME.onSurface) : THEME.muted} bold={isFolded && props.isMenuOpen === true} backgroundColor={isFolded && props.isMenuOpen === true ? THEME.lifted : props.bg}>{head}</Text>
       {props.nerd ? <Text key="cap-right" color={props.bg}>{CAPS.right}</Text> : null}
       {track}

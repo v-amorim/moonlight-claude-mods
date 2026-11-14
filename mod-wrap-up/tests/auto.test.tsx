@@ -620,14 +620,14 @@ test('with Windows Terminal the handoff at the mark opens the next session in a 
   // This session takes its own name and is never cleared; the fresh one names itself in its window.
   expect(w.clears).toEqual(['rename orders #1: XYZ-1 cache'])
   expect(runs).toHaveLength(1)
-  expect(runs[0]!.slice(0, 5)).toEqual(['wt.exe', '-w', 'new', '-d', 'C:/work/proj'])
+  expect(runs[0]!.slice(0, 6)).toEqual(['wt.exe', '-w', '0', 'new-tab', '-d', 'C:/work/proj'])
   const [path] = joinOf(w)!
   const raw = seen.raw
   expect(runs[0]!.at(-1)).toContain(`set WRAPUP_JOIN=${path.slice(`${ROOT}/join-`.length, -'.json'.length)}& claude`)
   expect(readJoin(raw)).toMatchObject({ chain: 's1', title: 'orders #2: XYZ-1 deploy', submit: true, goal: 'Build the orders API' })
   expect(readJoin(raw)!.text).toContain('The previous session handed off to this new one')
   expect(w.submittedText).toHaveLength(0)
-  expect(await band.find({ type: 'Text', text: /Handed off to orders #2: XYZ-1 deploy in a new window/ })).toBeDefined()
+  expect(await band.find({ type: 'Text', text: /Handed off to orders #2: XYZ-1 deploy in a new tab/ })).toBeDefined()
   // Past the mark again, it neither updates the ledger nor counts down.
   const asked = w.prompts.length
   await $.turn.complete(MAIN_TURN)
@@ -800,7 +800,7 @@ test('the new window opens in the folder the session started in, not where its c
   await w.clock.advance(5000)
   await w.clock.advance(1)
   await w.clock.advance(1000)
-  expect(runs[0]!.slice(0, 5)).toEqual(['wt.exe', '-w', 'new', '-d', 'C:/work/proj'])
+  expect(runs[0]!.slice(0, 6)).toEqual(['wt.exe', '-w', '0', 'new-tab', '-d', 'C:/work/proj'])
 })
 
 test('a session second in its ledger with no hop in its title hands off as hop 2 to hop 3', FULL, async ($, on) => {
