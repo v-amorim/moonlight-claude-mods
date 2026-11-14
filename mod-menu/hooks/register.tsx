@@ -75,7 +75,10 @@ export const register: Register = (on, options) => {
     if (e.surface !== 'terminal' || e.props.hasSurvey) return next(e)
     if ((await $.state.get({ plugin: 'mod-menu', key: 'hidden' })).value === true) return next(e)
     const found = e.props.rows.flatMap(row => beaconsOf(row.tree).map(props => ({ plugin: row.plugin, props })))
-    const readouts = e.props.rows.flatMap(row => readoutsOf(row.tree).map(node => ({ plugin: row.plugin, node })))
+    // Blast radius's pills (the AFK pass, the waiting chip) end the row, after wrap-up and the model meter.
+    const readouts = e.props.rows
+      .flatMap(row => readoutsOf(row.tree).map(node => ({ plugin: row.plugin, node })))
+      .sort((a, b) => Number(a.plugin === 'mod-blast-radius') - Number(b.plugin === 'mod-blast-radius'))
     // While a call is held only its card and the pills draw, so other rows cannot fill the band and cut the card off.
     const holder = e.props.rows.find(row => hasKey(row.tree, 'band-exclusive'))
     // A row whose only shown node is the engine's still takes lines once stacked, so it is left out.
