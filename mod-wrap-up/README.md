@@ -72,6 +72,8 @@ With Auto handoff at the mark on, the countdown first runs one more ledger updat
 
 The ledger holds the handoff text. It is one JSON file per session chain, written under `~/.claude/mods-data/mod-wrap-up/chains/`. When `CLAUDE_CONFIG_DIR` is set, the folder is `$CLAUDE_CONFIG_DIR/mods-data/mod-wrap-up/` instead. The mod never prunes these files, so delete old ones by hand.
 
+Each update sends the model the newest 40 entries of each list. It leaves out done tasks and superseded decisions, and any open task opened over 7 days before the ledger's last update counts as dropped. A dropped task stays in the file under Stale open tasks, but it leaves the update prompt, the restore and the pending paths below.
+
 With Automatic handoff on, the mod also publishes the absolute paths that the chain's open tasks and decisions in force name, as the plugin state `pending` (at most 3000 paths, republished each time the ledger changes and at session start). mod-blast-radius reads it so a file the work still needs never skips its card. Home, folders above it and drive roots are never published. Neither mod needs the other.
 
 ## Settings

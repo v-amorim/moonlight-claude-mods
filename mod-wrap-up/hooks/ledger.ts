@@ -120,9 +120,21 @@ export function mergeDelta(ledger: Ledger, delta: Delta, now: number): Ledger {
   return { ...ledger, goal: delta.goal || ledger.goal, runState: delta.runState || ledger.runState, decisions, tasks, problems, ideas, picks, updatedAt: now }
 }
 
+// An open task opened this long before the ledger's last update counts as dropped: it stays in the file but leaves the prompt, the restore and the pending paths.
+const STALE_MS = 7 * 86_400_000
+
+const openTasks = (ledger: Ledger) => ledger.tasks.filter(item => item.status === 'open' && item.at >= ledger.updatedAt - STALE_MS)
+
+const staleTasks = (ledger: Ledger) => ledger.tasks.filter(item => item.status === 'open' && item.at < ledger.updatedAt - STALE_MS)
+
+// The newest entries are what an update can still change, and mergeDelta drops a repeat by text, so the older ones stay in the file and out of the prompt.
+const DIGEST_KEEP = 40
+
+const newest = <T>(items: T[]) => items.slice(-DIGEST_KEEP)
+
 // The ledger as the model reads it: the record only, never the previous handoff text, so a handoff is never a rewrite of a handoff.
 export const digest = (ledger: Ledger) =>
-  JSON.stringify({ goal: ledger.goal, runState: ledger.runState, decisions: ledger.decisions.map(({ id, text, supersededBy }) => ({ id, text, ...(supersededBy ? { supersededBy } : {}) })), tasks: ledger.tasks.map(({ id, text, status }) => ({ id, text, status })), problems: ledger.problems.map(({ id, problem, fix }) => ({ id, problem, fix })), ideas: ledger.ideas.map(({ id, text, status, reason }) => ({ id, text, status, reason })), picks: ledger.picks.map(({ id, family, pick }) => ({ id, family, pick })) }, null, 1)
+  JSON.stringify({ goal: ledger.goal, runState: ledger.runState, decisions: newest(liveDecisions(ledger)).map(({ id, text }) => ({ id, text })), tasks: newest(openTasks(ledger)).map(({ id, text }) => ({ id, text })), problems: newest(ledger.problems).map(({ id, problem, fix }) => ({ id, problem, fix })), ideas: newest(ledger.ideas).map(({ id, text, status, reason }) => ({ id, text, status, reason })), picks: newest(ledger.picks).map(({ id, family, pick }) => ({ id, family, pick })) })
 
 export const AUTO_SYSTEM = [
   'You keep the record of a coding session and write its handoff.',
@@ -288,15 +300,17 @@ const liveDecisions = (ledger: Ledger) => ledger.decisions.filter(item => !item.
 export function ledgerMarkdown(ledger: Ledger) {
   const decisions = liveDecisions(ledger).map(item => `${item.id} ${item.text}`)
   const replaced = ledger.decisions.filter(item => item.supersededBy).map(item => `${item.id} superseded: ${item.text} | replaced by: ${item.supersededBy}`)
+  const stale = staleTasks(ledger)
   return [
     `## Goal\n${ledger.goal || 'none'}`,
     `## Run state\n${ledger.runState || 'none'}`,
-    `## Open tasks\n${lines(ledger.tasks.filter(item => item.status === 'open').map(item => `${item.id} ${item.text}`))}`,
+    `## Open tasks\n${lines(openTasks(ledger).map(item => `${item.id} ${item.text}`))}`,
     `## Decisions\n${lines([...decisions, ...replaced])}`,
     `## Problems and fixes\n${lines(ledger.problems.map(item => `${item.id} ${item.problem} | fix: ${item.fix || 'open'}`))}`,
     `## Ideas parked or rejected\n${lines(ledger.ideas.map(item => `${item.id} ${item.status}: ${item.text} | reason: ${item.reason || 'none'}`))}`,
     `## Picks\n${lines(ledger.picks.map(item => `${item.id} ${item.pick}`))}`,
     `## Done tasks\n${lines(ledger.tasks.filter(item => item.status === 'done').map(item => `${item.id} ${item.text}`))}`,
+    ...(stale.length ? [`## Stale open tasks (opened over 7 days before the last update, left out as dropped)\n${lines(stale.map(item => `${item.id} ${item.text}`))}`] : []),
     `## Sessions\n${ledger.sessions.join(', ') || 'none'}`,
   ].join('\n\n') + '\n'
 }
@@ -331,7 +345,7 @@ export function pendingCandidates(ledger: Ledger | null, home: string): { sure: 
   const root = home.replace(/\\/g, '/').replace(/\/+$/, '')
   // Home or a folder above it would mark every file the person has as pending.
   const covers = (path: string) => `${root.toLowerCase()}/`.startsWith(`${path.toLowerCase()}/`)
-  const lines = [...ledger.tasks.filter(item => item.status === 'open'), ...liveDecisions(ledger)].map(item => item.text)
+  const lines = [...openTasks(ledger), ...liveDecisions(ledger)].map(item => item.text)
   for (const line of lines) {
     for (const token of line.split(/\s+/)) {
       const found = absolutePath(token, root)
@@ -381,15 +395,16 @@ export function restoreContext(ledger: Ledger, mdPath: string, cap = RESTORE_WOR
     }
     return items.length ? shown.join('\n') || '(by id below)' : 'none'
   }
-  const taskLines = take(ledger.tasks.filter(item => item.status === 'open'))
+  const taskLines = take(openTasks(ledger))
   const decisionLines = take(liveDecisions(ledger))
+  const dropped = staleTasks(ledger).length
   return [
     `Earlier in this work, a handoff was written:\n${ledger.handoff}`,
     ...runs.map(adoptLine),
     `Open tasks, from the ledger:\n${taskLines}`,
     `Decisions in force, from the ledger:\n${decisionLines}`,
     skipped.length ? `By id only, text in ${mdPath}: ${skipped.slice(0, MAX_IDS).join(', ')}${skipped.length > MAX_IDS ? `, and ${skipped.length - MAX_IDS} more in the file` : ''}` : '',
-    `The ledger also holds ${plural(ledger.problems.length, 'problem')}, ${plural(ledger.ideas.length, 'idea')}, ${plural(ledger.picks.length, 'pick')}, not shown here. Read ${mdPath} before proposing an option, changing a look, retrying a fix, or answering what is next. The ledger beats this handoff when they disagree.`,
+    `The ledger also holds ${plural(ledger.problems.length, 'problem')}, ${plural(ledger.ideas.length, 'idea')}, ${plural(ledger.picks.length, 'pick')}, not shown here.${dropped ? ` ${plural(dropped, 'open task')} from over 7 days before the last update count as dropped and are listed last in the file.` : ''} Read ${mdPath} before proposing an option, changing a look, retrying a fix, or answering what is next. The ledger beats this handoff when they disagree.`,
     'Ids such as t5 or d12 are the ledger\'s own labels and mean nothing to the person. In replies, name each item in plain words and never cite its id.',
   ]
     .filter(Boolean)

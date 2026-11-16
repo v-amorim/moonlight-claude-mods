@@ -226,6 +226,36 @@ test('the markdown twin has its sections in order, one id-prefixed line per item
   expect(ledgerMarkdown(emptyLedger(1, 's1'))).toContain('## Picks\nnone')
 })
 
+const DAY = 86_400_000
+
+const aged = () => {
+  let ledger = emptyLedger(0, 's1')
+  ledger = mergeDelta(ledger, { ...NONE, decisions: Array.from({ length: 60 }, (_, at) => `Decision ${at + 1}`), opened: Array.from({ length: 60 }, (_, at) => `Old task ${at + 1} in /work/old${at + 1}.md`) }, 1000)
+  ledger = mergeDelta(ledger, { ...NONE, done: ['t1'], superseded: [{ id: 'd1', by: 'Decision 2' }] }, 1001)
+  return mergeDelta(ledger, { ...NONE, opened: ['Fresh task in /work/fresh.md'] }, 1000 + 10 * DAY)
+}
+
+test('the digest keeps the newest entries: no stale or done task, no superseded decision, no pretty print', () => {
+  const sent = JSON.parse(digest(aged()))
+  expect(sent.tasks).toEqual([{ id: 't61', text: 'Fresh task in /work/fresh.md' }])
+  expect(sent.decisions).toHaveLength(40)
+  expect(sent.decisions[39]).toEqual({ id: 'd60', text: 'Decision 60' })
+  expect(sent.decisions.map((item: { id: string }) => item.id)).not.toContain('d1')
+  expect(digest(aged())).not.toContain('\n')
+})
+
+test('an open task from over a week before the last update leaves the restore and the pending paths, and the md lists it last', () => {
+  const ledger = { ...aged(), handoff: 'H' }
+  const context = restoreContext(ledger, '/d/ledger.md')
+  expect(context).toContain('- t61 Fresh task in /work/fresh.md')
+  expect(context).not.toContain('Old task 2 ')
+  expect(context).toContain('59 open tasks from over 7 days before the last update count as dropped')
+  const md = ledgerMarkdown(ledger)
+  expect(md.split('## Done tasks')[0]).not.toContain('Old task 2 ')
+  expect(md.indexOf('- t2 Old task 2')).toBeGreaterThan(md.indexOf('## Stale open tasks'))
+  expect(pendingCandidates(ledger, 'C:/home').sure).toEqual(['/work/fresh.md'])
+})
+
 const wordsOf = (text: string) => text.split(/\s+/).filter(Boolean).length
 
 test('the restore inlines open tasks and live decisions, counts the rest, points at the md and says the ledger wins', () => {
