@@ -833,6 +833,26 @@ test('the new window opens in the folder the session started in, not where its c
   expect(runs[0]!.slice(0, 6)).toEqual(['wt.exe', '-w', '0', 'new-tab', '-d', 'C:/work/proj'])
 })
 
+test('a new chain keeps the folder its first session started in', async ($, on) => {
+  const w = world(on, new Map(), () => UPDATE('X'))
+  await $.session.start({ cwd: 'C:/work/proj' } as never)
+  await w.clock.advance(1)
+  expect(saved(w).root).toBe('C:/work/proj')
+})
+
+test('the new window opens in the chain folder even when this session started in a subfolder of it', FULL, async ($, on) => {
+  const runs: string[][] = []
+  const seen = joiningWindow(on, runs)
+  const { w } = await atTheMark($, on, autoFiles({ ...seeded(), names: NAMES, root: 'C:/work/proj' }))
+  seen.world = w
+  await $.session.start({ cwd: 'C:/work/proj/server' } as never)
+  await w.clock.advance(5000)
+  await w.clock.advance(1)
+  await w.clock.advance(1000)
+  expect(runs[0]!.slice(0, 6)).toEqual(['wt.exe', '-w', '0', 'new-tab', '-d', 'C:/work/proj'])
+  expect(saved(w).root).toBe('C:/work/proj')
+})
+
 test('a session second in its ledger with no hop in its title hands off as hop 2 to hop 3', FULL, async ($, on) => {
   const { w, band } = await atTheMark($, on, autoFiles({ ...seeded(), names: NAMES, sessions: ['s0', 's1'] }))
   await w.clock.advance(5000)

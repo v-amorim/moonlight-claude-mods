@@ -382,7 +382,9 @@ async function planOf($: EngineInterface, names: Names, ledger: Ledger | null): 
 // Opens the next session in its own window, which joins the chain from the file its token names; false when no window started, so the handoff clears instead.
 async function openNext($: EngineInterface, join: Join) {
   const config = await configDir($)
-  const cwd = rootCwd || String(await $.session.cwd().catch(() => ''))
+  const dir = join.chain ? await ledgerDir($) : ''
+  const ledger = dir ? await loadLedger($, dir, join.chain) : null
+  const cwd = ledger?.root || rootCwd || String(await $.session.cwd().catch(() => ''))
   if (!canOpenWindow(newWindow, config) || !cwd) return false
   const token = joinToken(await $.session.id().catch(() => ''), await $.clock.now())
   const path = joinFile(config, token)
@@ -631,7 +633,7 @@ async function openLedger($: EngineInterface) {
   chain = (await chainOf($, dir, id)) ?? (isResume ? await chainFor($, dir, [id]) : undefined) ?? id
   const existing = await loadLedger($, dir)
   if (existing) await publishPending($, existing)
-  else await saveLedger($, dir, emptyLedger(await $.clock.now(), id))
+  else await saveLedger($, dir, emptyLedger(await $.clock.now(), id, rootCwd))
   await ledgerFile($)
 }
 
@@ -807,7 +809,7 @@ async function runAuto($: EngineInterface) {
   try {
     const dir = await ledgerDir($)
     if (!dir) return
-    const ledger = (await loadLedger($, dir)) ?? emptyLedger(await $.clock.now(), await $.session.id())
+    const ledger = (await loadLedger($, dir)) ?? emptyLedger(await $.clock.now(), await $.session.id(), rootCwd)
     const messages = await $.session.messages()
     const turns = Array.isArray(messages) && cursor > 0 && cursor <= messages.length ? messages.slice(cursor) : messages
     if (!Array.isArray(turns) || turns.length === 0) return
@@ -862,7 +864,7 @@ async function decideAfterClear($: EngineInterface, prompt: string) {
   }
   held = chain
   chain = id
-  await saveLedger($, dir, emptyLedger(await $.clock.now(), id))
+  await saveLedger($, dir, emptyLedger(await $.clock.now(), id, rootCwd))
   showChoice($, 'fresh', ledger.goal)
   return ''
 }
@@ -892,7 +894,7 @@ async function flipChoice($: EngineInterface) {
     if (left) await saveLedger($, dir, { ...left, sessions: left.sessions.filter(item => item !== id) })
     held = chain
     chain = id
-    if (!(await loadLedger($, dir))) await saveLedger($, dir, emptyLedger(await $.clock.now(), id))
+    if (!(await loadLedger($, dir))) await saveLedger($, dir, emptyLedger(await $.clock.now(), id, rootCwd))
     cursor = 0
   } else {
     if (!held) return

@@ -22,6 +22,8 @@ export type Ledger = {
   // The /rename names the automatic handoff gives the session it leaves and the fresh one.
   names: Names
   sessions: string[]
+  // The folder the chain's first session started in; the next window opens there, so a session that started in a subfolder never moves the chain.
+  root: string
   startedAt: number
   updatedAt: number
 }
@@ -39,7 +41,7 @@ export type Delta = {
   picks?: { family: string; pick: string }[]
 }
 
-export const emptyLedger = (now: number, sessionId: string): Ledger => ({ version: 1, goal: '', runState: '', decisions: [], tasks: [], problems: [], ideas: [], picks: [], handoff: '', handoffAt: 0, names: { this: '', next: '', topic: '' }, sessions: sessionId ? [sessionId] : [], startedAt: now, updatedAt: now })
+export const emptyLedger = (now: number, sessionId: string, root = ''): Ledger => ({ version: 1, goal: '', runState: '', decisions: [], tasks: [], problems: [], ideas: [], picks: [], handoff: '', handoffAt: 0, names: { this: '', next: '', topic: '' }, sessions: sessionId ? [sessionId] : [], root, startedAt: now, updatedAt: now })
 
 const MAX_TEXT = 400
 
@@ -77,6 +79,7 @@ export function readLedger(raw: unknown): Ledger | null {
     handoffAt: Number(data.handoffAt) || 0,
     names: { this: sessionName(data.names?.this), next: sessionName(data.names?.next), topic: topicName(data.names?.topic) },
     sessions: Array.isArray(data.sessions) ? data.sessions.filter((id: unknown) => typeof id === 'string') : [],
+    root: typeof data.root === 'string' ? data.root : '',
     updatedAt: Number(data.updatedAt) || 0,
   }
 }
@@ -287,6 +290,7 @@ export function mergeFragments(fragments: Ledger[]): Ledger {
     handoff: handoffFrom?.handoff ?? '',
     handoffAt: handoffFrom?.handoffAt ?? 0,
     names: { ...(namesFrom?.names ?? merged.names), topic },
+    root: ordered.map(item => item.root).find(Boolean) ?? '',
     startedAt: starts.length ? Math.min(...starts) : 0,
     updatedAt: Math.max(0, ...ordered.map(item => item.updatedAt)),
   }
