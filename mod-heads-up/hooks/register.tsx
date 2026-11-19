@@ -403,10 +403,19 @@ async function knowIt($: EngineInterface, id: string) {
   await update($, id, { isRead: true })
 }
 
+// A plugin's prompt waits for the session to be idle, so during a main turn the question rides on its next tool result instead; a turn that ends first sends it as a prompt.
+let isWorking = false
+let toAsk: string[] = []
+
 async function chat($: EngineInterface, id: string) {
   const found = noteOf(id)
   if (!found) return
   const prompt = fill(text.chatPrompt, { learn: found.learn })
+  if (isWorking) toAsk = [...toAsk, prompt]
+  else await sendChat($, prompt)
+}
+
+async function sendChat($: EngineInterface, prompt: string) {
   const result = await $.prompt.submit({ text: prompt, asUser: true }).catch((error: unknown) => ({ drop: String(error) }))
   if (!('drop' in result) || !result.drop) return
   // A dropped prompt (an Esc that interrupted the turn is one way) leaves the note in the box for the person's own Enter.
@@ -430,7 +439,7 @@ async function cardAction($: EngineInterface, id: string) {
   const card = saved.card ?? ''
   if (!card) return
   if (id === 'headsup-card-open') await learnMore($, card)
-  // Asking Claude counts as seeing the note; close first, since mid-turn the send waits for idle
+  // Asking Claude counts as seeing the note; close first, since the send can wait for the turn's next step or its end
   else if (id === 'headsup-card-chat' || id === 'headsup-card-draft' || id === 'headsup-card-dismiss') {
     bandTip = ''
     await closeCard($)
@@ -736,7 +745,10 @@ export const register: Register = (on, options) => {
 
   // The receipt of the main turn: subagent turns pass through, their calls count into it.
   on('turn.start', async ($, e, next) => {
-    if (!e.agentId) openTurn = startTurn(openTurn, e, await $.clock.now(), await sessionCost($))
+    if (!e.agentId) {
+      isWorking = true
+      openTurn = startTurn(openTurn, e, await $.clock.now(), await sessionCost($))
+    }
 
     return next(e)
   })
@@ -744,6 +756,10 @@ export const register: Register = (on, options) => {
   on('turn.complete', async ($, e, next) => {
     const result = await next(e)
     if (!e.agentId) {
+      isWorking = false
+      const left = toAsk
+      toAsk = []
+      for (const prompt of left) void sendChat($, prompt)
       const ended = endTurn(openTurn, e, await $.clock.now(), await sessionCost($))
       openTurn = ended.open
       if (ended.receipt) {
@@ -760,8 +776,11 @@ export const register: Register = (on, options) => {
   on('tool.call', async ($, e, next) => {
     const result = await next(e)
     openTurn = countTool(openTurn, e.tool, result.isError === true)
+    if (e.agentId !== undefined || toAsk.length === 0 || result.deny !== undefined) return result
+    const context = [...(result.context ?? []), ...toAsk.map(prompt => fill(text.chatMidTurn, { prompt }))]
+    toAsk = []
 
-    return result
+    return { ...result, context }
   })
 
   on('agent.spawn', async ($, e, next) => {
@@ -797,6 +816,8 @@ export const register: Register = (on, options) => {
 
   // A /resume or /clear ends this session; what its bridge file still holds is delivered first.
   on('session.end', async ($, e, next) => {
+    toAsk = []
+    isWorking = false
     await endBridge($, e.sessionId)
 
     return next(e)

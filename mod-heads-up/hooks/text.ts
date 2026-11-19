@@ -35,6 +35,7 @@ export default {
   "lessDetail": "Less detail",
   "moreDetail": "More detail",
   "chatPrompt": "A heads-up note (a side model's summary, not something you said) claims: \"{learn}\" Check it against this session and tell me if it holds.",
+  "chatMidTurn": "While you worked, the user pressed Ask Claude on a heads-up card. Answer it in your next message, briefly, then carry on with the task:\n\n{prompt}",
   "showAll": "Show all",
   "showLess": "Show less",
   "tipShowAll": "shows every line of this note in full",

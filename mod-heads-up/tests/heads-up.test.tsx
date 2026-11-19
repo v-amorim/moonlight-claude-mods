@@ -136,6 +136,9 @@ function setup(on: any, { reply = () => answered(FULL), below, isUnplaced, gate,
   on('turn.step', async function* (_$: unknown, e: { turnId: string; index: number }) {
     return { turnId: e.turnId, index: e.index, answer: '', toolUses: [], stopReason: 'tool_use', usage: null }
   })
+  on('turn.start', (_$: unknown, e: { turnId: string }) => ({ turnId: e.turnId }))
+  on('turn.complete', () => ({ text: '' }))
+  on('tool.call', () => ({ result: { text: 'ran' } }))
   on('ui.render', ($: any, e: unknown) => {
     const elements = $.ui.resolve(e)
     return below ? below(elements) : <elements.Text key="base">base</elements.Text>
@@ -575,6 +578,42 @@ test('Ask Claude mid-turn closes the card at once, before the turn ends and the 
   expect(sent.slice(1)).toHaveLength(0)
   idle()
   await clock.settle()
+  expect(sent[1]).toMatch(/^A heads-up note/)
+  await ui.unmount()
+})
+
+test('Ask Claude during a main turn rides once on its next main-loop tool result, never on a subagent one, and sends no prompt', async ($, on) => {
+  const { clock, sent } = setup(on)
+  await finding($, clock)
+  await $.turn.start({ text: '', turnId: 't2' })
+  const ui = await band($)
+  await click(ui, 'headsup-card-chat')
+  await clock.settle()
+  expect(await ui.find({ key: 'headsup-card' })).toBeUndefined()
+  const sub = await $.tool.call({ tool: 'Read', file_path: 'a.txt', agentId: 'sub-1' } as never)
+  expect(sub.context).toBeUndefined()
+  const main = await $.tool.call({ tool: 'Read', file_path: 'a.txt' } as never)
+  expect(main.context).toHaveLength(1)
+  expect(main.context?.[0]).toMatch(/^While you worked, the user pressed Ask Claude[\s\S]*\n\nA heads-up note/)
+  const later = await $.tool.call({ tool: 'Read', file_path: 'b.txt' } as never)
+  expect(later.context).toBeUndefined()
+  await $.turn.complete({ turnId: 't2', reason: 'answer', answer: '' } as never)
+  await clock.settle()
+  expect(sent.slice(1)).toHaveLength(0)
+  await ui.unmount()
+})
+
+test('Ask Claude during a main turn that makes no more tool calls is sent as a prompt once the turn ends', async ($, on) => {
+  const { clock, sent } = setup(on)
+  await finding($, clock)
+  await $.turn.start({ text: '', turnId: 't2' })
+  const ui = await band($)
+  await click(ui, 'headsup-card-chat')
+  await clock.settle()
+  expect(sent.slice(1)).toHaveLength(0)
+  await $.turn.complete({ turnId: 't2', reason: 'answer', answer: '' } as never)
+  await clock.settle()
+  expect(sent.slice(1)).toHaveLength(1)
   expect(sent[1]).toMatch(/^A heads-up note/)
   await ui.unmount()
 })
