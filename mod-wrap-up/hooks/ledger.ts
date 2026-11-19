@@ -86,11 +86,14 @@ export function readLedger(raw: unknown): Ledger | null {
 
 const same = (a: string, b: string) => a.toLowerCase() === b.toLowerCase()
 
+// Archiving leaves gaps, so a new id follows the highest one, never the count.
+const nextId = (prefix: string, items: { id: string }[]) => `${prefix}${items.reduce((top, item) => Math.max(top, Number(item.id.slice(prefix.length)) || 0), 0) + 1}`
+
 // Merging never deletes: an old decision or task the delta leaves out stays, a superseded decision gets its mark, a done task stays done.
 export function mergeDelta(ledger: Ledger, delta: Delta, now: number): Ledger {
   const decisions = ledger.decisions.map(item => ({ ...item }))
   for (const text of delta.decisions) {
-    if (!decisions.some(item => same(item.text, text))) decisions.push({ id: `d${decisions.length + 1}`, text, at: now })
+    if (!decisions.some(item => same(item.text, text))) decisions.push({ id: nextId('d', decisions), text, at: now })
   }
   for (const mark of delta.superseded) {
     const target = decisions.find(item => item.id === mark.id)
@@ -98,7 +101,7 @@ export function mergeDelta(ledger: Ledger, delta: Delta, now: number): Ledger {
   }
   const tasks = ledger.tasks.map(item => ({ ...item }))
   for (const text of delta.opened) {
-    if (!tasks.some(item => same(item.text, text))) tasks.push({ id: `t${tasks.length + 1}`, text, status: 'open', at: now })
+    if (!tasks.some(item => same(item.text, text))) tasks.push({ id: nextId('t', tasks), text, status: 'open', at: now })
   }
   for (const id of delta.done) {
     const target = tasks.find(item => item.id === id)
@@ -107,18 +110,18 @@ export function mergeDelta(ledger: Ledger, delta: Delta, now: number): Ledger {
   const problems = ledger.problems.map(item => ({ ...item }))
   for (const { problem, fix } of delta.problems ?? []) {
     const found = problems.find(item => same(item.problem, problem))
-    if (!found) problems.push({ id: `p${problems.length + 1}`, problem, fix, at: now })
+    if (!found) problems.push({ id: nextId('p', problems), problem, fix, at: now })
     else if (!found.fix && fix) found.fix = fix
   }
   const ideas = ledger.ideas.map(item => ({ ...item }))
   for (const { text, status, reason } of delta.ideas ?? []) {
     const found = ideas.find(item => same(item.text, text))
-    if (!found) ideas.push({ id: `i${ideas.length + 1}`, text, status, reason, at: now })
+    if (!found) ideas.push({ id: nextId('i', ideas), text, status, reason, at: now })
     else if (found.status !== status) Object.assign(found, { status, reason: reason || found.reason })
   }
   const picks = ledger.picks.map(item => ({ ...item }))
   for (const { family, pick } of delta.picks ?? []) {
-    if (!picks.some(item => same(item.family, family) && same(item.pick, pick))) picks.push({ id: `k${picks.length + 1}`, family, pick, at: now })
+    if (!picks.some(item => same(item.family, family) && same(item.pick, pick))) picks.push({ id: nextId('k', picks), family, pick, at: now })
   }
   return { ...ledger, goal: delta.goal || ledger.goal, runState: delta.runState || ledger.runState, decisions, tasks, problems, ideas, picks, updatedAt: now }
 }
@@ -317,6 +320,39 @@ export function ledgerMarkdown(ledger: Ledger) {
     ...(stale.length ? [`## Stale open tasks (opened over 7 days before the last update, left out as dropped)\n${lines(stale.map(item => `${item.id} ${item.text}`))}`] : []),
     `## Sessions\n${ledger.sessions.join(', ') || 'none'}`,
   ].join('\n\n') + '\n'
+}
+
+export type Archived = Pick<Ledger, 'decisions' | 'tasks' | 'problems' | 'ideas' | 'picks'>
+
+// Done tasks and superseded decisions leave the live ledger at once; everything else settled leaves once it is a week old. Open problems and parked ideas stay, since nothing settles them.
+export function archiveLedger(ledger: Ledger): { live: Ledger; gone: Archived | null } {
+  const isOld = (item: { at: number }) => item.at < ledger.updatedAt - STALE_MS
+  const gone: Archived = {
+    decisions: ledger.decisions.filter(item => Boolean(item.supersededBy) || isOld(item)),
+    tasks: ledger.tasks.filter(item => item.status === 'done' || isOld(item)),
+    problems: ledger.problems.filter(item => Boolean(item.fix) && isOld(item)),
+    ideas: ledger.ideas.filter(item => item.status === 'rejected' && isOld(item)),
+    picks: ledger.picks.filter(isOld),
+  }
+  const out = new Set<object>(Object.values(gone).flat())
+  if (!out.size) return { live: ledger, gone: null }
+  const keep = <T extends object>(items: T[]) => items.filter(item => !out.has(item))
+  return { live: { ...ledger, decisions: keep(ledger.decisions), tasks: keep(ledger.tasks), problems: keep(ledger.problems), ideas: keep(ledger.ideas), picks: keep(ledger.picks) }, gone }
+}
+
+// One block appended to the chain's archive file per handoff, in the live markdown's line shapes.
+export function archiveMarkdown(gone: Archived, at: number) {
+  const part = (head: string, items: string[]) => (items.length ? [`### ${head}\n${lines(items)}`] : [])
+  return [
+    `## Archived ${new Date(at).toISOString()}`,
+    ...part('Done tasks', gone.tasks.filter(item => item.status === 'done').map(item => `${item.id} ${item.text}`)),
+    ...part('Stale open tasks', gone.tasks.filter(item => item.status === 'open').map(item => `${item.id} ${item.text}`)),
+    ...part('Superseded decisions', gone.decisions.filter(item => item.supersededBy).map(item => `${item.id} ${item.text} | replaced by: ${item.supersededBy}`)),
+    ...part('Decisions in force', gone.decisions.filter(item => !item.supersededBy).map(item => `${item.id} ${item.text}`)),
+    ...part('Problems and fixes', gone.problems.map(item => `${item.id} ${item.problem} | fix: ${item.fix}`)),
+    ...part('Rejected ideas', gone.ideas.map(item => `${item.id} ${item.text} | reason: ${item.reason || 'none'}`)),
+    ...part('Picks', gone.picks.map(item => `${item.id} ${item.pick}`)),
+  ].join('\n\n') + '\n\n'
 }
 
 // The most paths published to other mods; the rest are dropped, newest ledger lines last.

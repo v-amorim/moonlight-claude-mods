@@ -2,7 +2,7 @@
 // Registers the wrap-up pill, commands, settings pane and handoff or compact actions with the engine.
 import type { ConfigValue, EngineInterface, ModelCompleteRequest, ModelCompleteResult, ModelForkResult, Register, RenderElement } from 'claude-code'
 
-import { AUTO_SYSTEM, autoPrompt, capWords, clampCompactAt, clampCompactTokens, clampEvery, emptyLedger, flip, gatherFragments, isDue, ledgerMarkdown, MAX_PENDING, mergeDelta, mergeFragments, parseRelated, pendingCandidates, parseUpdate, readLedger, RELATED_SYSTEM, relatedPrompt, restoreContext, shortGoal, shouldCompact, yieldsToManual, countGates, type Carry, type CompactMarks, type Fragment, type GatesRun, type Ledger } from './ledger'
+import { archiveLedger, archiveMarkdown, AUTO_SYSTEM, autoPrompt, capWords, clampCompactAt, clampCompactTokens, clampEvery, emptyLedger, flip, gatherFragments, isDue, ledgerMarkdown, MAX_PENDING, mergeDelta, mergeFragments, parseRelated, pendingCandidates, parseUpdate, readLedger, RELATED_SYSTEM, relatedPrompt, restoreContext, shortGoal, shouldCompact, yieldsToManual, countGates, type Carry, type CompactMarks, type Fragment, type GatesRun, type Ledger } from './ledger'
 import { ALSO_KEEP, buildPrompt, LANGUAGE_RULE, clampWords, compactNote, FORK_FAILURES, isFresh, parseNames, parseThreads, scopeNote, threadsPrompt, THREADS_SYSTEM, transcriptText, type AlsoId, type Names, type Thread } from './handoff'
 import { cardFill, detectNerd, FOOTER_ROWS, lookFor, paneFooter, sepText, titleEdge, type IconMode, withMark } from './look'
 import { isTipMessage, tipText, type EntryMessage, type EntryProps, type Tip, type TipMessage } from './entry'
@@ -13,11 +13,11 @@ import { TOAST_MS, ToastList, toastCards } from './toasts'
 import { actionReveals, openSetting, settingChoice, settingsBody, type Action, type Previews, type Range } from './settings'
 import { recordSpend } from './spend'
 import { bridgeOn, endBridge, folderOf, startBridge, type BridgeRecord } from './bridge'
-import { hasInflight, NONE as NO_WORK, readInflight, stopFile, type Inflight } from './inflight'
+import { hasInflight, inflightLines, NONE as NO_WORK, readInflight, stopFile, type Inflight } from './inflight'
 import { bytesOf, chunkArgv, scanTail } from './tail'
 import text from './text'
-import { lateNext, latestTitle, planNames, remember, type NamePlan } from './titles'
-import { canOpenWindow, joinFile, joinToken, readJoin, windowArgv, type Join } from './window'
+import { lateNext, latestTitle, planNames, remember, titled, type NamePlan } from './titles'
+import { canOpenWindow, isSessionId, joinFile, joinToken, readJoin, windowArgv, type Join } from './window'
 import style from './style'
 import { fill, MARK, statusColor, THEME } from './theme'
 
@@ -39,6 +39,8 @@ let rootCwd = ''
 // The next session's name once this one handed off to a new tab: it stays open, its automatic handoff stops, and a card says where the work went.
 let handedOff: string | null = null
 let isHandedOffShown = false
+// This session was reopened to read after a clear in place; the handoff stayed in the tab that cleared.
+let isReopened = false
 // Work done here after the handoff never reaches the new session, so the handed off card says so once a turn starts here.
 let isStillWorkingShown = false
 
@@ -64,9 +66,9 @@ let countToken = 0
 let chain = ''
 let clearedFrom = ''
 // The first prompt after a clear was carried or started fresh; held is the other chain a switch brings back.
-// link: the two sessions' own names and hops, and their topic, for the card's header; isFull: the cut goal shows in full.
+// link: the two sessions' own names and hops, and their topic, for the card's header; isFull: the cut goal shows in full; previous: the cleared session Open previous reopens, empty for none.
 type Link = Pick<NamePlan, 'oldOwn' | 'nextOwn' | 'topic' | 'oldHop' | 'nextHop'>
-type Choice = { carry: Carry; goal: string; token: number; link: Link; isFull: boolean }
+type Choice = { carry: Carry; goal: string; token: number; link: Link; isFull: boolean; previous: string }
 const NO_LINK: Link = { oldOwn: '', nextOwn: '', topic: '', oldHop: 0, nextHop: 0 }
 let choice: Choice | null = null
 let choiceToken = 0
@@ -411,8 +413,32 @@ async function openNext($: EngineInterface, join: Join) {
 // A cold claude start in a new tab fits well inside this.
 const JOIN_WAIT_MS = 30_000
 
-function markHandedOff($: EngineInterface, next: string) {
+// Reopens the session a clear in place left, in a new tab to read: its join tells its mod to start handed off, so the two tabs never write the chain at once.
+async function openPrevious($: EngineInterface, previous: string, next: string) {
+  const config = await configDir($)
+  const cwd = rootCwd || String(await $.session.cwd().catch(() => ''))
+  const failed = () => $.ui.toast(fill(text.window.previousFailed, { id: previous }))
+  if (!canOpenWindow(true, config) || !cwd || !isSessionId(previous)) return failed()
+  const token = joinToken(previous, await $.clock.now())
+  const path = joinFile(config, token)
+  const join: Join = { chain: '', title: '', text: '', submit: false, goal: '', link: NO_LINK, reopen: true, handedTo: next }
+  try {
+    await $.fs.write(path, JSON.stringify(join))
+    const result = await $.process.run(windowArgv(cwd, token, previous), { timeoutMs: 10_000 })
+    if (result.exitCode === 0) return $.ui.toast(text.window.previousOpened)
+  } catch {
+    // Windows Terminal did not start; the toast names the command to run by hand.
+  }
+  await $.fs.write(path, '').catch(() => {})
+  failed()
+}
+
+// The session id Open previous gets, empty where no Windows Terminal tab can open, so the card offers no button that cannot work.
+const reopenable = async ($: EngineInterface, id: string) => (id && isSessionId(id) && canOpenWindow(true, await configDir($)) ? id : '')
+
+function markHandedOff($: EngineInterface, next: string, reopened = false) {
   handedOff = next
+  isReopened = reopened
   isHandedOffShown = true
   isStillWorkingShown = false
   if (countdown) stopCountdown($)
@@ -450,9 +476,10 @@ async function startHandoff($: EngineInterface, scope: string, names: Names = NO
       return
     }
     const dir = autoOn ? await ledgerDir($) : ''
-    const plan = await planOf($, names, dir ? await loadLedger($, dir) : null)
+    const loaded = dir ? await loadLedger($, dir) : null
+    const plan = await planOf($, names, loaded ? await tidyAtHandoff($, dir, loaded) : null)
     if (plan.old) await rename($, plan.old, text.renameOldFailed)
-    if (await openNext($, { chain: dir ? chain : '', title: plan.next, text: summary, submit: false, goal: '', link: plan })) {
+    if (await openNext($, { chain: dir ? chain : '', title: plan.next, text: summary, submit: false, goal: '', link: plan, reopen: false, handedTo: '' })) {
       markHandedOff($, plan.next)
       say($, `${MARK.ok} ${fill(text.window.opened, { name: plan.next || text.window.next })}`)
       return
@@ -535,6 +562,37 @@ async function saveLedger($: EngineInterface, dir: string, ledger: Ledger, of = 
   await $.fs.write(fileOf(dir, of), JSON.stringify(ledger, null, 1))
   await $.fs.write(mdOf(dir, of), ledgerMarkdown(ledger))
   if (of === chain) await publishPending($, ledger)
+}
+
+// Under $.fs.read's 4 MiB cap, with room for a block whose every character takes three bytes.
+const ARCHIVE_BYTES = 3 * 1024 * 1024
+
+const archiveName = (n: number) => `${chain}.archive${n > 1 ? `-${n}` : ''}.md`
+
+// Appends, never overwrites: a file that cannot be read rejects the whole archive, and a full one rolls over to the next number.
+async function appendArchive($: EngineInterface, dir: string, block: string) {
+  const sizes = new Map((await $.fs.list(dir)).map(entry => [entry.name, entry.size]))
+  for (let n = 1; ; n += 1) {
+    const size = sizes.get(archiveName(n))
+    if (size !== undefined && size + block.length * 3 > ARCHIVE_BYTES) continue
+    const path = `${dir}/${archiveName(n)}`
+    await $.fs.write(path, `${size === undefined ? '' : String(await $.fs.read(path))}${block}`)
+    return
+  }
+}
+
+// At a handoff the done, replaced and week-old items move to the chain's archive.
+async function tidyAtHandoff($: EngineInterface, dir: string, ledger: Ledger) {
+  const { live, gone } = archiveLedger(ledger)
+  if (!gone) return ledger
+  try {
+    await appendArchive($, dir, archiveMarkdown(gone, await $.clock.now()))
+    await saveLedger($, dir, live)
+    return live
+  } catch {
+    // The live ledger stays whole when its archive cannot be written.
+    return ledger
+  }
 }
 
 // The paths the chain's open tasks and decisions in force name, for mod-blast-radius to read; a bare folder-like path counts only when it exists.
@@ -646,6 +704,10 @@ async function startOrJoin($: EngineInterface, token: string) {
     return
   }
   await $.fs.write(path, '').catch(() => {})
+  if (join.reopen) {
+    markHandedOff($, join.handedTo, true)
+    return
+  }
   if (autoOn && join.chain) {
     chain = join.chain
     const dir = await ledgerDir($)
@@ -755,27 +817,28 @@ async function handOffAtMark($: EngineInterface, token: number) {
       stopCountdown($)
       return
     }
-    // A background task or a wake-up reports back into this session, so a handoff now would leave that work behind; the next turn counts down again.
+    // Background tasks and wake-ups belong to this process and outlive a /clear, so with any running the handoff clears here and never opens a new tab.
     const work = await inflightNow($)
-    if (hasInflight(work)) {
-      stopCountdown($)
-      $.ui.toast(fill(text.auto.heldForWork, { tasks: String(work.tasks), crons: String(work.crons) }))
-      return
-    }
+    const keepsWork = hasInflight(work)
     const dir = await ledgerDir($)
-    const ledger = dir ? await loadLedger($, dir) : null
-    if (!dir || !ledger?.handoff) {
+    const loaded = dir ? await loadLedger($, dir) : null
+    if (!dir || !loaded?.handoff) {
       stopCountdown($)
       $.ui.toast(text.auto.noHandoff)
       return
     }
+    const ledger = await tidyAtHandoff($, dir, loaded)
     // Read before the clear, so this session's own run counts: the session after the clear has a new id.
-    const carried = restoreContext(ledger, mdOf(dir), undefined, await unfinishedRuns($, ledger))
-    const hasOpenTask = ledger.tasks.some(task => task.status === 'open')
+    const restored = restoreContext(ledger, mdOf(dir), undefined, await unfinishedRuns($, ledger))
+    const carried = keepsWork ? `${restored}\n\n${fill(text.auto.inflight, { list: inflightLines(work) })}` : restored
+    // A running task's notification starts a turn on its own, so the handoff must already be in the conversation: it is sent, never only filled.
+    const lead = ledger.tasks.some(task => task.status === 'open') ? text.auto.continue : keepsWork ? text.auto.awaitWork : ''
+    const hasOpenTask = lead !== ''
     stopCountdown($)
     const plan = await planOf($, ledger.names, ledger)
     if (plan.old) await rename($, plan.old, text.renameOldFailed)
-    if (await openNext($, { chain, title: plan.next, text: hasOpenTask ? `${text.window.continue}\n\n${carried}` : carried, submit: hasOpenTask, goal: ledger.goal, link: plan })) {
+    const previous = String(await $.session.id().catch(() => ''))
+    if (!keepsWork && (await openNext($, { chain, title: plan.next, text: hasOpenTask ? `${text.window.continue}\n\n${carried}` : carried, submit: hasOpenTask, goal: ledger.goal, link: plan, reopen: false, handedTo: '' }))) {
       markHandedOff($, plan.next)
       return
     }
@@ -793,8 +856,8 @@ async function handOffAtMark($: EngineInterface, token: number) {
     }
     if (plan.next) await rename($, plan.next, text.renameFailed)
     await saveLedger($, dir, withSession(ledger, await $.session.id()))
-    showChoice($, 'carried', ledger.goal, plan)
-    if (hasOpenTask) await $.prompt.submit({ text: `${text.auto.continue}\n\n${carried}` })
+    showChoice($, 'carried', ledger.goal, plan, await reopenable($, previous))
+    if (hasOpenTask) await $.prompt.submit({ text: `${lead}\n\n${carried}` })
     else if (!(await fillWithRetry($))) $.ui.toast(text.clearedNotFilled)
   } catch {
     if (isLive()) stopCountdown($)
@@ -834,9 +897,9 @@ async function restoreFrom($: EngineInterface) {
   return ledger?.handoff ? restoreContext(ledger, mdOf(dir), undefined, await unfinishedRuns($, ledger, await $.session.id())) : ''
 }
 
-function showChoice($: EngineInterface, carry: Carry, goal: string, link: Link = NO_LINK) {
+function showChoice($: EngineInterface, carry: Carry, goal: string, link: Link = NO_LINK, previous = '') {
   const token = (choiceToken += 1)
-  choice = { carry, goal, token, link, isFull: false }
+  choice = { carry, goal, token, link, isFull: false, previous }
   $.clock.after(120_000, () => {
     if (choice?.token !== token) return
     choice = null
@@ -859,7 +922,7 @@ async function decideAfterClear($: EngineInterface, prompt: string) {
     const plan = lateNext(await titleOf($, clearedFrom), await appliedTitles($), ledger.names, placeIn(ledger, clearedFrom))
     await keepApplied($, [plan.next])
     if (plan.next) $.clock.after(0, () => void rename($, plan.next, text.renameFailed))
-    showChoice($, 'carried', ledger.goal, plan)
+    showChoice($, 'carried', ledger.goal, plan, await reopenable($, clearedFrom))
     return ledger.handoff ? restoreContext(ledger, mdOf(dir), undefined, await unfinishedRuns($, ledger, id)) : ''
   }
   held = chain
@@ -906,7 +969,7 @@ async function flipChoice($: EngineInterface) {
   }
   runId += 1
   epoch += 1
-  showChoice($, carry, choice.goal, choice.link)
+  showChoice($, carry, choice.goal, choice.link, choice.previous)
 }
 
 type Elements = { Box: (props: any) => RenderElement; Client: (props: any) => RenderElement; Text: (props: any) => RenderElement }
@@ -1025,7 +1088,8 @@ const ACTION_CELLS = 30
 function choiceCard({ Box, Client, Text }: Elements, picked: Choice, columns: number) {
   const isCarried = picked.carry === 'carried'
   const line = isCarried ? (picked.goal ? fill(text.auto.carried, { goal: picked.isFull ? picked.goal : shortGoal(picked.goal) }) : text.auto.carriedNoGoal) : text.auto.fresh
-  const isCut = isCarried && picked.goal !== '' && (shortGoal(picked.goal) !== picked.goal || [...fill(text.auto.carried, { goal: picked.goal })].length > columns - 4 - ACTION_CELLS)
+  const actionCells = ACTION_CELLS + (picked.previous ? [...text.auto.openPrevious].length + 5 : 0)
+  const isCut = isCarried && picked.goal !== '' && (shortGoal(picked.goal) !== picked.goal || [...fill(text.auto.carried, { goal: picked.goal })].length > columns - 4 - actionCells)
   const label = isCarried ? text.auto.toFresh : text.auto.toCarry
   const close = bare(look.glyph.close)
   const control = (id: string, name: string, isOpen: boolean, tip: string, glyph: string) =>
@@ -1048,6 +1112,7 @@ function choiceCard({ Box, Client, Text }: Elements, picked: Choice, columns: nu
     </Box>
   ) : null
   const switches = [
+    picked.previous ? control('wrap-up-choice-previous', text.auto.openPrevious, true, text.tips.openPrevious, bare(look.glyph.go)) : null,
     control('wrap-up-switch', label, true, isCarried ? text.tips.toFresh : text.tips.toCarry, bare(look.glyph.cycle)),
     control('wrap-up-switch-close', close, false, text.tips.dismissAuto, close),
   ]
@@ -1083,7 +1148,7 @@ function choiceCard({ Box, Client, Text }: Elements, picked: Choice, columns: nu
 // The old session after a handoff to a new tab: where the work went, and that this one may be closed.
 function handedOffCard({ Box, Client, Text }: Elements, next: string, isStill: boolean) {
   const close = bare(look.glyph.close)
-  const line = fill(text.window.handedOff, { name: next || text.window.next })
+  const line = fill(isReopened ? text.window.reopened : text.window.handedOff, { name: next || text.window.next })
   return (
     <Box key="wrap-up-handed-off-block" flexDirection="column">
       <Box key="wrap-up-handed-off-card" flexDirection="row" columnGap={1} paddingX={1} borderStyle="round" borderColor={THEME.border} backgroundColor={cardFill()}>
@@ -1193,6 +1258,7 @@ async function heard($: EngineInterface, data: unknown) {
     choice = { ...choice, isFull: !choice.isFull }
     $.ui.invalidate('ui.render')
   }
+  if (message.id === 'wrap-up-choice-previous' && choice?.previous) await openPrevious($, choice.previous, titled(choice.link.topic, choice.link.nextHop, choice.link.nextOwn))
   if (message.id === 'wrap-up-switch-close') {
     choice = null
     $.ui.invalidate('ui.render')

@@ -27,6 +27,8 @@ Continuing from a previous session. Read this, then act on "Next step".
 
 **Goal:** one or two sentences on what the user is trying to achieve.
 
+**Standing instructions:** the user's scope and permissions that outlive one answer, in their words ("continue until ported", "no approval between phases", "just post it"). Keep them apart from the open question, and say the new session may not ask permission to do what they already grant. `none` when there are none.
+
 **Decisions:** bullets of choices already made and why, so the next session does not reopen them. Leave this section out when the run says the ledger carries decisions.
 
 **Current state:** what works, what is broken, what is half done.
@@ -38,5 +40,7 @@ Continuing from a previous session. Read this, then act on "Next step".
 **Open tasks:** bullets, in priority order. Leave this section out when the run says the ledger carries open tasks; spend those words on current state, run state and what is mid-flight.
 
 **Waiting on the user:** for every pick board, question or external job the session is waiting on, give the absolute path of the file where the answer will land (for example `picks.json`) and the command that reopens it. The next session reads that file first, because the wake-up message may never arrive. `none` when nothing is pending.
+
+**Unfinished gates runs:** when the session works from an /execute gates run, give its session id and the `--adopt` command. Adopting it is the first command of the new session, before the next step. `none` otherwise.
 
 **Next step:** the single action to take first. When it is "wait for the user", it comes after reading the file named under "Waiting on the user".

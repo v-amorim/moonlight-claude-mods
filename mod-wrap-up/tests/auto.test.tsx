@@ -5,8 +5,8 @@ import { compactNote } from '../hooks/handoff'
 import { latestTitle, lateNext, planNames, remember } from '../hooks/titles'
 import { bytesOf, scanTail, textOf } from '../hooks/tail'
 import { readJoin } from '../hooks/window'
-import { hasInflight, MAX_AGE_S, readInflight, stopFile } from '../hooks/inflight'
-import { countGates, MAX_PENDING, pendingCandidates } from '../hooks/ledger'
+import { hasInflight, inflightLines, MAX_AGE_S, NONE as NO_WORK, readInflight, stopFile } from '../hooks/inflight'
+import { archiveLedger, archiveMarkdown, countGates, MAX_PENDING, pendingCandidates } from '../hooks/ledger'
 import { autoPrompt, capWords, clampCompactAt, clampCompactTokens, clampEvery, digest, emptyLedger, flip, gatherFragments, type Delta, isDue, mergeDelta, mergeFragments, parseRelated, parseUpdate, ledgerMarkdown, readLedger, restoreContext, shouldCompact, yieldsToManual } from '../hooks/ledger'
 
 // Automatic handoff is opt-in, so these tests turn it on unless a test sets its own value.
@@ -711,46 +711,89 @@ const stopRecord = (event: object, at = NOW_S) => `${at}\n${JSON.stringify(event
 const RUNNING = { background_tasks: [{ id: 'b1', type: 'shell', status: 'running', description: 'pick board' }], session_crons: [] }
 const STOP_FILE = stopFile(`${ROOT}/bridge`, 's1')
 
-test('the Stop record reads as tasks and wake-ups still in flight, and a torn, empty or stale one reads as none', () => {
-  expect(readInflight(stopRecord(RUNNING), NOW_S * 1000)).toEqual({ tasks: 1, crons: 0 })
-  expect(readInflight(stopRecord({ background_tasks: [], session_crons: [{ id: 'c1' }, { id: 'c2' }] }), NOW_S * 1000)).toEqual({ tasks: 0, crons: 2 })
+test('the Stop record reads as the tasks and wake-ups still in flight, and a torn, empty or stale one reads as none', () => {
+  expect(readInflight(stopRecord(RUNNING), NOW_S * 1000)).toEqual({ tasks: [{ id: 'b1', kind: 'shell', about: 'pick board' }], crons: [] })
+  const crons = readInflight(stopRecord({ background_tasks: [], session_crons: [{ id: 'c1', cron: '*/5 * * * *', prompt: 'check  the\ndeploy' }, { id: 'c2' }] }), NOW_S * 1000)
+  expect(crons.crons).toEqual([{ id: 'c1', kind: 'scheduled', about: 'check the deploy' }, { id: 'c2', kind: 'scheduled', about: '' }])
+  expect(inflightLines(crons)).toBe('- scheduled c1: check the deploy\n- scheduled c2')
   expect(hasInflight(readInflight(stopRecord({ stop_hook_active: false }), NOW_S * 1000))).toBe(false)
-  expect(readInflight('', NOW_S * 1000)).toEqual({ tasks: 0, crons: 0 })
-  expect(readInflight(`${NOW_S}\n{ torn`, NOW_S * 1000)).toEqual({ tasks: 0, crons: 0 })
-  expect(readInflight('soon\n{}', NOW_S * 1000)).toEqual({ tasks: 0, crons: 0 })
+  expect(readInflight('', NOW_S * 1000)).toEqual(NO_WORK)
+  expect(readInflight(`${NOW_S}\n{ torn`, NOW_S * 1000)).toEqual(NO_WORK)
+  expect(readInflight('soon\n{}', NOW_S * 1000)).toEqual(NO_WORK)
   expect(hasInflight(readInflight(stopRecord(RUNNING, NOW_S - MAX_AGE_S - 60), NOW_S * 1000))).toBe(false)
 })
 
-test('a background task still running holds the handoff at the mark: nothing clears, no window opens, and once the task is done the next turn hands off', FULL, async ($, on) => {
+test('with a background task running, the handoff at the mark clears in place instead of opening a tab, and sends the handoff with the running task listed', FULL, async ($, on) => {
   const runs: (readonly string[])[] = []
   on('process.run', (_$: unknown, e: { argv: readonly string[] }) => (runs.push(e.argv), WINDOW_OK))
+  const done = { ...seeded(), names: NAMES, tasks: seeded().tasks.map(task => ({ ...task, status: 'done' as const })) }
+  const files = autoFiles(done)
+  files.set(STOP_FILE, stopRecord(RUNNING))
+  const { w, band } = await atTheMark($, on, files)
+  await w.clock.advance(5000)
+  await w.clock.advance(1)
+  expect(runs).toHaveLength(0)
+  expect(w.clears).toEqual(['rename orders #1: XYZ-1 cache', 'clear', 'rename orders #2: XYZ-1 deploy'])
+  // No open task, yet the handoff is sent: the task's notification would otherwise start a turn without it.
+  expect(w.filled).toEqual([])
+  expect(w.submittedText).toHaveLength(1)
+  expect(w.submittedText[0]).toContain('Work started before the clear is still running')
+  expect(w.submittedText[0]).toContain('HANDOFF-TWO')
+  expect(w.submittedText[0]).toContain('- shell b1: pick board')
+  expect(await band.find({ key: 'wrap-up-choice-previous' })).toBeDefined()
+  await band.unmount()
+})
+
+test('a scheduled wake-up also keeps the handoff in place, and an open task keeps its continue line', FULL, async ($, on) => {
+  const runs: (readonly string[])[] = []
+  on('process.run', (_$: unknown, e: { argv: readonly string[] }) => (runs.push(e.argv), WINDOW_OK))
+  const files = autoFiles()
+  files.set(STOP_FILE, stopRecord({ background_tasks: [], session_crons: [{ id: 'c1', prompt: 'check the deploy' }] }))
+  const { w, band } = await atTheMark($, on, files)
+  await w.clock.advance(5000)
+  await w.clock.advance(1)
+  expect(runs).toHaveLength(0)
+  expect(w.clears).toEqual(['clear'])
+  expect(w.submittedText[0]).toContain('Continue the open task')
+  expect(w.submittedText[0]).toContain('- scheduled c1: check the deploy')
+  await band.unmount()
+})
+
+test('Open previous reopens the cleared session in a new tab, with a join that starts it handed off', FULL, async ($, on) => {
+  const runs: string[][] = []
+  on('process.run', (_$: unknown, e: { argv: readonly string[] }) => (runs.push([...e.argv]), WINDOW_OK))
   const files = namedFiles()
   files.set(STOP_FILE, stopRecord(RUNNING))
   const { w, band } = await atTheMark($, on, files)
   await w.clock.advance(5000)
   await w.clock.advance(1)
-  expect(w.clears).toHaveLength(0)
-  expect(runs).toHaveLength(0)
-  expect(await band.find({ key: 'wrap-up-countdown-card' })).toBeUndefined()
-  expect(w.toasts.join(' ')).toContain('Handoff held: 1 background task(s)')
-  // The task reports back; that turn ends with nothing left in flight, so the countdown runs out into the handoff.
-  w.files.set(STOP_FILE, stopRecord({ background_tasks: [], session_crons: [] }))
-  await $.turn.complete(MAIN_TURN)
-  await w.clock.advance(1)
-  await w.clock.advance(5000)
+  await band.pointer({ type: 'down', x: 1, y: 0, button: 'left', in: 'wrap-up-choice-previous' } as never)
   await w.clock.advance(1)
   expect(runs).toHaveLength(1)
+  expect(runs[0]!.slice(0, 6)).toEqual(['wt.exe', '-w', '0', 'new-tab', '-d', 'C:/work/proj'])
+  expect(runs[0]!.at(-1)).toMatch(/set WRAPUP_JOIN=s1-\d+& claude --resume s1$/)
+  expect(readJoin(joinOf(w)![1])).toMatchObject({ reopen: true, handedTo: 'orders #2: XYZ-1 deploy', text: '' })
+  expect(await band.find({ type: 'Text', text: /Opened the previous session in a new tab/ })).toBeDefined()
   await band.unmount()
 })
 
-test('a scheduled wake-up also holds the handoff at the mark', FULL, async ($, on) => {
-  const files = autoFiles()
-  files.set(STOP_FILE, stopRecord({ background_tasks: [], session_crons: [{ id: 'c1' }] }))
-  const { w, band } = await atTheMark($, on, files)
-  await w.clock.advance(5000)
+test('a session reopened to read starts handed off: no ledger write, no fill, and its automatic handoff stays off', FULL, async ($, on) => {
+  const path = `${ROOT}/join-s1-9.json`
+  const files = namedFiles()
+  files.set(path, JSON.stringify({ chain: '', title: '', text: '', submit: false, goal: '', link: {}, reopen: true, handedTo: 'orders #2: XYZ-1 deploy' }))
+  const w = world(on, files, () => UPDATE('X'), undefined, { WRAPUP_JOIN: 's1-9' })
+  const band = await $.ui.mount(BAND)
+  await $.session.start({ cwd: 'C:/work/proj' } as never)
   await w.clock.advance(1)
-  expect(w.clears).toHaveLength(0)
-  expect(w.submittedText).toHaveLength(0)
+  expect(w.files.get(path)).toBe('')
+  expect(w.filled).toEqual([])
+  expect(w.clears).toEqual([])
+  expect(await band.find({ type: 'Text', text: /Reopened to read\. orders #2: XYZ-1 deploy took the handoff in the other tab/ })).toBeDefined()
+  const ledgerBefore = w.files.get(LEDGER_FILE)
+  await $.turn.complete(MAIN_TURN)
+  await w.clock.advance(1)
+  expect(w.prompts).toHaveLength(0)
+  expect(w.files.get(LEDGER_FILE)).toBe(ledgerBefore)
   await band.unmount()
 })
 
@@ -1616,11 +1659,14 @@ for (const icons of ['safe', 'nerd'] as const) {
   })
 }
 
-test('a goal that fits draws no Show all and keeps the pills on its row', { options: { icons: 'safe' } }, async ($, on) => {
-  const { band } = await carriedCard($, on, {})
+test('a goal that fits draws no Show all and keeps the pills on its row, Open previous first', { options: { icons: 'safe' } }, async ($, on) => {
+  const { band } = await carriedCard($, on, { goal: 'Orders API' })
   expect(await band.find({ key: 'wrap-up-choice-more' })).toBeUndefined()
   expect(await band.find({ key: 'wrap-up-choice-actions' })).toBeUndefined()
   expect(await band.find({ key: 'wrap-up-switch' })).toBeDefined()
+  const body = JSON.stringify(await band.find({ key: 'wrap-up-choice-body' }))
+  expect(body.indexOf('wrap-up-choice-previous')).toBeGreaterThan(-1)
+  expect(body.indexOf('wrap-up-choice-previous')).toBeLessThan(body.indexOf('wrap-up-switch'))
   await band.unmount()
 })
 
@@ -1697,4 +1743,70 @@ test('the Start fresh tip says the handoff was already sent with the first promp
   await band.pointer({ type: 'move', x: 1, y: 0, in: 'wrap-up-switch' } as never)
   expect(await band.find({ type: 'Text', text: / was already sent with your first prompt, so starting fresh only changes what the mod tracks from now on/ })).toBeDefined()
   await band.unmount()
+})
+
+// d1 at 2 and p1, i1, k1 at 4 are over a week older than the last update; d3, t2, p3, i3 and k2 come with that update.
+const settledLedger = () => {
+  let ledger = mergeDelta(seeded(), { ...NONE, decisions: ['Use UUID v7 ids'], problems: [{ problem: 'Retry hung', fix: 'Add a timeout' }, { problem: 'Flaky test', fix: '' }], ideas: [{ text: 'Gradient row', status: 'rejected', reason: 'Too busy' }, { text: 'Sound cue', status: 'parked', reason: '' }], picks: [{ family: 'link', pick: 'link: C' }] }, 4)
+  ledger = mergeDelta(ledger, { ...NONE, done: ['t1'], opened: ['Port the schema'], superseded: [{ id: 'd2', by: 'Use ULIDs' }], decisions: ['Use ULIDs'], problems: [{ problem: 'Slow build', fix: 'Cache it' }], ideas: [{ text: 'Dark only', status: 'rejected', reason: 'Users want light' }], picks: [{ family: 'size', pick: 'size: B' }] }, 8 * DAY)
+  return ledger
+}
+
+test('archiving moves done tasks, superseded decisions and week-old settled items out; open problems, parked ideas and recent items stay live', () => {
+  const { live, gone } = archiveLedger(settledLedger())
+  expect(gone!.tasks.map(item => item.id)).toEqual(['t1'])
+  expect(gone!.decisions.map(item => item.id)).toEqual(['d1', 'd2'])
+  expect(gone!.problems.map(item => item.problem)).toEqual(['Retry hung'])
+  expect(gone!.ideas.map(item => item.text)).toEqual(['Gradient row'])
+  expect(gone!.picks.map(item => item.pick)).toEqual(['link: C'])
+  expect(live.decisions.map(item => item.id)).toEqual(['d3'])
+  expect(live.tasks.map(item => item.text)).toEqual(['Port the schema'])
+  expect(live.problems.map(item => item.problem)).toEqual(['Flaky test', 'Slow build'])
+  expect(live.ideas.map(item => item.text)).toEqual(['Sound cue', 'Dark only'])
+  expect(live.picks.map(item => item.pick)).toEqual(['size: B'])
+})
+
+test('a ledger with nothing done, replaced or a week old archives nothing', () => {
+  expect(archiveLedger(seeded()).gone).toBeNull()
+})
+
+test('an open task from over a week before the last update is archived as stale', () => {
+  const { live, gone } = archiveLedger(aged())
+  expect(live.tasks.map(item => item.id)).toEqual(['t61'])
+  expect(gone!.tasks).toHaveLength(60)
+  expect(archiveMarkdown(gone!, 0)).toContain('### Stale open tasks\n- t2 Old task 2')
+})
+
+test('after archiving, new items take ids past the highest one, so no id repeats', () => {
+  const { live } = archiveLedger(settledLedger())
+  const next = mergeDelta(live, { ...NONE, decisions: ['Add a CDN'], opened: ['Ship'], problems: [{ problem: 'Cold start', fix: '' }], picks: [{ family: 'gap', pick: 'gap: A' }] }, 9 * DAY)
+  expect(next.decisions.map(item => item.id)).toEqual(['d3', 'd4'])
+  expect(next.tasks.map(item => item.id)).toEqual(['t2', 't3'])
+  expect(next.problems.map(item => item.id)).toEqual(['p2', 'p3', 'p4'])
+  expect(next.picks.map(item => item.id)).toEqual(['k2', 'k3'])
+})
+
+test('the archive block lists each kind under its own heading with the time it moved', () => {
+  const block = archiveMarkdown(archiveLedger(settledLedger()).gone!, 0)
+  expect(block.startsWith('## Archived 1970-01-01T00:00:00.000Z')).toBe(true)
+  for (const line of ['### Done tasks\n- t1 Write the schema', '### Superseded decisions\n- d2 Use UUID v7 ids | replaced by: Use ULIDs', '### Decisions in force\n- d1 Use PostgreSQL, not MySQL', '### Problems and fixes\n- p1 Retry hung | fix: Add a timeout', '### Rejected ideas\n- i1 Gradient row | reason: Too busy', '### Picks\n- k1 link: C']) expect(block).toContain(line)
+  expect(block).not.toContain('Stale open tasks')
+})
+
+const ARCHIVE_FILE = `${DIR}/s1.archive.md`
+
+test('the handoff at the mark appends the archive block to the old archive and saves the live ledger without those items', FULL, async ($, on) => {
+  const files = autoFiles(settledLedger())
+  files.set(ARCHIVE_FILE, 'OLD ARCHIVE\n')
+  const { w, band } = await atTheMark($, on, files)
+  await w.clock.advance(5000)
+  await w.clock.advance(1)
+  await band.unmount()
+  const archive = w.files.get(ARCHIVE_FILE)!
+  expect(archive.startsWith('OLD ARCHIVE\n## Archived ')).toBe(true)
+  expect(archive).toContain('- t1 Write the schema')
+  expect(archive).toContain('- d2 Use UUID v7 ids')
+  expect(saved(w).decisions.map(item => item.id)).toEqual(['d1', 'd3'])
+  expect(w.files.get(MD_FILE)).not.toContain('Write the schema')
+  expect(w.submittedText[0]).not.toContain('/fold')
 })

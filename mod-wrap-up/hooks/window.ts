@@ -9,7 +9,13 @@ export type Join = {
   submit: boolean
   goal: string
   link: Pick<NamePlan, 'oldOwn' | 'nextOwn' | 'topic' | 'oldHop' | 'nextHop'>
+  // A session reopened to read after a clear in place: it carries nothing and starts handed off to `handedTo`.
+  reopen: boolean
+  handedTo: string
 }
+
+// The id goes on a cmd line, so only a plain session id passes.
+export const isSessionId = (id: string) => /^[A-Za-z0-9-]+$/.test(id)
 
 // The mod's own data folder already exists, so the file needs no folder made for it.
 export const joinFile = (config: string, token: string) => `${config}/mods-data/mod-wrap-up/join-${token}.json`
@@ -19,7 +25,7 @@ export const joinToken = (session: string, now: number) => `${session.slice(0, 8
 
 // A child of a Claude session inherits CLAUDE_CODE_CHILD_SESSION (transcripts off) and Git Bash's MSYS_NO_PATHCONV (hooks break), so cmd clears both before it starts claude.
 // `-w 0` is the window used last, the one this session runs in, so the next session lands beside it as a tab.
-export const windowArgv = (cwd: string, token: string) => ['wt.exe', '-w', '0', 'new-tab', '-d', cwd, 'cmd', '/c', `set CLAUDE_CODE_CHILD_SESSION=& set MSYS_NO_PATHCONV=& set WRAPUP_JOIN=${token}& claude`]
+export const windowArgv = (cwd: string, token: string, resume = '') => ['wt.exe', '-w', '0', 'new-tab', '-d', cwd, 'cmd', '/c', `set CLAUDE_CODE_CHILD_SESSION=& set MSYS_NO_PATHCONV=& set WRAPUP_JOIN=${token}& claude${resume ? ` --resume ${resume}` : ''}`]
 
 // Only Windows Terminal opens the window, so a config folder without a drive letter means the handoff clears as before.
 export const canOpenWindow = (isOn: boolean, config: string) => isOn && /^[A-Za-z]:/.test(config)
@@ -31,7 +37,7 @@ const num = (value: unknown) => (typeof value === 'number' && Number.isFinite(va
 export function readJoin(raw: string): Join | null {
   try {
     const data = JSON.parse(raw)
-    if (!data || typeof data !== 'object' || !str(data.text)) return null
+    if (!data || typeof data !== 'object' || !(str(data.text) || data.reopen === true)) return null
     const link = data.link ?? {}
     return {
       chain: str(data.chain),
@@ -40,6 +46,8 @@ export function readJoin(raw: string): Join | null {
       submit: data.submit === true,
       goal: str(data.goal),
       link: { oldOwn: str(link.oldOwn), nextOwn: str(link.nextOwn), topic: str(link.topic), oldHop: num(link.oldHop), nextHop: num(link.nextHop) },
+      reopen: data.reopen === true,
+      handedTo: str(data.handedTo),
     }
   } catch {
     return null
