@@ -96,6 +96,20 @@ async function settles(call: Promise<unknown>, ms = 120) {
   return isDone
 }
 
+// Waits until the command is on its card: the measure has run and the hold loop has started.
+async function onCard(seen: { argv: string[] }) {
+  for (let tries = 0; tries < 200 && seen.argv.length === 0; tries++) await sleep(10)
+  await sleep(50)
+}
+
+// A floor command during the pass: its card stays up for a minute nobody answers, then the call is refused.
+async function pastCard($: any, clock: { advance: (ms: number) => Promise<void> }, seen: { argv: string[] }, command: string) {
+  const call = $.tool.call({ tool: 'Bash', command })
+  await onCard(seen)
+  await clock.advance(MINUTE)
+  return JSON.stringify(await call)
+}
+
 // ---- The floor ----
 
 const HELD_SESSION = [
@@ -208,30 +222,50 @@ test('afk pass runs a held command unheld and lists it, including its commit onc
 })
 
 test('afk pass denies a git commit whose rule in rules.json lacks afk pass', SAFE, async ($, on) => {
-  const { seen } = world(on, { rules: `[${COMMIT} }]` })
+  const { seen, clock } = world(on, { rules: `[${COMMIT} }]` })
   await typed($, 'pass 60')
-  const result = JSON.stringify(await $.tool.call({ tool: 'Bash', command: HELD_SESSION[2]! }))
+  const result = await pastCard($, clock, seen, HELD_SESSION[2]!)
   expect(result).toContain('turned on a pass')
   expect(result).toContain('Outbound action: git commit')
   expect(seen.ran).toEqual([])
 })
 
-test('afk pass denies a floor command with the AFK text and leaves it on the waiting chip', SAFE, async ($, on) => {
-  const { seen } = world(on)
+test('afk pass shows a floor command on its card for a minute, then denies it with the AFK text and leaves it on the waiting chip', SAFE, async ($, on) => {
+  const { seen, clock } = world(on)
   await typed($, 'pass 30')
-  const result = JSON.stringify(await $.tool.call({ tool: 'Bash', command: 'git push --force origin main' }))
+  const call = $.tool.call({ tool: 'Bash', command: 'git push --force origin main' })
+  await onCard(seen)
+  const band = await $.ui.mount({ plugin: PLUGIN, surface: 'terminal', ...BAND })
+  expect(await band.find({ key: 'blast-run' })).toBeDefined()
+  await clock.advance(MINUTE - 1000)
+  expect(await settles(call)).toBe(false)
+  await clock.advance(1000)
+  const result = JSON.stringify(await call)
   expect(result).toContain('turned on a pass')
   expect(result).toContain('Git force push or hard reset')
   expect(seen.ran).toEqual([])
-  const band = await $.ui.mount({ plugin: PLUGIN, surface: 'terminal', ...BAND })
+  await band.redraw()
+  expect(await band.find({ key: 'blast-run' })).toBeUndefined()
   expect(await wordsOf(band, 'blast-wait')).toBe(' ! Approve 1 command ')
   await band.unmount()
 })
 
-test('afk pass denies a command whose rules.json cannot be read', SAFE, async ($, on) => {
-  const { seen } = world(on, { rules: '{ broken' })
+test('afk pass: Run on the card of a floor command runs it at once', SAFE, async ($, on) => {
+  const { seen } = world(on)
   await typed($, 'pass 30')
-  const result = JSON.stringify(await $.tool.call({ tool: 'Bash', command: 'rm -rf build' }))
+  const call = $.tool.call({ tool: 'Bash', command: 'git push --force origin main' })
+  await onCard(seen)
+  const band = await $.ui.mount({ plugin: PLUGIN, surface: 'terminal', ...BAND })
+  await band.pointer({ type: 'down', x: 1, y: 0, button: 'left', in: 'blast-run' })
+  await call
+  expect(seen.ran).toEqual(['git push --force origin main'])
+  await band.unmount()
+})
+
+test('afk pass denies a command whose rules.json cannot be read', SAFE, async ($, on) => {
+  const { seen, clock } = world(on, { rules: '{ broken' })
+  await typed($, 'pass 30')
+  const result = await pastCard($, clock, seen, 'rm -rf build')
   expect(result).toContain('turned on a pass')
   expect(seen.ran).toEqual([])
 })

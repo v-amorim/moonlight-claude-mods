@@ -39,7 +39,7 @@ const plural = (count: number, unit: Unit) => fill(count === 1 ? unit.one : unit
 type Decision = 'run' | 'cancel' | 'interrupted' | 'error' | 'idle'
 // isDescribing: Haiku is still writing the card's words.
 // isFull: the Details pane shows the whole command, not its first rows; isDoesOpen: the card shows its whole sentence, not two rows.
-type Held = { command: string; risk: Risk; report: Report | null; plain: Plain | null; decision: Decision | null; described?: Described; isDescribing?: boolean; isFull?: boolean; isDoesOpen?: boolean; isAsking?: boolean; isStored?: boolean; touchedAt?: number; leftMs?: number; draft?: string; reason?: string }
+type Held = { command: string; risk: Risk; report: Report | null; plain: Plain | null; decision: Decision | null; described?: Described; isDescribing?: boolean; isFull?: boolean; isDoesOpen?: boolean; isAsking?: boolean; isStored?: boolean; touchedAt?: number; leftMs?: number; limitMs?: number; draft?: string; reason?: string }
 
 // Commands whose card timed out, by exact text: the chip lists them and a stored answer waits for the next identical call.
 type Waiting = { held: Held; answer: { decision: 'run' | 'cancel'; reason?: string } | null }
@@ -53,6 +53,8 @@ const AFK_CHIP = 'blast-afk'
 const AFK_RAN_CHIP = 'blast-afk-ran'
 const AFK_MINUTES = [15, 30, 60]
 const AFK_RAN_MAX = 50
+// During a pass, how long a command that always waits keeps its card up before it falls to the chip.
+const AFK_CARD_MS = 60000
 const AFK_OFF_COLOR = THEME.muted
 let afkUntil = 0
 let afkTotal = 0
@@ -757,7 +759,8 @@ function holdCard({ Box, Button, Client, Input, Text }: Elements & { Button: (pr
   )
   // The idle countdown sits at the top edge's right end, across from the title; it never takes the title's room.
   const titleUsed = 1 + 2 + [...text.card.title].length + (text.card.titleHint ? 1 + [...text.card.titleHint].length : 0) + 1
-  const parts = idleMs > 0 && state.leftMs !== undefined && !state.isStored ? countdownParts(state.leftMs, columns - 1 - titleUsed - 1 - 1, idleMs) : null
+  const limitMs = state.limitMs ?? idleMs
+  const parts = limitMs > 0 && state.leftMs !== undefined && !state.isStored ? countdownParts(state.leftMs, columns - 1 - titleUsed - 1 - 1, limitMs) : null
   const countdown = parts ? (
     <Box key="blast-card-edge-right" position="absolute" top={0} right={1} flexDirection="row" height={1} backgroundColor={THEME.bg}>
       <Text key="blast-idle-lead" color={THEME.muted}>{` ${parts.lead}`}</Text>
@@ -806,7 +809,8 @@ const isChipCut = (node: unknown): boolean => {
 // Using the card restarts the idle time, and its countdown with it.
 function touch(card: Held, now: number) {
   card.touchedAt = now
-  if (idleMs > 0) card.leftMs = idleMs
+  const limitMs = card.limitMs ?? idleMs
+  if (limitMs > 0) card.leftMs = limitMs
 }
 
 // A card action, from a click on its entry or its digit typed into the empty prompt.
@@ -837,14 +841,21 @@ async function keepStored($: EngineInterface) {
   if (!card?.isStored || card.decision === null) return
   const entry = waiting.get(keyOf(card.command))
   if (entry) entry.answer = { decision: card.decision === 'run' ? 'run' : 'cancel', ...(card.reason ? { reason: card.reason } : {}) }
-  // Queued until the session is idle; it carries the full command because the stored answer matches only that exact text.
-  if (entry && card.decision === 'run') void Promise.resolve().then(() => $.prompt.submit({ text: fill(text.waiting.nudge, { command: card.command.trimEnd() }) })).catch(() => undefined)
+  // It carries the full command because the stored answer matches only that exact text.
+  if (entry && card.decision === 'run') tell($, fill(text.waiting.nudge, { command: card.command.trimEnd() }))
   held = null
   hovered = null
   if (await isPaneOpen($, LIST_PANE).catch(() => false)) {
     await $.ui.close({ id: LIST_PANE }).catch(() => undefined)
     await $.state.set({ plugin: 'mod-blast-radius', key: 'pane' }, false).catch(() => undefined)
   }
+}
+
+// A plugin's prompt waits for the session to be idle, so during a main turn the text rides on its next tool result instead; a turn that ends first sends it as a prompt.
+let toTell: string[] = []
+function tell($: EngineInterface, message: string) {
+  if (working) toTell = [...toTell, message]
+  else void Promise.resolve().then(() => $.prompt.submit({ text: message })).catch(() => undefined)
 }
 
 async function sendReason($: EngineInterface, value: string) {
@@ -890,8 +901,8 @@ const idleOf = (value: unknown) => {
   return minutes > 0 ? minutes * 60000 : 0
 }
 
-// Judged risky: everything from here to the verdict fails closed. Returns 'run' or a deny.
-async function holdRisky($: EngineInterface, next:{ signal: AbortSignal }, risk: Risk, command: string): Promise<'run' | { deny: string }> {
+// Judged risky: everything from here to the verdict fails closed. Returns 'run' or a deny. `limitMs` and `idleDeny` replace the Idle timeout setting and its deny.
+async function holdRisky($: EngineInterface, next:{ signal: AbortSignal }, risk: Risk, command: string, limitMs = idleMs, idleDeny = fill(text.deny.idle, { minutes: idleMs / 60000 })): Promise<'run' | { deny: string }> {
   // Without a surface that draws, nothing could answer a hold: tool.check puts the call to the permission system instead.
   if (!(await canDraw($))) return 'run'
 
@@ -904,7 +915,7 @@ async function holdRisky($: EngineInterface, next:{ signal: AbortSignal }, risk:
       return { deny: fill(text.deny.held, { why: refusal('error') }) }
     }
   }
-  const mine: Held = { command, risk, report: null, plain: null, decision: null }
+  const mine: Held = { command, risk, report: null, plain: null, decision: null, limitMs }
   held = mine
   pauseAt = 0
   let isSilent = false
@@ -917,7 +928,7 @@ async function holdRisky($: EngineInterface, next:{ signal: AbortSignal }, risk:
     } else {
       // Other band mods can read this to step aside while the card is up.
       await $.state.set({ plugin: 'mod-blast-radius', key: 'holding' }, true)
-      if (idleMs > 0) mine.leftMs = idleMs
+      if (limitMs > 0) mine.leftMs = limitMs
       $.clock.after(0, () => describe($, mine).catch(() => undefined))
       // Fire and forget: a refused notification must never touch the hold.
       void Promise.resolve().then(() => $.ui.notify(fill(text.ui.notifyHeld, { command: oneLine(command) }), { title: text.ui.notifyTitle })).catch(() => undefined)
@@ -925,13 +936,13 @@ async function holdRisky($: EngineInterface, next:{ signal: AbortSignal }, risk:
       // The hold stays until the person answers or the turn is interrupted; with an idle timeout set, it also ends once nobody used the card for that long.
       const shownAt = await $.clock.now()
       while (mine.decision === null) {
-        const left = idleMs - ((await $.clock.now()) - (mine.touchedAt ?? shownAt))
+        const left = limitMs - ((await $.clock.now()) - (mine.touchedAt ?? shownAt))
         if (next.signal.aborted) mine.decision = 'interrupted'
-        else if (idleMs > 0 && left <= 0) mine.decision = 'idle'
+        else if (limitMs > 0 && left <= 0) mine.decision = 'idle'
         else {
           // Redraw only when the shown time or its tone changes; a scaled threshold can fall inside a minute.
-          const [now, was] = [countdownOf(left, idleMs), countdownOf(mine.leftMs ?? left, idleMs)]
-          if (idleMs > 0 && (now.time !== was.time || now.color !== was.color)) {
+          const [now, was] = [countdownOf(left, limitMs), countdownOf(mine.leftMs ?? left, limitMs)]
+          if (limitMs > 0 && (now.time !== was.time || now.color !== was.color)) {
             mine.leftMs = left
             $.ui.invalidate('ui.render')
           }
@@ -958,7 +969,7 @@ async function holdRisky($: EngineInterface, next:{ signal: AbortSignal }, risk:
   }
   if (mine.decision === 'idle') {
     waiting.set(keyOf(command), { held: mine, answer: null })
-    return { deny: fill(text.deny.idle, { minutes: idleMs / 60000 }) }
+    return { deny: idleDeny }
   }
   const why = mine.decision === 'cancel' && mine.reason ? fill(text.refusal.cancelWhy, { said: mine.reason }) : refusal(mine.decision)
   return { deny: fill(text.deny.heldWhy, { why, reason: mine.risk.reason, summary: mine.report?.summary ?? mine.risk.label }) }
@@ -1103,8 +1114,8 @@ async function heardAfk($: EngineInterface, id: string) {
   return true
 }
 
-// During an AFK pass: a held command runs with no card, unless it is on the floor, which refuses it and leaves it on the chip.
-async function passAway($: EngineInterface, risk: Risk, command: string, rules: UserRule[], session: Session | undefined): Promise<'run' | { deny: string }> {
+// During an AFK pass: a held command runs with no card, unless it is on the floor: its card shows for a minute, in case the person is at the screen, then falls to the chip.
+async function passAway($: EngineInterface, next: { signal: AbortSignal }, risk: Risk, command: string, rules: UserRule[], session: Session | undefined): Promise<'run' | { deny: string }> {
   const floor = risk.isError ? risk : afkFloor(command, rules, session)
   if (!floor) {
     afkRan = [...afkRan, command].slice(-AFK_RAN_MAX)
@@ -1112,6 +1123,8 @@ async function passAway($: EngineInterface, risk: Risk, command: string, rules: 
     $.ui.invalidate('ui.render')
     return 'run'
   }
+  const deny = fill(text.deny.afk, { reason: floor.reason })
+  if (await canDraw($)) return holdRisky($, next, floor, command, AFK_CARD_MS, deny)
   try {
     const report = await measure(ioOf($), floor)
     waiting.set(keyOf(command), { held: { command, risk: floor, report, plain: plainFor(floor, report), decision: 'idle' }, answer: null })
@@ -1119,7 +1132,7 @@ async function passAway($: EngineInterface, risk: Risk, command: string, rules: 
     // With no report the card could not draw, so the command is only refused.
   }
   $.ui.invalidate('ui.render')
-  return { deny: fill(text.deny.afk, { reason: floor.reason }) }
+  return { deny }
 }
 
 // The AFK pill: while the pass runs its time left and Off; while off its icon alone, which opens the lengths to start one. Then the ran chip, once a pass ended.
@@ -1229,7 +1242,7 @@ export const register: Register = (on, options) => {
       const isAway = isAfkOn(await $.clock.now())
       // A failed check, even a lost rules.json, could hide a hold the floor keeps, so the pass refuses it.
       const awayRisk = judged.failed === undefined ? judged.risk : errorRisk(judged.failed)
-      outcome = (await useStored($, next, judged.command)) ?? (isAway ? await passAway($, awayRisk, judged.command, judged.rules ?? [], judged.session) : await holdRisky($, next, judged.risk, judged.command))
+      outcome = (await useStored($, next, judged.command)) ?? (isAway ? await passAway($, next, awayRisk, judged.command, judged.rules ?? [], judged.session) : await holdRisky($, next, judged.risk, judged.command))
     } catch {
       outcome = { deny: 'Blast radius hit an error while checking this command and did not run it. Do not retry it unless the user asks you to.' }
     }
@@ -1240,11 +1253,14 @@ export const register: Register = (on, options) => {
     return outcome
   })
 
-  // Every tool call passes here once: a check that asked is settled by what became of the call. It changes nothing.
+  // Every tool call passes here once: a check that asked is settled by what became of the call. A main-loop result also carries what tell() saved.
   on('tool.call', async ($, e, next) => {
     const result = await next(e)
     await settleCheck($, e, result)
-    return result
+    if (e.agentId !== undefined || toTell.length === 0 || result.deny !== undefined) return result
+    const context = [...(result.context ?? []), ...toTell]
+    toTell = []
+    return { ...result, context }
   })
 
   // Watches every permission check of the session; the verdict it returns is the one beneath, except where no surface can answer a hold, so the permission system asks.
@@ -1262,6 +1278,7 @@ export const register: Register = (on, options) => {
   on('session.end', async ($, e, next) => {
     if (e.reason === 'clear') keepChecks($, [])
     waiting.clear()
+    toTell = []
     if (held?.isStored) held = null
     $.ui.invalidate('ui.render')
     return next(e)
@@ -1299,6 +1316,9 @@ export const register: Register = (on, options) => {
   on('turn.complete', async ($, e, next) => {
     if (!e.agentId) {
       working = false
+      const left = toTell
+      toTell = []
+      for (const message of left) tell($, message)
       $.ui.invalidate('ui.render')
     }
 
