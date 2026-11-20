@@ -749,12 +749,12 @@ export const register: Register = (on, options) => {
   on('tool.call', async ($, e, next) => {
     const plan = await planOf($, e as ToolEvent).catch(() => undefined)
     if (!plan) {
-      if (e.tool !== 'Bash') return next(e)
+      if (e.tool !== 'Bash' && e.tool !== 'PowerShell') return next(e)
       // A shell command's edits come back with its result, as Claude Code diffed them.
       const ran = await next(e)
       try {
         const cwd = String((await $.session.cwd().catch(() => '')) ?? '')
-        const shells = shellPlans((ran as { result?: { bashEditDiff?: unknown } })?.result?.bashEditDiff, cwd)
+        const shells = shellPlans((ran as { result?: { bashEditDiff?: unknown } })?.result?.bashEditDiff, cwd, e.tool)
         if (shells.length > 0) {
           await apply($, current => shells.reduce((each, shell) => commit(touch(each, shell.path, shell.kind), shell.path, shell.tool, shell.kind, shell.note, shell.lines), current))
           for (const shell of shells) landed.set(shell.path, { at: Date.now(), seq: log!.seq })

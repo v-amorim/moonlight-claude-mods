@@ -52,25 +52,25 @@ export function planOfUse(name: string, input: any, cwd: string): Plan | undefin
 }
 
 // The files a shell command changed, as Claude Code diffed them: hunks when it kept them, else only the names.
-export function shellPlans(diff: any, cwd: string): Plan[] {
+export function shellPlans(diff: any, cwd: string, tool = 'Bash'): Plan[] {
   if (!diff || diff.unavailable || diff.skipped) return []
   const at = (path: unknown) => relPath(cwd, String(path))
   const shown: Plan[] = (Array.isArray(diff.files) ? diff.files : []).map((file: any) => ({
     path: at(file.filePath),
-    tool: 'Bash',
+    tool,
     kind: file.created ? 'new' : 'edit',
     note: file.created ? text.notes.newFile : file.deleted ? text.notes.deleted : text.notes.shell,
     lines: patchLines(file.hunks) ?? [],
   }))
   const named = (Array.isArray(diff.changedFiles) ? diff.changedFiles : []).map((path: unknown) => at(path)).filter((path: string) => !shown.some(plan => plan.path === path))
-  return [...shown, ...named.map((path: string): Plan => ({ path, tool: 'Bash', kind: 'edit', note: text.notes.shellNoDiff, lines: [] }))]
+  return [...shown, ...named.map((path: string): Plan => ({ path, tool, kind: 'edit', note: text.notes.shellNoDiff, lines: [] }))]
 }
 
 // Builds the tree and the replay from the transcript, a line at a time, so a re-read feeds only the new lines.
 export class TranscriptFiles {
   log: Log = emptyLog()
   private open = new Map<string, Plan>()
-  private shells = new Set<string>()
+  private shells = new Map<string, string>()
 
   constructor(private cwd: string) {}
 
@@ -99,7 +99,7 @@ export class TranscriptFiles {
     if (row.type === 'assistant' && Array.isArray(content)) {
       for (const block of content) {
         if (block?.type !== 'tool_use' || typeof block.id !== 'string') continue
-        if (block.name === 'Bash') this.shells.add(block.id)
+        if (block.name === 'Bash' || block.name === 'PowerShell') this.shells.set(block.id, block.name)
         const plan = planOfUse(String(block.name), block.input, this.cwd)
         if (!plan) continue
         this.open.set(block.id, plan)
@@ -110,8 +110,10 @@ export class TranscriptFiles {
 
     if (row.type === 'user' && Array.isArray(content)) {
       for (const block of content) {
-        if (block?.type === 'tool_result' && this.shells.delete(block.tool_use_id)) {
-          for (const shell of shellPlans(row.toolUseResult?.bashEditDiff, this.cwd)) {
+        const shellTool = block?.type === 'tool_result' ? this.shells.get(block.tool_use_id) : undefined
+        if (shellTool) {
+          this.shells.delete(block.tool_use_id)
+          for (const shell of shellPlans(row.toolUseResult?.bashEditDiff, this.cwd, shellTool)) {
             this.log = touch(this.log, shell.path, shell.kind)
             this.log = commit(this.log, shell.path, shell.tool, shell.kind, shell.note, shell.lines)
           }

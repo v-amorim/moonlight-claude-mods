@@ -706,6 +706,12 @@ test('a shell command shows the files it changed: diffed ones with their lines, 
   expect(parsed.log.steps.map(step => `${step.tool} ${step.note}`)).toEqual(['Bash shell', 'Bash shell, no diff kept'])
 })
 
+test('a PowerShell command that edits files lands in the replay under its own name', () => {
+  const parsed = new TranscriptFiles('/w')
+  for (const line of [prompt('edit it'), use('t-ps', 'PowerShell', { command: 'Set-Content x y' }), result('t-ps', { stdout: '', bashEditDiff: SHELL_DIFF })]) parsed.feed(line)
+  expect(parsed.log.steps.map(step => `${step.tool} ${step.note}`)).toEqual(['PowerShell shell', 'PowerShell shell, no diff kept'])
+})
+
 test('the recent view keeps the files of the last N turns, N from the recent_turns setting', { options: { recent_turns: 2 } }, async ($, on) => {
   const transcript = {
     text: [
