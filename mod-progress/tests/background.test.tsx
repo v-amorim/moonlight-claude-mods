@@ -95,6 +95,8 @@ test('a background task starts from its result: the id by key or by text, a moni
   expect(bgIdOf({ result: { stdout: 'ok' } })).toBeUndefined()
   expect(bgStartOf('Bash', { command: 'sleep 30', run_in_background: true })).toEqual({ kind: 'shell', command: 'sleep 30' })
   expect(bgStartOf('Bash', { command: 'ls' })).toBeUndefined()
+  expect(bgStartOf('PowerShell', { command: 'npm run dev', run_in_background: true })).toEqual({ kind: 'shell', command: 'npm run dev' })
+  expect(bgStartOf('PowerShell', { command: 'ls' })).toBeUndefined()
   expect(bgStartOf('Monitor', { command: 'tail -f a.log', description: 'Watch' })).toEqual({ kind: 'monitor', command: 'tail -f a.log' })
   expect(bgStartOf('Read', { run_in_background: true })).toBeUndefined()
 })

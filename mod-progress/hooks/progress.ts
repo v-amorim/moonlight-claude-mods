@@ -171,6 +171,7 @@ export function stepOf(tool: string, input: Record<string, unknown>) {
     case 'Glob':
       return named(text.stepSearch, slot('pattern'))
     case 'Bash':
+    case 'PowerShell':
       return slot('description') || named(text.stepRun, slot('command').split(' ')[0] ?? '')
     case 'WebFetch':
       return named(text.stepFetch, hostOf(slot('url')))
@@ -252,10 +253,10 @@ export function bgIdOf(result: unknown): string | undefined {
   return /\bID:?\s+([A-Za-z0-9_-]+)/.exec(body)?.[1] ?? /task[_ -]?id\W+([A-Za-z0-9_-]+)/i.exec(body)?.[1]
 }
 
-// A background Bash call, or a Monitor, starts a task; its tool name and input say which and what it runs.
+// A background Bash or PowerShell call, or a Monitor, starts a task; its tool name and input say which and what it runs.
 // A foreground Bash the host moved to the background (ctrl+b, or its timeout) answers with a task id too: `isMoved`.
 export function bgStartOf(tool: string, input: Record<string, unknown>, isMoved = false): { kind: BgKind; command: string } | undefined {
-  if (tool === 'Bash' && (input.run_in_background === true || isMoved)) return { kind: 'shell', command: String(input.command ?? '') }
+  if ((tool === 'Bash' || tool === 'PowerShell') && (input.run_in_background === true || isMoved)) return { kind: 'shell', command: String(input.command ?? '') }
   if (tool === 'Monitor') return { kind: 'monitor', command: String(input.command ?? input.description ?? '') }
   return undefined
 }
