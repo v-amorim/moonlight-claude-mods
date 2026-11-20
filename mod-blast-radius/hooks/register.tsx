@@ -22,7 +22,7 @@ import { recordSpend } from './spend'
 import style from './style'
 import text from './text'
 import { decodeAll, fill, MARK, mix, SYNTAX, THEME, WASH } from './theme'
-import { familyOf, isRefusal, settle, summarize, tally, upsert, verdictOfCheck, type Check, type Counts, type Verdict } from './checks'
+import { SHELL_TOOLS, familyOf, isRefusal, settle, summarize, tally, upsert, verdictOfCheck, type Check, type Counts, type Verdict } from './checks'
 import marks from './marks'
 
 const SETTINGS_PANE = 'blast-radius-settings'
@@ -1169,6 +1169,46 @@ function afkReadouts({ Box, Client, Text }: Pick<Elements, 'Box' | 'Client' | 'T
   return [off, pill({ Box, Text }, look.nerd, THEME.surface3, <Client key={AFK_RAN_CHIP} module="./entry.tsx" height={1} props={props} />, `${AFK_RAN_CHIP}-pill`)]
 }
 
+// PowerShell and Monitor run shell commands too, so they pass the same checks; only Bash's rm is rewritten to the bin.
+async function guardShell($: EngineInterface, e: any, next: any) {
+  if (!isEnabled) return next(e)
+  const command = String(e.command ?? '')
+  if (e.tool === 'Monitor' && command === '') return next(e)
+  const seen = await judgeSafely($, command)
+  // With On check error set to Run, a check that failed lets the command through and says so once.
+  if (!isFailClosed && isCheckBroken(seen)) warnOnce($, seen.failed ?? seen.risk?.reason)
+  const judged = applyOnError(seen)
+  // A plain rm inside the session folder goes to the bin, with no card; the person's passed rules and holds are no reason to delete for good.
+  if (isBinning && e.tool === 'Bash' && judged.failed === undefined) {
+    const recycling = { session: judged.session!, isWindows: await isWindowsHost($), rules: judged.rules! }
+    let plan = planRecycle(command, recycling)
+    // Outside that folder only a target this session made, that nothing keeps and the ledger does not name, goes with no card.
+    const outside = plan ? [] : outsideTargets(command, recycling)
+    if (outside.length > 0) {
+      const approved = await approveTargets($, outside, recycling.session, recycling.isWindows)
+      plan = planRecycle(command, { ...recycling, outside: path => approved.has(approvalKey(path, recycling.isWindows)) })
+    }
+    const script = plan ? await prepareBin($) : null
+    if (plan && script) return next({ ...e, command: plan(script) })
+  }
+  if (!judged.risk) return next(e)
+  let outcome: 'run' | { deny: string }
+  try {
+    await loadAfk($)
+    const isAway = isAfkOn(await $.clock.now())
+    // A failed check, even a lost rules.json, could hide a hold the floor keeps, so the pass refuses it.
+    const awayRisk = judged.failed === undefined ? judged.risk : errorRisk(judged.failed)
+    outcome = (await useStored($, next, judged.command)) ?? (isAway ? await passAway($, next, awayRisk, judged.command, judged.rules ?? [], judged.session) : await holdRisky($, next, judged.risk, judged.command))
+  } catch {
+    outcome = { deny: 'Blast radius hit an error while checking this command and did not run it. Do not retry it unless the user asks you to.' }
+  }
+  // next runs outside the try, so an error from the command itself passes through unchanged.
+  if (outcome === 'run') return next(e)
+  // A held command that was refused never reaches the permission check, so its denial is noted here.
+  await noteCheck($, e, 'denied')
+  return outcome
+}
+
 export const register: Register = (on, options) => {
   still = options.animations === false
   toasts.isStill = still
@@ -1216,42 +1256,9 @@ export const register: Register = (on, options) => {
     return next(e)
   })
 
-  on('tool.call', { tool: 'Bash' }, async ($, e, next) => {
-    if (!isEnabled) return next(e)
-    const seen = await judgeSafely($, e.command)
-    // With On check error set to Run, a check that failed lets the command through and says so once.
-    if (!isFailClosed && isCheckBroken(seen)) warnOnce($, seen.failed ?? seen.risk?.reason)
-    const judged = applyOnError(seen)
-    // A plain rm inside the session folder goes to the bin, with no card; the person's passed rules and holds are no reason to delete for good.
-    if (isBinning && judged.failed === undefined) {
-      const recycling = { session: judged.session!, isWindows: await isWindowsHost($), rules: judged.rules! }
-      let plan = planRecycle(e.command, recycling)
-      // Outside that folder only a target this session made, that nothing keeps and the ledger does not name, goes with no card.
-      const outside = plan ? [] : outsideTargets(e.command, recycling)
-      if (outside.length > 0) {
-        const approved = await approveTargets($, outside, recycling.session, recycling.isWindows)
-        plan = planRecycle(e.command, { ...recycling, outside: path => approved.has(approvalKey(path, recycling.isWindows)) })
-      }
-      const script = plan ? await prepareBin($) : null
-      if (plan && script) return next({ ...e, command: plan(script) })
-    }
-    if (!judged.risk) return next(e)
-    let outcome: 'run' | { deny: string }
-    try {
-      await loadAfk($)
-      const isAway = isAfkOn(await $.clock.now())
-      // A failed check, even a lost rules.json, could hide a hold the floor keeps, so the pass refuses it.
-      const awayRisk = judged.failed === undefined ? judged.risk : errorRisk(judged.failed)
-      outcome = (await useStored($, next, judged.command)) ?? (isAway ? await passAway($, next, awayRisk, judged.command, judged.rules ?? [], judged.session) : await holdRisky($, next, judged.risk, judged.command))
-    } catch {
-      outcome = { deny: 'Blast radius hit an error while checking this command and did not run it. Do not retry it unless the user asks you to.' }
-    }
-    // next runs outside the try, so an error from the command itself passes through unchanged.
-    if (outcome === 'run') return next(e)
-    // A held command that was refused never reaches the permission check, so its denial is noted here.
-    await noteCheck($, e, 'denied')
-    return outcome
-  })
+  on('tool.call', { tool: 'Bash' }, guardShell)
+  on('tool.call', { tool: 'PowerShell' }, guardShell)
+  on('tool.call', { tool: 'Monitor' }, guardShell)
 
   // Every tool call passes here once: a check that asked is settled by what became of the call. A main-loop result also carries what tell() saved.
   on('tool.call', async ($, e, next) => {
@@ -1266,7 +1273,7 @@ export const register: Register = (on, options) => {
   // Watches every permission check of the session; the verdict it returns is the one beneath, except where no surface can answer a hold, so the permission system asks.
   on('tool.check', async ($, e, next) => {
     let verdict = await next(e)
-    if (e.tool === 'Bash' && isEnabled && verdict.decision !== 'deny' && !(await canDraw($))) {
+    if (SHELL_TOOLS.has(e.tool) && isEnabled && verdict.decision !== 'deny' && !(await canDraw($))) {
       const { risk } = applyOnError(await judgeSafely($, (e.input as { command?: unknown } | null)?.command))
       if (risk) verdict = { decision: 'ask', reason: fill(text.ui.askReason, { reason: risk.reason }) }
     }

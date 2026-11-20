@@ -256,6 +256,17 @@ test('rm card: the heading says what happens, one sentence says what it does, th
   })
 })
 
+const heldLikeBash = (call: Record<string, unknown>) => async ($: any, on: any) => {
+  const { seen } = world(on, {})
+  const running = $.tool.call(call)
+  await holding(seen)
+  await cancel($)
+  expect((await running).deny).toBeDefined()
+}
+
+test('a PowerShell command is held like Bash', heldLikeBash({ tool: 'PowerShell', command: 'Remove-Item -Recurse -Force build' }))
+test('a Monitor command is held like Bash', heldLikeBash({ tool: 'Monitor', command: 'rm -rf build', description: 'x', timeout_ms: 1000 }))
+
 test('git reset --hard card: discards the changed files in plain words', async ($, on) => {
   const git = { 'git status --porcelain': ' M a.ts\n M b.ts\n?? new.ts\n' }
   await withCard($, on, 'git reset --hard', { git }, async band => {

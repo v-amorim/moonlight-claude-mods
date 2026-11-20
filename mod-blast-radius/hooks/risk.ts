@@ -224,6 +224,21 @@ function gitRisk(args: string[], dir: string | null): Risk | null {
   return null
 }
 
+const CODE_FILE = /\.(py|js|ts|jsx|tsx|json|yaml|yml|toml|md|sh|sql)$/i
+
+// A cmdlet's arguments: the values of the named parameters it takes, lowercased by name, and the positional rest.
+function psArgs(args: string[], valued: string[]) {
+  const named: Record<string, string> = {}
+  const positional: string[] = []
+  for (let i = 0; i < args.length; i++) {
+    const arg = args[i]!
+    const name = arg.toLowerCase()
+    if (valued.includes(name) && args[i + 1] !== undefined) named[name] = args[++i]!
+    else if (!isFlag(arg)) positional.push(arg)
+  }
+  return { named, positional }
+}
+
 // A simple command: a risk, { cd } for a folder change, or null.
 type Cd = { cd: string | null; raw: string | undefined }
 
@@ -278,6 +293,26 @@ function classifySegment(words: string[], dir: string | null, pushed: (string | 
     }
     const shown = [...new Set([...flags, ...(isWindows ? args.filter(arg => /^\/[a-z]$/i.test(arg)) : [])])]
     return { kind: 'rm', label: `${lower}${shown.length ? ` ${shown.join(' ')}` : ''}`, reason: REASON.rm, targets: viaXargs ? [] : targets, args, dir, isPreviewOnly: lower === 'rm' }
+  }
+
+  // Move-Item only replaces an existing file when -Force is given.
+  if (['move-item', 'mi', 'move'].includes(lower)) {
+    if (!flags.some(flag => /^-force$/i.test(flag))) return null
+    const { named, positional } = psArgs(args, ['-path', '-literalpath', '-destination'])
+    const sources = named['-path'] ?? named['-literalpath'] ?? positional[0]
+    const dest = named['-destination'] ?? positional[named['-path'] || named['-literalpath'] ? 0 : 1]
+    if (dest === undefined) return null
+    return { kind: 'mv', label: lower, reason: REASON.mv, targets: sources === undefined || viaXargs ? [] : [sources], args, dir, dest }
+  }
+
+  // Set-Content, Out-File and Clear-Content replace a file's content, the same as a single >.
+  if (['set-content', 'out-file', 'clear-content', 'clc'].includes(lower)) {
+    if (flags.some(flag => /^-(?:append|noclobber)$/i.test(flag))) return null
+    const { named, positional } = psArgs(args, ['-path', '-literalpath', '-filepath', '-value', '-inputobject', '-encoding', '-width', '-stream', '-filter', '-include', '-exclude', '-delimiter'])
+    const raw = named['-path'] ?? named['-literalpath'] ?? named['-filepath'] ?? positional[0]
+    const target = raw === undefined ? undefined : unquote(raw)
+    if (target === undefined || !CODE_FILE.test(target) || /[$`*?]/.test(target) || isSafeTempPath(target)) return null
+    return { kind: 'redirect', label: lower, reason: REASON.redirect, targets: [target], args: [target], dir }
   }
 
   if (cmd === 'mv') {

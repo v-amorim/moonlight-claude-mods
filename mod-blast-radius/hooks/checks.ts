@@ -7,7 +7,7 @@ export type Family = 'file' | 'shell' | 'other'
 export type Check = { id: string; tool: string; family: Family; summary: string; verdict: Verdict; isAgent: boolean; at: number }
 
 const FILE_TOOLS = new Set(['Read', 'Edit', 'Write', 'MultiEdit', 'NotebookEdit', 'Glob', 'Grep', 'NotebookRead'])
-const SHELL_TOOLS = new Set(['Bash', 'PowerShell'])
+export const SHELL_TOOLS = new Set(['Bash', 'PowerShell', 'Monitor'])
 
 export const familyOf = (tool: string): Family => (FILE_TOOLS.has(tool) ? 'file' : SHELL_TOOLS.has(tool) ? 'shell' : 'other')
 
