@@ -1,12 +1,12 @@
 // mod-wrap-up / tests/auto.test.tsx, by v-amorim
 import { expect, mock, test as kitTest, type TestRest } from 'claude-code/testing'
 
-import { compactNote } from '../hooks/handoff'
+import { compactNote, pickResult, transcriptText } from '../hooks/handoff'
 import { latestTitle, lateNext, planNames, remember } from '../hooks/titles'
 import { bytesOf, scanTail, textOf } from '../hooks/tail'
 import { readJoin } from '../hooks/window'
 import { hasInflight, inflightLines, MAX_AGE_S, NONE as NO_WORK, readInflight, stopFile } from '../hooks/inflight'
-import { archiveLedger, archiveMarkdown, countGates, MAX_PENDING, pendingCandidates } from '../hooks/ledger'
+import { appendDrop, archiveLedger, archiveMarkdown, countGates, DROP_KEEP, DROP_RAW_MAX, MAX_PENDING, pendingCandidates } from '../hooks/ledger'
 import { autoPrompt, capWords, clampCompactAt, clampCompactTokens, clampEvery, digest, emptyLedger, flip, gatherFragments, type Delta, isDue, mergeDelta, mergeFragments, parseRelated, parseUpdate, ledgerMarkdown, readLedger, restoreContext, shouldCompact, yieldsToManual } from '../hooks/ledger'
 
 // Automatic handoff is opt-in, so these tests turn it on unless a test sets its own value.
@@ -328,7 +328,7 @@ function world(on: any, files: Map<string, string>, reply: (system: string, prom
   const submittedText: string[] = []
   const clears: string[] = []
   const forks: string[] = []
-  const flags: { messages: unknown[]; percent?: number; tokens?: number; id: string; cwd: string; draft: string; onClear?: () => Promise<unknown>; clearFails: boolean; renameFails: boolean; started: boolean } = { messages, id: 's1', cwd: 'C:/work/proj', draft: '', clearFails: false, renameFails: false, started: false }
+  const flags: { messages: unknown[]; percent?: number; tokens?: number; id: string; cwd: string; draft: string; onClear?: () => Promise<unknown>; clearFails: boolean; renameFails: boolean; started: boolean; ledgerWriteFails: boolean; messagesFail: boolean } = { messages, id: 's1', cwd: 'C:/work/proj', draft: '', clearFails: false, renameFails: false, started: false, ledgerWriteFails: false, messagesFail: false }
   on('session.usage', () => ({ value: { startedAt: 0, context: { percent: flags.percent, tokens: flags.tokens }, rateLimits: {}, cost: {} } }))
   on('fs.read', (_$: unknown, e: { path: string }) => {
     const path = drivePath(e.path)
@@ -338,6 +338,7 @@ function world(on: any, files: Map<string, string>, reply: (system: string, prom
     return { value: found }
   })
   on('fs.write', (_$: unknown, e: { path: string; text: string }) => {
+    if (flags.ledgerWriteFails && drivePath(e.path).endsWith('/s1.json')) throw new Error('disk full')
     files.set(drivePath(e.path), e.text)
     return { value: undefined }
   })
@@ -349,7 +350,10 @@ function world(on: any, files: Map<string, string>, reply: (system: string, prom
     const folders = [...new Set(below.filter(path => path.includes('/')).map(path => path.split('/')[0]))]
     return { value: [...below.filter(path => !path.includes('/')).map(name => ({ name, kind: 'file', size: 1 })), ...folders.map(name => ({ name, kind: 'dir', size: 0 }))] }
   })
-  on('session.messages', () => ({ value: flags.messages }))
+  on('session.messages', () => {
+    if (flags.messagesFail) throw new Error('no transcript')
+    return { value: flags.messages }
+  })
   on('model.complete', async (_$: unknown, e: { model: string; effort?: string; system: string; prompt: string }) => {
     prompts.push({ model: e.model, effort: e.effort, system: e.system, prompt: e.prompt })
     return { value: await reply(e.system, e.prompt, e.model) }
@@ -1809,4 +1813,189 @@ test('the handoff at the mark appends the archive block to the old archive and s
   expect(saved(w).decisions.map(item => item.id)).toEqual(['d1', 'd3'])
   expect(w.files.get(MD_FILE)).not.toContain('Write the schema')
   expect(w.submittedText[0]).not.toContain('/fold')
+})
+
+const PROSE_AND_FENCE = 'Here is what changed {briefly}.\n```json\n{ "delta": { "decisions": ["Cache with Redis"] }, "handoff": "HANDOFF-FENCED", "names": { "this": "XYZ-1 cache", "next": "XYZ-1 deploy", "topic": "orders" } }\n```\nDone.'
+const ANSWERED = (reply: string) => ({ isAnswered: true, text: reply, usage: USAGE })
+const HELD_TOAST = 'Ledger catch-up failed twice, so the clear was held and nothing was sent'
+const DROPS_FILE = `${ROOT}/drops.jsonl`
+const dropsOf = (w: World) => (w.files.get(DROPS_FILE) ?? '').split('\n').filter(Boolean).map(line => JSON.parse(line) as { at: number; time: string; reason: string; raw: string })
+
+test('parseUpdate reads the object out of a fenced block after prose, from prose with stray braces, and keeps what it refused before', () => {
+  const fenced = parseUpdate(PROSE_AND_FENCE)!
+  expect([fenced.handoff, fenced.delta.decisions, fenced.names]).toEqual(['HANDOFF-FENCED', ['Cache with Redis'], NAMES])
+  const inline = parseUpdate('I will note the {state} first, then reply: { "delta": {}, "handoff": "H-INLINE", "names": { "topic": "t" } } and that is all.')!
+  expect([inline.handoff, inline.names.topic]).toEqual(['H-INLINE', 't'])
+  // A fence inside the handoff string and a brace inside a string do not end the object early.
+  const tricky = parseUpdate(`Sure.\n{ "delta": {}, "handoff": "Run \`\`\`x\`\`\` then } stop" }`)!
+  expect(tricky.handoff).toBe('Run ```x``` then } stop')
+  expect(parseUpdate('```json\n{ "delta": {} }\n```')).toBeNull()
+  expect(parseUpdate('prose { not json } more')).toBeNull()
+  expect(parseUpdate('{ broken')).toBeNull()
+  expect(parseUpdate('')).toBeNull()
+})
+
+test('the update prompt asks for the JSON object alone and no longer invites a list before it', () => {
+  const prompt = autoPrompt(SKILL, 250, seeded(), 'USER: go')
+  expect(prompt).not.toContain('First list')
+  expect(prompt).toContain('with no text before or after it and no code fence')
+  expect(prompt.indexOf('with no text before or after it')).toBeGreaterThan(prompt.indexOf('Last, name the sessions'))
+})
+
+const PICKS = 'picks for demo-family round 2, written to C:\\tmp\\board1\\picks.json:\n  pair: F + B\n  note (B): keep the ring on the floor.\n  note: both modes'
+
+test('transcriptText keeps a pick board answer from a tool use or a tool result, once, and still drops every other tool output', () => {
+  const kept = transcriptText([
+    { role: 'user', text: 'run the board', toolUses: [] },
+    { role: 'assistant', text: 'running', toolUses: [{ tool: 'Bash', input: { command: 'python pick.py' }, tool_use_id: 'u1', text: `waiting for the person\n${PICKS}\n\n[exited with code 0]\nTRAILING-OTHER-LINE` }, { tool: 'Read', input: { file_path: '/w/a.ts' }, tool_use_id: 'u2', text: 'FILE-BODY-NOT-KEPT' }] },
+    { role: 'user', text: '', toolUses: [], toolResults: [{ tool_use_id: 'u1', text: PICKS }, { tool_use_id: 'u2', text: 'FILE-BODY-NOT-KEPT' }, { tool_use_id: 'u3', text: '1\tpicks for numbered, written to /tmp/b/picks.json:\n2\t  slot: C\n3\t\n4\tprose after' }, { tool_use_id: 'u4', text: 'a result that only says picks for nobody' }] },
+  ])
+  expect(kept).toContain('[Bash: python pick.py]')
+  expect(kept.split('picks for demo-family').length - 1).toBe(1)
+  for (const line of PICKS.split('\n')) expect(kept).toContain(line)
+  expect(kept).toContain('picks for numbered, written to /tmp/b/picks.json:\n  slot: C')
+  for (const gone of ['FILE-BODY-NOT-KEPT', 'TRAILING-OTHER-LINE', 'waiting for the person', 'exited with code', 'prose after', 'picks for nobody']) expect(kept).not.toContain(gone)
+})
+
+test('a pick answer is capped at 2000 characters, and a message with no tool output reads as before', () => {
+  const long = `picks for big, written to /tmp/b/picks.json:\n${Array.from({ length: 400 }, (_, n) => `  slot${n}: pick ${n}`).join('\n')}`
+  expect(pickResult(long).length).toBe(2000)
+  expect(pickResult('nothing here')).toBe('')
+  expect(transcriptText([{ role: 'user', text: ' hi ', toolUses: [] }, { role: 'assistant', text: 'ok', toolUses: [{ tool: 'Edit', input: { file_path: '/w/x.ts' } }] }])).toBe('USER: hi\n\nASSISTANT: ok\n[Edit: /w/x.ts]')
+})
+
+test('the drop log keeps the last 20 lines, newest last, each with its reason and a capped raw reply', () => {
+  let log = ''
+  for (let n = 1; n <= 25; n += 1) log = appendDrop(log, { at: n, reason: `reason ${n}`, raw: n === 25 ? 'x'.repeat(50_000) : `raw ${n}` })
+  const lines = log.split('\n').filter(Boolean).map(line => JSON.parse(line))
+  expect(lines).toHaveLength(DROP_KEEP)
+  expect(lines[0]).toMatchObject({ at: 6, reason: 'reason 6', raw: 'raw 6', time: '1970-01-01T00:00:00.006Z' })
+  expect(lines.at(-1).reason).toBe('reason 25')
+  expect(lines.at(-1).raw).toHaveLength(DROP_RAW_MAX)
+  expect(log.endsWith('\n')).toBe(true)
+})
+
+test('a reply with prose before a fenced object still lands in the ledger, names included, and nothing is logged as dropped', async ($, on) => {
+  const w = world(on, autoFiles(), () => ANSWERED(PROSE_AND_FENCE))
+  await $.turn.complete(MAIN_TURN)
+  await w.clock.advance(1)
+  expect(saved(w).handoff).toBe('HANDOFF-FENCED')
+  expect(saved(w).names).toEqual(NAMES)
+  expect(w.files.has(DROPS_FILE)).toBe(false)
+})
+
+test('a reply with no usable update writes its raw text and the reason to drops.jsonl, and the ledger stays as it was', async ($, on) => {
+  const w = world(on, autoFiles(), () => ANSWERED('I changed nothing, so there is no JSON to give.'))
+  await $.turn.complete(MAIN_TURN)
+  await w.clock.advance(1)
+  expect(dropsOf(w)).toEqual([{ at: expect.any(Number), time: expect.any(String), reason: 'no usable update in the reply', raw: 'I changed nothing, so there is no JSON to give.' }])
+  expect(w.files.get(LEDGER_FILE)).toBe(JSON.stringify(seeded()))
+})
+
+test('an unanswered call is logged with its reason and no raw text', async ($, on) => {
+  const w = world(on, autoFiles(), () => ({ isAnswered: false, reason: 'api-error', status: 429, error: 'rate_limit', usage: USAGE }))
+  await $.turn.complete(MAIN_TURN)
+  await w.clock.advance(1)
+  expect(dropsOf(w).map(item => [item.reason, item.raw])).toEqual([['not answered: api-error', '']])
+})
+
+test('a call that throws is logged with its error', async ($, on) => {
+  const w = world(on, autoFiles(), () => {
+    throw new Error('socket closed')
+  })
+  await $.turn.complete(MAIN_TURN)
+  await w.clock.advance(1)
+  const [drop] = dropsOf(w)
+  expect(drop!.reason).toContain('call failed')
+})
+
+test('a run that fails after the reply came (the ledger write) logs the raw reply with the error', async ($, on) => {
+  const w = world(on, autoFiles(), () => UPDATE('HANDOFF-LOST'))
+  w.flags.ledgerWriteFails = true
+  await $.turn.complete(MAIN_TURN)
+  await w.clock.advance(1)
+  const [drop] = dropsOf(w)
+  expect(drop!.reason).toMatch(/^error: /)
+  expect(JSON.parse(drop!.raw).handoff).toBe('HANDOFF-LOST')
+})
+
+test('an exception before the model was asked is logged too, with no raw text', async ($, on) => {
+  const w = world(on, autoFiles(), () => UPDATE('NEVER-ASKED'))
+  w.flags.messagesFail = true
+  await $.turn.complete(MAIN_TURN)
+  await w.clock.advance(1)
+  expect(w.prompts).toHaveLength(0)
+  expect(dropsOf(w).map(item => [item.reason.startsWith('error: '), item.raw])).toEqual([[true, '']])
+})
+
+test('the drop log stays at 20 lines after many failing turns', async ($, on) => {
+  let n = 0
+  const w = world(on, autoFiles(), () => ANSWERED(`not json ${(n += 1)}`))
+  for (let turn = 0; turn < 23; turn += 1) {
+    await $.turn.complete(MAIN_TURN)
+    await w.clock.advance(1)
+  }
+  const drops = dropsOf(w)
+  expect(drops).toHaveLength(DROP_KEEP)
+  expect(drops.at(-1)!.raw).toBe('not json 23')
+  expect(drops[0]!.raw).toBe('not json 4')
+})
+
+test('a catch-up that fails at the mark is retried once and the retry that lands lets the clear go on', FULL, async ($, on) => {
+  let mode: 'good' | 'fail-once' = 'good'
+  let tries = 0
+  const { w, band } = await atTheMark($, on, autoFiles(), () => {
+    if (mode === 'good') return UPDATE('HANDOFF-TWO')
+    tries += 1
+    return tries === 1 ? ANSWERED('prose and no object') : UPDATE('HANDOFF-RETRY')
+  })
+  w.flags.messages = [...w.flags.messages, { role: 'user', text: 'one more thing', toolUses: [] }]
+  mode = 'fail-once'
+  await w.clock.advance(5000)
+  await w.clock.advance(1)
+  expect(w.prompts).toHaveLength(3)
+  expect(dropsOf(w).map(item => item.reason)).toEqual(['no usable update in the reply'])
+  expect(w.clears).toEqual(['clear'])
+  expect(w.toasts).toEqual([])
+  expect(w.submittedText[0]).toContain('HANDOFF-RETRY')
+  await band.unmount()
+})
+
+test('a catch-up that fails twice holds the clear: countdown stopped, a toast says so, nothing cleared or sent, and the stale handoff is not restored', FULL, async ($, on) => {
+  let isBad = false
+  const { w, band } = await atTheMark($, on, autoFiles(), () => (isBad ? ANSWERED('still no object') : UPDATE('HANDOFF-TWO')))
+  w.flags.messages = [...w.flags.messages, { role: 'user', text: 'one more thing', toolUses: [] }]
+  isBad = true
+  await w.clock.advance(5000)
+  await w.clock.advance(1)
+  expect(w.prompts).toHaveLength(3)
+  expect(w.clears).toEqual([])
+  expect(w.submittedText).toEqual([])
+  expect(w.filled).toEqual([])
+  expect(w.toasts).toEqual([HELD_TOAST])
+  expect(await band.find({ key: 'wrap-up-countdown-card' })).toBeUndefined()
+  expect(dropsOf(w).map(item => item.raw)).toEqual(['still no object', 'still no object'])
+  expect(saved(w).handoff).toBe('HANDOFF-TWO')
+  await band.unmount()
+})
+
+test('a countdown cancelled while the catch-up runs gets no retry and no held-clear toast', FULL, async ($, on) => {
+  let isGated = false
+  let release: (reply: unknown) => void = () => undefined
+  const gate = new Promise(resolve => {
+    release = resolve
+  })
+  const { w, band } = await atTheMark($, on, autoFiles(), () => (isGated ? gate : UPDATE('HANDOFF-TWO')))
+  w.flags.messages = [...w.flags.messages, { role: 'user', text: 'one more thing', toolUses: [] }]
+  isGated = true
+  await w.clock.advance(5000)
+  expect(w.prompts).toHaveLength(2)
+  await band.press({ key: 'wrap-up-countdown-cancel' })
+  release(ANSWERED('no object'))
+  await w.clock.advance(1)
+  await w.clock.advance(1)
+  expect(w.prompts).toHaveLength(2)
+  expect(w.clears).toEqual([])
+  expect(w.toasts).toEqual([])
+  await band.unmount()
 })

@@ -42,6 +42,7 @@ export default {
     "continue": "The context was cleared to make room. Continue the open task from this handoff.",
     "awaitWork": "The context was cleared to make room. Work started before the clear is still running: wait for its results and carry on from this handoff.",
     "noHandoff": "No handoff written yet, nothing was cleared",
+    "catchUpFailed": "Ledger catch-up failed twice, so the clear was held and nothing was sent",
     "inflight": "Still running from before the clear. Their results arrive in this session, and each can be read or stopped by its id:\n{list}",
     "openPrevious": "Open previous",
     "clearFailed": "Could not run /clear at the mark, nothing was sent",

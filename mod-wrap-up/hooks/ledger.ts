@@ -1,6 +1,6 @@
 // mod-wrap-up / hooks/ledger.ts, by v-amorim
 // The run ledger: an append-only record of goal, decisions and tasks, plus the prompts and decisions of the automatic handoff.
-import { LANGUAGE_RULE, NAMES_RULE, parseNames, sessionName, skillBody, topicName, type Names } from './handoff'
+import { jsonObjects, LANGUAGE_RULE, NAMES_RULE, namesOf, sessionName, skillBody, topicName, type Names } from './handoff'
 
 export type LedgerDecision = { id: string; text: string; at: number; supersededBy?: string }
 export type LedgerTask = { id: string; text: string; status: 'open' | 'done'; at: number }
@@ -159,38 +159,43 @@ export const autoPrompt = (skillText: string, words: number, ledger: Ledger, tur
     `<ledger>\n${digest(ledger)}\n</ledger>`,
     `<turns>\n${turns}\n</turns>`,
     '',
-    'First list what the turns changed in the ledger: new decisions, decisions they replace, tasks opened or finished, problems faced and their fix or lesson (what broke, what the assistant got wrong), ideas parked or rejected, pick-board results, and the goal or run state if either moved. Leave the ledger alone where the turns say nothing.',
+    'Work out, without writing it down, what the turns changed in the ledger: new decisions, decisions they replace, tasks opened or finished, problems faced and their fix or lesson (what broke, what the assistant got wrong), ideas parked or rejected, pick-board results, and the goal or run state if either moved. Leave the ledger alone where the turns say nothing.',
     'For a pick, copy the pick line verbatim from the turns (for example "link-colour: C") and never invent one; leave "picks" empty when the turns quote none. A problem or idea already in the ledger is not listed again, except a problem whose fix is now known.',
     `Then write the handoff for the whole session from the ledger and the turns, in the "handoff" field. The restore message inlines the ledger's open tasks and live decisions, so leave the Decisions and Open tasks sections out of the handoff and spend its words on current state, run state and what is mid-flight. Follow this template and these rules otherwise, except for the reply format, which is the JSON below. The cap is ${words} words, which replaces any other cap.`,
     `Last, ${NAMES_RULE} Put them in the "names" field.`,
     '',
     skillBody(skillText),
     '',
-    'Reply with this JSON object:',
+    'Reply with this JSON object only: the first character of your reply is "{" and the last is "}", with no text before or after it and no code fence. Any other text makes the reply unusable.',
     SCHEMA,
   ].join('\n')
 
 export type Update = { delta: Delta; handoff: string; names: Names }
 
+// The first object in the reply that holds a handoff, whether it is the whole reply, in a fenced block or after prose.
 export function parseUpdate(reply: string): Update | null {
-  const start = reply.indexOf('{')
-  const end = reply.lastIndexOf('}')
-  if (start < 0 || end <= start) return null
-  let raw: any
-  try {
-    raw = JSON.parse(reply.slice(start, end + 1))
-  } catch {
-    return null
-  }
-  const handoff = typeof raw?.handoff === 'string' ? raw.handoff.trim() : ''
-  if (!handoff) return null
-  const delta = raw?.delta ?? {}
+  const raw = jsonObjects(reply).find(item => typeof item.handoff === 'string' && item.handoff.trim())
+  if (!raw) return null
+  const handoff: string = raw.handoff.trim()
+  const delta = raw.delta ?? {}
   const superseded = (Array.isArray(delta.superseded) ? delta.superseded : []).map((item: any) => ({ id: clean(item?.id), by: clean(item?.by) })).filter((item: { id: string }) => item.id)
   const each = (value: unknown): any[] => (Array.isArray(value) ? value.filter(item => item && typeof item === 'object') : [])
   const problems = each(delta.problems).map(item => ({ problem: clean(item.problem), fix: clean(item.fix) })).filter(item => item.problem)
   const ideas = each(delta.ideas).map(item => ({ text: clean(item.text), status: item.status === 'rejected' ? ('rejected' as const) : ('parked' as const), reason: clean(item.reason) })).filter(item => item.text)
   const picks = each(delta.picks).map(item => ({ family: clean(item.family), pick: clean(item.pick) })).filter(item => item.family && item.pick)
-  return { handoff, names: parseNames(reply), delta: { goal: clean(delta.goal) || undefined, runState: clean(delta.runState, MAX_RUN_STATE) || undefined, decisions: list(delta.decisions), superseded, done: list(delta.done), opened: list(delta.opened), problems, ideas, picks } }
+  return { handoff, names: namesOf(raw), delta: { goal: clean(delta.goal) || undefined, runState: clean(delta.runState, MAX_RUN_STATE) || undefined, decisions: list(delta.decisions), superseded, done: list(delta.done), opened: list(delta.opened), problems, ideas, picks } }
+}
+
+// The replies the ledger never took stay in one jsonl, newest last, so a lost update can be read back.
+export const DROP_KEEP = 20
+
+export const DROP_RAW_MAX = 20_000
+
+export type Drop = { at: number; reason: string; raw: string }
+
+export function appendDrop(existing: string, drop: Drop, keep = DROP_KEEP) {
+  const line = JSON.stringify({ at: drop.at, time: new Date(drop.at).toISOString(), reason: drop.reason, raw: drop.raw.slice(0, DROP_RAW_MAX) })
+  return `${[...existing.split('\n').filter(Boolean), line].slice(-keep).join('\n')}\n`
 }
 
 export function capWords(handoff: string, words: number) {

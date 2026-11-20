@@ -27,7 +27,12 @@ export const isFresh = (pending: unknown, now: number): pending is Pending => {
   return typeof item?.text === 'string' && item.text !== '' && typeof item.at === 'number' && now - item.at < PENDING_MAX_AGE_MS
 }
 
-type Message = { role: string; text: string; toolUses?: { tool: string; input: Record<string, unknown> }[] }
+type Message = {
+  role: string
+  text: string
+  toolUses?: { tool: string; input: Record<string, unknown>; tool_use_id?: string; text?: string }[]
+  toolResults?: { tool_use_id?: string; text?: string }[]
+}
 
 const TOOL_KEYS = ['file_path', 'command', 'pattern', 'description', 'url', 'skill']
 
@@ -37,11 +42,36 @@ const toolLine = (use: { tool: string; input: Record<string, unknown> }) => {
   return `[${use.tool}${detail ? `: ${detail}` : ''}]`
 }
 
-// After a resume the fork has nothing to send, so the summary reads the transcript instead: text and tool calls, no tool output, newest kept.
+export const PICK_RESULT_MAX = 2000
+
+const PICK_HEADER = /picks for .*picks\.json/
+
+// A pick board answers "picks for <family>, written to <dir>/picks.json:" then one indented line per slot and note; a Read of the output file prefixes each line with its number and a tab.
+export function pickResult(output: string, max = PICK_RESULT_MAX) {
+  const lines = output.split(/\r?\n/).map(line => line.replace(/^\s*\d+\t/, ''))
+  const kept: string[] = []
+  for (let at = 0; at < lines.length; at += 1) {
+    const line = lines[at]!
+    if (!PICK_HEADER.test(line)) continue
+    kept.push(line.slice(line.indexOf('picks for ')))
+    while (/^\s+\S/.test(lines[at + 1] ?? '')) kept.push(lines[(at += 1)]!)
+  }
+  return kept.join('\n').slice(0, max)
+}
+
+// After a resume the fork has nothing to send, so the summary reads the transcript instead: text, tool calls and a pick board's answer, no other tool output, newest kept.
 export const transcriptText = (messages: Message[], maxChars = 400_000) => {
+  // The answer sits in the assistant row's tool use and again in the user row's tool result.
+  const seen = new Set<string>()
+  const answer = (id: string | undefined, output: string | undefined) => {
+    const found = output && !(id && seen.has(id)) ? pickResult(output) : ''
+    if (found && id) seen.add(id)
+    return found ? `[tool result]\n${found}` : ''
+  }
   const lines = messages.map(message => {
     const tools = (message.toolUses ?? []).map(toolLine).join('\n')
-    return `${message.role.toUpperCase()}: ${[message.text.trim(), tools].filter(Boolean).join('\n')}`
+    const answers = [...(message.toolUses ?? []).map(use => answer(use.tool_use_id, use.text)), ...(message.toolResults ?? []).map(result => answer(result.tool_use_id, result.text))].filter(Boolean).join('\n')
+    return `${message.role.toUpperCase()}: ${[message.text.trim(), tools, answers].filter(Boolean).join('\n')}`
   })
   return lines.join('\n\n').slice(-maxChars)
 }
@@ -96,10 +126,57 @@ export const sessionName = (value: unknown) => {
   return head.slice(0, Math.max(head.lastIndexOf(' '), head.lastIndexOf('-'), 0)).replace(/[\s-]+$/, '')
 }
 
-export function parseNames(reply: string): Names {
-  const names = replyJson(reply)?.names
+export function namesOf(raw: any): Names {
+  const names = raw?.names
   return { this: sessionName(names?.this), next: sessionName(names?.next), topic: topicName(names?.topic) }
 }
+
+export const parseNames = (reply: string): Names => namesOf(replyJson(reply))
+
+const asObject = (raw: string): any => {
+  try {
+    const value = JSON.parse(raw)
+    return value && typeof value === 'object' && !Array.isArray(value) ? value : undefined
+  } catch {
+    return undefined
+  }
+}
+
+// Where the object opened at `from` closes, counting braces outside strings; -1 when it never does.
+function objectEnd(text: string, from: number) {
+  let depth = 0
+  let isString = false
+  for (let at = from; at < text.length; at += 1) {
+    const char = text[at]
+    if (isString) {
+      if (char === '\\') at += 1
+      else if (char === '"') isString = false
+    } else if (char === '"') isString = true
+    else if (char === '{') depth += 1
+    else if (char === '}' && (depth -= 1) === 0) return at
+  }
+  return -1
+}
+
+// A stray brace in prose opens nothing that closes, so a few such starts are skipped before giving up.
+const MAX_MISSES = 20
+
+function objectsIn(text: string): any[] {
+  const found: any[] = []
+  let misses = 0
+  for (let from = text.indexOf('{'); from >= 0 && misses < MAX_MISSES; from = text.indexOf('{', from + 1)) {
+    const end = objectEnd(text, from)
+    const value = end < 0 ? undefined : asObject(text.slice(from, end + 1))
+    if (value) {
+      found.push(value)
+      from = end
+    } else misses += 1
+  }
+  return found
+}
+
+// The JSON objects a reply holds, in the order to try them: those inside a fenced block, then the balanced top-level ones of the whole reply, so prose or a fence around the answer never hides it.
+export const jsonObjects = (reply: string): any[] => [...[...reply.matchAll(/```[\w-]*[ \t]*\r?\n([\s\S]*?)```/g)].flatMap(block => objectsIn(block[1]!)), ...objectsIn(reply)]
 
 // A colon or a hash would split the title at the wrong place.
 export const topicName = (value: unknown) => sessionName(typeof value === 'string' ? value.replace(/[:#]/g, ' ') : value)

@@ -2,7 +2,7 @@
 // Registers the wrap-up pill, commands, settings pane and handoff or compact actions with the engine.
 import type { ConfigValue, EngineInterface, ModelCompleteRequest, ModelCompleteResult, ModelForkResult, Register, RenderElement } from 'claude-code'
 
-import { archiveLedger, archiveMarkdown, AUTO_SYSTEM, autoPrompt, capWords, clampCompactAt, clampCompactTokens, clampEvery, emptyLedger, flip, gatherFragments, isDue, ledgerMarkdown, MAX_PENDING, mergeDelta, mergeFragments, parseRelated, pendingCandidates, parseUpdate, readLedger, RELATED_SYSTEM, relatedPrompt, restoreContext, shortGoal, shouldCompact, yieldsToManual, countGates, type Carry, type CompactMarks, type Fragment, type GatesRun, type Ledger } from './ledger'
+import { appendDrop, archiveLedger, archiveMarkdown, AUTO_SYSTEM, autoPrompt, capWords, clampCompactAt, clampCompactTokens, clampEvery, emptyLedger, flip, gatherFragments, isDue, ledgerMarkdown, MAX_PENDING, mergeDelta, mergeFragments, parseRelated, pendingCandidates, parseUpdate, readLedger, RELATED_SYSTEM, relatedPrompt, restoreContext, shortGoal, shouldCompact, yieldsToManual, countGates, type Carry, type CompactMarks, type Fragment, type GatesRun, type Ledger } from './ledger'
 import { ALSO_KEEP, buildPrompt, LANGUAGE_RULE, clampWords, compactNote, FORK_FAILURES, isFresh, parseNames, parseThreads, scopeNote, threadsPrompt, THREADS_SYSTEM, transcriptText, type AlsoId, type Names, type Thread } from './handoff'
 import { cardFill, detectNerd, FOOTER_ROWS, lookFor, paneFooter, sepText, titleEdge, type IconMode, withMark } from './look'
 import { isTipMessage, tipText, type EntryMessage, type EntryProps, type Tip, type TipMessage } from './entry'
@@ -309,7 +309,7 @@ async function summarizeTranscript($: EngineInterface, prompt: string): Promise<
   const messages = await $.session.messages()
   if (!Array.isArray(messages) || messages.length === 0) return { isAnswered: false, reason: 'nothing-to-fork' }
   return askHandoffModel($, {
-    system: `You write session handoffs from a transcript. Tool output is left out; tool calls appear in brackets. ${LANGUAGE_RULE}`,
+    system: `You write session handoffs from a transcript. Tool output is left out except a pick board's answer; tool calls appear in brackets. ${LANGUAGE_RULE}`,
     prompt: `<transcript>\n${transcriptText(messages)}\n</transcript>\n\n${prompt}`,
     maxTokens: 4000,
   })
@@ -811,7 +811,13 @@ async function handOffAtMark($: EngineInterface, token: number) {
   const isLive = () => countdown?.token === token
   try {
     const messages = await $.session.messages().catch(() => [])
-    if (Array.isArray(messages) && messages.length > cursor) await runAuto($)
+    if (Array.isArray(messages) && messages.length > cursor && !(await caughtUp($, isLive))) {
+      if (isLive()) {
+        stopCountdown($)
+        $.ui.toast(text.auto.catchUpFailed)
+      }
+      return
+    }
     if (!isLive()) return
     if (working || (await hasDraft($))) {
       stopCountdown($)
@@ -864,30 +870,57 @@ async function handOffAtMark($: EngineInterface, token: number) {
   }
 }
 
-// A session that handed off to a new tab leaves the ledger to it, so the two never write the chain at once.
-async function runAuto($: EngineInterface) {
-  if (!autoOn || isRunning || handedOff !== null) return
+// The catch-up runs once more after a failure; two failures leave the ledger stale, which a clear must never paper over.
+const caughtUp = async ($: EngineInterface, isLive: () => boolean) => (await runAuto($)) || (isLive() && (await runAuto($)))
+
+// A reply the ledger never took, with why, in drops.jsonl beside the chains folder; the last DROP_KEEP stay.
+async function logDrop($: EngineInterface, dir: string, reason: string, raw: string) {
+  try {
+    const path = `${dir.replace(/\/chains$/, '')}/drops.jsonl`
+    const before = String(await $.fs.read(path).catch(() => ''))
+    await $.fs.write(path, appendDrop(before, { at: await $.clock.now(), reason, raw }))
+  } catch {
+    // A log that cannot be written never hides the failure it records.
+  }
+}
+
+// True when the update reached the ledger, false for any other exit. A run that asked the model and lost the reply leaves it in drops.jsonl; a session that handed off to a new tab leaves the ledger to it, so the two never write the chain at once.
+async function runAuto($: EngineInterface): Promise<boolean> {
+  if (!autoOn || isRunning || handedOff !== null) return false
   const mine = (runId += 1)
   const mineEpoch = epoch
+  let dir = ''
+  let raw = ''
+  let isAsked = false
+  const dropped = async (reason: string, isThrown = false) => {
+    if (dir && (isAsked || isThrown)) await logDrop($, dir, reason, raw)
+    return false
+  }
   try {
-    const dir = await ledgerDir($)
-    if (!dir) return
+    dir = await ledgerDir($)
+    if (!dir) return false
     const ledger = (await loadLedger($, dir)) ?? emptyLedger(await $.clock.now(), await $.session.id(), rootCwd)
     const messages = await $.session.messages()
     const turns = Array.isArray(messages) && cursor > 0 && cursor <= messages.length ? messages.slice(cursor) : messages
-    if (!Array.isArray(turns) || turns.length === 0) return
+    if (!Array.isArray(turns) || turns.length === 0) return false
     const skill = await $.fs.read(`${$.plugin.root}/skills/session-handoff/SKILL.md`).then(String)
-    const reply = await askHandoffModel($, { effort: 'low', system: AUTO_SYSTEM, prompt: autoPrompt(skill, maxWords, ledger, transcriptText(turns, 150_000)), maxTokens: 4000, timeoutMs: 180_000 }).catch(() => null)
-    if (mine !== runId || mineEpoch !== epoch || !reply?.isAnswered) return
+    let failure = ''
+    isAsked = true
+    const reply = await askHandoffModel($, { effort: 'low', system: AUTO_SYSTEM, prompt: autoPrompt(skill, maxWords, ledger, transcriptText(turns, 150_000)), maxTokens: 4000, timeoutMs: 180_000 }).catch(error => ((failure = String(error)), null))
+    raw = reply?.isAnswered ? reply.text : ''
+    if (mine !== runId || mineEpoch !== epoch) return await dropped('stale: a newer run or a compaction came first')
+    if (!reply?.isAnswered) return await dropped(reply ? `not answered: ${reply.reason}` : `call failed: ${failure}`)
     const update = parseUpdate(reply.text)
-    if (!update) return
+    if (!update) return await dropped('no usable update in the reply')
     const now = await $.clock.now()
     // A reply with no usable names keeps the last good pair rather than wiping it, and the chain keeps the first topic it was given.
     const names = { ...(update.names.this || update.names.next ? update.names : ledger.names), topic: ledger.names.topic || update.names.topic }
     await saveLedger($, dir, { ...mergeDelta(ledger, update.delta, now), handoff: capWords(update.handoff, maxWords), handoffAt: now, names })
     cursor = messages.length
-  } catch {
+    return true
+  } catch (error) {
     // A background update never shows an error; the next turn tries again.
+    return await dropped(`error: ${String(error)}`, true)
   }
 }
 

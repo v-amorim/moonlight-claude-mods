@@ -68,7 +68,7 @@ Turn Automatic handoff on (`/mod-wrap-up settings`) and the mod calls a model in
 
 The Sonnet calls are pinned to Sonnet. When Sonnet is blocked or unavailable for you (the call is refused, or answers forbidden or not found), the mod retries once with your session's model, so it spends that model's tokens instead.
 
-With Auto handoff at the mark on, the countdown first runs one more ledger update if turns are waiting. Set Automatic handoff to off and only the Wrap up pill hands off. Change settings with `/mod-wrap-up settings`.
+With Auto handoff at the mark on, the countdown first runs one more ledger update if turns are waiting. If that update fails it runs once more, and when both fail the clear is held: the countdown stops and a toast says so. Every update whose reply never reached the ledger is logged, with its raw text and the reason, in `mods-data/mod-wrap-up/drops.jsonl` (the last 20 stay). Set Automatic handoff to off and only the Wrap up pill hands off. Change settings with `/mod-wrap-up settings`.
 
 The ledger holds the handoff text. It is one JSON file per session chain, written under `~/.claude/mods-data/mod-wrap-up/chains/`. When `CLAUDE_CONFIG_DIR` is set, the folder is `$CLAUDE_CONFIG_DIR/mods-data/mod-wrap-up/` instead. The mod never prunes these files, so delete old ones by hand.
 
