@@ -9,6 +9,11 @@ test('Grep shows its pattern and the folder it searches', () => {
   expect(toolLabel('Grep', { pattern: 'TODO' }, 0, 0)).toBe('Grep(TODO)')
 })
 
+test('Bash and PowerShell show the first line of their command under their own name', () => {
+  expect(toolLabel('Bash', { command: 'ls -la\necho x' }, 0, 0)).toBe('Bash(ls -la)')
+  expect(toolLabel('PowerShell', { command: 'Get-ChildItem\nGet-Date' }, 0, 0)).toBe('PowerShell(Get-ChildItem)')
+})
+
 test('Glob shows its pattern', () => {
   expect(toolLabel('Glob', { pattern: '**/*.ts' }, 0, 0)).toBe('Glob(**/*.ts)')
 })

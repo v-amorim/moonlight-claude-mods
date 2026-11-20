@@ -482,7 +482,7 @@ export function toolLabel(name: string, input: any, added: number, removed: numb
   if (name === 'Edit' || name === 'MultiEdit' || name === 'Write' || name === 'NotebookEdit') return `${call(name, tail(input?.file_path ?? input?.notebook_path))}${stat}`
   if (name === 'Skill') return call('Skill', input?.skill)
   if (name === 'Agent' || name === 'Task') return call('Agent', input?.description ?? input?.subagent_type)
-  if (name === 'Bash') return call('Bash', String(input?.command ?? '').split('\n')[0])
+  if (name === 'Bash' || name === 'PowerShell') return call(name, String(input?.command ?? '').split('\n')[0])
   if (name === 'Read') return call('Read', tail(input?.file_path))
   if (name === 'Grep' || name === 'Glob') return call(name, [input?.pattern, tail(input?.path)].filter(Boolean).join(` ${MARK.sep} `))
   return call(name, mainArg(input))
